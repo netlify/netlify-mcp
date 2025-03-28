@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@modelcontextprotocol/sdk/server/mcp.js": "https://esm.sh/@modelcontextprotocol/sdk@1.7.0/dist/esm/server/mcp.js",
+    "@modelcontextprotocol/sdk/server/sse.js": "https://esm.sh/@modelcontextprotocol/sdk@1.7.0/dist/esm/server/sse.js"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["@netlify/edge-functions"],
+    "baseUrl": ".",
+    "allowJs": true
+  },
+  "include": ["netlify/**/*.ts"],
+  "exclude": ["node_modules"]
+}
