@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { serverless, edge, background, scheduled, baselineAPIContext } from './src/context/ctx.js';
 import { convertOpenAPIToMCPSchema } from './src/context/dynamic-commands/openapi-to-schema.js';
 import { staticCommands } from './src/context/static-commands/index.js';
-import { getDynamicCommands } from './src/context/dynamic-commands/index.js';
+import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
 
 const server = new McpServer({
   name: "netlify-mcp",
@@ -168,12 +168,6 @@ server.tool(
       }
 
       try {
-        // Log the request details for debugging
-        console.log(`Making ${method} request to ${url}`);
-        console.log('Headers:', options.headers);
-        if (options.body) {
-          console.log('Body:', options.body);
-        }
 
         // Make the actual API call using fetch
         const response = await fetch(url.toString(), options);
@@ -204,10 +198,16 @@ server.tool(
 
         // For successful responses, format based on content type
         if (contentType.includes('application/json')) {
+
+          let reducedResponse = responseData;
+          if (mcpSchemas[operationId]){
+            reducedResponse = reduceVerboseOperationResponses(operationId, mcpSchemas[operationId], responseData);
+          }
+
           return {
             content: [{
               type: "text",
-              text: `API Request Successful (${response.status}):\n${JSON.stringify(responseData, null, 2)}`
+              text: JSON.stringify(reducedResponse)
             }]
           };
         } else {
@@ -241,7 +241,6 @@ ${JSON.stringify(responseData, null, 2)}`
     }
   }
 );
-
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

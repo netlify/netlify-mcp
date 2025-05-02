@@ -22,3 +22,39 @@ const mcpSchemas = Object.fromEntries(
 export async function getDynamicCommands() {
   return mcpSchemas;
 }
+
+
+export function reduceVerboseOperationResponses(operationId: string, mcpSchema: typeof mcpSchemas[string], responseData: any) {
+
+  if(!mcpSchema){
+    return responseData;
+  }  
+  if (operationId.toLowerCase().includes("account")) {
+
+    return everyObject(responseData, (respData) => {
+      let data = respData;
+      let dropFields = ['capabilities', 'user_capabilities', 'owner_ids', 'member_roles'];
+
+      dropFields.forEach(field => {
+        if(respData[field]){
+          data = {
+            ...data,
+            [field]: undefined
+          };
+        }
+      });
+
+      return data;
+    });
+  }
+
+  return responseData;
+
+}
+
+function everyObject(target: Record<string, any> | Record<string, any>[], callback: (value: any) => any) {
+  if (Array.isArray(target)) {
+    return target.map(callback);
+  }
+  return callback(target);
+}
