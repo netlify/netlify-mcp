@@ -1,13 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { serverless, edge, background, scheduled, baselineAPIContext } from './src/context/ctx.js';
-import { convertOpenAPIToMCPSchema } from './src/context/dynamic-commands/openapi-to-schema.js';
+import { baselineAPIContext } from './src/context/ctx.js';
 import { staticCommands } from './src/context/static-commands/index.js';
 import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
+import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
 
 const server = new McpServer({
   name: "netlify-mcp",
@@ -16,23 +13,21 @@ const server = new McpServer({
 
 const mcpSchemas = await getDynamicCommands();
 
+// load the consumer configuration for the MCP so
+// we can share all of the available context for the
+// client to select from.
+const contextConsumer = await getContextConsumerConfig();
+const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
+const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
 
 server.tool(
   "get-netlify-coding-context",
   "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
-  {creationType: z.enum(["serverless", "edge", "background", "scheduled", "blobs"])},
-  async ({creationType}: {creationType: "serverless" | "edge" | "background" | "scheduled" | "blobs"}) => {
+  { creationType: creationTypeEnum },
+  async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
 
-    let text = '';
-    if (creationType === "serverless") {
-      text = serverless;
-    } else if (creationType === "edge") {
-      text = edge;
-    } else if (creationType === "background") {
-      text = background;
-    } else if (creationType === "scheduled") {
-      text = scheduled;
-    }
+    const context = await getNetlifyCodingContext(creationType);
+    const text = context?.content || '';
 
     return ({
       content: [{type: "text", text}]
@@ -49,20 +44,24 @@ server.tool(
   "required step before calling 'call-netlify-command' tool. Use to identify the correct command to run and the parameters that are required.",
   {
     operationId: z.enum([
-      ...staticCommands.map(c => c.name),
+      ...staticCommands.map(c => c.operationId),
       ...Object.keys(mcpSchemas)
     ] as [string, ...string[]])
   },
   async ({ operationId }) => {
 
     let text = '';
-    const staticCmd = staticCommands.find(c => c.name === operationId);
+    const staticCmd = staticCommands.find(c => c.operationId === operationId);
     if (staticCmd) {
-      text = staticCmd.commandText;
-    }
 
-    const apiCommand = mcpSchemas[operationId];
-    if(apiCommand){
+      if(staticCmd.runOperation && staticCmd.runRequiresParams){
+        text = await staticCmd.runOperation();
+      }else {
+        text = staticCmd.commandText;
+      }
+
+    } else if (mcpSchemas[operationId]){
+      const apiCommand = mcpSchemas[operationId];
       text = `
         For this API operation "${operationId}". It's description is:
         ${apiCommand.description}
@@ -76,6 +75,10 @@ server.tool(
         Extra Context:
         ${baselineAPIContext}
       `
+    }else {
+
+      // TODO: add logging
+      text = `Unknown operation: ${operationId}. Let us know if this keeps happening.`
     }
 
     return ({
@@ -99,6 +102,13 @@ server.tool(
       return {
         content: [{ type: "text", text: `To get the result of the command, run: "netlify api ${operationId} --data \"${params?.replaceAll("'", "\\'")}\"` }]
       }
+    }
+
+    const staticCmd = staticCommands.find(c => c.operationId === operationId);
+    if (staticCmd && staticCmd.runOperation) {
+      return {
+        content: [{ type: "text", text: await staticCmd.runOperation(params) }],
+      };
     }
 
     // Get the schema for this operation

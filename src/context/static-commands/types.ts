@@ -1,4 +1,6 @@
 export interface StaticCommand {
-  name: string;
+  operationId: string;
   commandText: string;
+  runRequiresParams?: boolean;
+  runOperation?: (params?: Record<string, any>) => Promise<any>
 }
