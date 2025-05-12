@@ -16,6 +16,12 @@ export interface ContextFile {
   content: string
 }
 
+// Cache wrapper interface to store timestamp with context file
+interface CachedContext {
+  data: ContextFile;
+  timestamp: number;
+}
+
 export interface ConsumerConfig {
   key: string
   presentedName: string
@@ -29,22 +35,29 @@ export interface ConsumerConfig {
 }
 
 let contextConsumer: ConsumerConfig | undefined;
-const contextCache: Record<string, ContextFile> = {};
+const contextCache: Record<string, CachedContext> = {};
+const TEN_MINUTES_MS = 10 * 60 * 1000;
 
 const getConsumer = () => 'netlify-mcp';
+
+// when we last loaded the consumer config
+let contextConsumerTimestamp: number = 0;
 
 // load the consumer configuration for the MCP so
 // we can share all of the available context for the
 // client to select from.
 export async function getContextConsumerConfig(){
-  if(contextConsumer) {
+  const now = Date.now();
+
+  // Return cached consumer if it exists and is less than 10 minutes old
+  if(contextConsumer && (now - contextConsumerTimestamp) < TEN_MINUTES_MS) {
     return contextConsumer;
   }
 
   try {
     const response = await fetch(`https://docs.netlify.com/ai-context/context-consumers`)
     const data = await response.json() as ConsumersData;
-    appendToLog(JSON.stringify(data));
+
     if(data?.consumers?.length > 0){
       contextConsumer = data.consumers.find(c => c.key === getConsumer());
     }
@@ -54,15 +67,22 @@ export async function getContextConsumerConfig(){
     appendErrorToLog('Error fetching context consumers:', error);
   }
 
-  appendToLog(JSON.stringify( contextConsumer));
+  // Update timestamp when we get fresh data
+  if (contextConsumer) {
+    contextConsumerTimestamp = Date.now();
+  }
 
   return contextConsumer;
 }
 
 
-export async function getNetlifyCodingContext(contextKey: string){
-  if (contextCache[contextKey]){
-    return contextCache[contextKey];
+export async function getNetlifyCodingContext(contextKey: string): Promise<ContextFile | undefined> {
+  const now = Date.now();
+
+  // Check if we have a cached version that's less than 10 minutes old
+  // If so, return the cached version otherwise fetch fresh data
+  if (contextCache[contextKey] && (now - contextCache[contextKey].timestamp) < TEN_MINUTES_MS) {
+    return contextCache[contextKey]?.data;
   }
 
   const consumer = await getContextConsumerConfig();
@@ -85,15 +105,20 @@ export async function getNetlifyCodingContext(contextKey: string){
       return;
     }
 
-    contextCache[contextKey] = {
+    const contextFile: ContextFile = {
       key: contextKey,
       config: consumer.contextScopes[contextKey],
       content: data
+    };
+
+    contextCache[contextKey] = {
+      data: contextFile,
+      timestamp: Date.now()
     };
 
   } catch (error) {
     console.error('Error fetching context:', error);
   }
 
-  return contextCache[contextKey];
+  return contextCache[contextKey]?.data;
 }
