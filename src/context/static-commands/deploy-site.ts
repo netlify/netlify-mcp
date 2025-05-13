@@ -6,6 +6,7 @@ import archiver from "archiver";
 import path from "path";
 import { randomUUID } from "crypto";
 import { siteIdContext } from "../ctx.js";
+import { rm } from "fs/promises";
 
 export const deploySite: StaticCommand = {
     operationId: 'deploy-site',
@@ -39,9 +40,15 @@ ${siteIdContext}
       if (!site_id) {
         throw new Error("Missing required parameter: site_id");
       }
+      const zipPath = path.resolve(deploy_directory, fileName);
+
+      const deleteZip = async () => {
+        try {
+          await rm(zipPath);
+        } catch { }
+      };
 
       try {
-        const zipPath = path.resolve(deploy_directory, fileName);
 
         await zipFiles({ directory: deploy_directory, zipPath });
 
@@ -89,9 +96,11 @@ ${siteIdContext}
         appendToLog(["Deployment started with ID:", deployId]);
       } catch (error) {
         appendErrorToLog(`Failed to deploy site: ${error}`);
+        await deleteZip();
         throw new Error(`Failed to deploy site: ${error}`);
       }
 
+      await deleteZip();
       return JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${site_id}/deploys/${deployId}` });
     },
     runRequiresParams: true
