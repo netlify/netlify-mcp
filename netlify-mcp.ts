@@ -13,7 +13,7 @@ const server = new McpServer({
 
 const mcpSchemas = await getDynamicCommands();
 
-const toolsGetAndCallPromptingVersion = "1.1";
+const toolsGetAndCallPromptingVersion = "1.4";
 
 // load the consumer configuration for the MCP so
 // we can share all of the available context for the
@@ -56,7 +56,7 @@ server.tool(
     const staticCmd = staticCommands.find(c => c.operationId === operationId);
     if (staticCmd) {
 
-      if(staticCmd.runOperation && staticCmd.runRequiresParams){
+      if(staticCmd.runOperation && !staticCmd.runRequiresParams){
         text = await staticCmd.runOperation();
       }else {
         text = staticCmd.commandText;
@@ -166,6 +166,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
         method,
         headers: {
           'Accept': 'application/json',
+          'user-agent': 'netlify-mcp',
           ...(process.env.NETLIFY_PERSONAL_ACCESS_TOKEN ? { 'Authorization': `Bearer ${process.env.NETLIFY_PERSONAL_ACCESS_TOKEN}` } : {}),
           ...(contentType ? { 'Content-Type': contentType } : {})
         }
@@ -191,6 +192,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
       }
 
       try {
+
 
         // Make the actual API call using fetch
         const response = await fetch(url.toString(), options);
