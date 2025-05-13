@@ -13,6 +13,8 @@ const server = new McpServer({
 
 const mcpSchemas = await getDynamicCommands();
 
+const toolsGetAndCallPromptingVersion = "1.1";
+
 // load the consumer configuration for the MCP so
 // we can share all of the available context for the
 // client to select from.
@@ -63,17 +65,20 @@ server.tool(
     } else if (mcpSchemas[operationId]){
       const apiCommand = mcpSchemas[operationId];
       text = `
-        For this API operation "${operationId}". It's description is:
-        ${apiCommand.description}
-        --
-        You must call 'call-netlify-command' tool after compiling the correct information:
-        Type: "API"
-        Operation ID: ${apiCommand}
-        params: ${JSON.stringify(apiCommand.parameters)}
+For this API operation "${operationId}". It's description is:
+${apiCommand.description}
+--
+You MUST call 'call-netlify-command' tool after compiling the correct information. The first argument should have the following structure:
+{
+  "_v":"${toolsGetAndCallPromptingVersion}",
+  "type": "API",
+  "operationId": "${apiCommand}",
+  "params": ${JSON.stringify(apiCommand.parameters)}
+}
 
-        --
-        Extra Context:
-        ${baselineAPIContext}
+--
+Extra Context:
+${baselineAPIContext}
       `
     }else {
 
@@ -89,7 +94,15 @@ server.tool(
 
 server.tool(
   "call-netlify-command",
-  "Call a Netlify API endpoint using the operation ID and parameters.",
+  `
+Call a Netlify API endpoint using the operation ID and parameters. You must use the following structure:
+{
+  "_v":"${toolsGetAndCallPromptingVersion}",
+  "type": "<type>",
+  "operationId": "<operationId>",
+  "params": <params>
+}
+`,
   {
     type: z.enum(["API", "CLI"]),
     operationId: z.string(),

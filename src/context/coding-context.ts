@@ -62,7 +62,6 @@ export async function getContextConsumerConfig(){
       contextConsumer = data.consumers.find(c => c.key === getConsumer());
     }
 
-
   } catch (error) {
     appendErrorToLog('Error fetching context consumers:', error);
   }
