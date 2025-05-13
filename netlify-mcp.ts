@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -5,10 +7,11 @@ import { baselineAPIContext } from './src/context/ctx.js';
 import { staticCommands } from './src/context/static-commands/index.js';
 import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
 import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
+import { getPackageVersion } from "./src/utils/version.js";
 
 const server = new McpServer({
   name: "netlify-mcp",
-  version: "1.0.0"
+  version: getPackageVersion()
 });
 
 const mcpSchemas = await getDynamicCommands();
