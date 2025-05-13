@@ -12,7 +12,7 @@ export const deploySite: StaticCommand = {
     operationId: 'deploy-site',
     commandText: `
 
-- provide the absolute file path to the directory containing the code that should be deployed
+- provide the absolute file path to the directory containing the code that should be deployed. Should be the root of the project repo unless specified.
 - provide the site id of the site of this site. If the agent cannot find the site_id, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' command to link to an existing site and get a site id.
 
 The payload should be a JSON object with the following properties:
