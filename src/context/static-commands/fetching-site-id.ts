@@ -9,7 +9,7 @@ export const fetchingSiteId: StaticCommand = {
   // having it give a directory for us to work with
   commandText: siteIdContext
 //   commandText: `
-// YOU MUST CALL, the call-netlify-command with get-site-id operation and these params
+// YOU MUST CALL, the call-netlify-apis with get-site-id operation and these params
 
 // {
 //   "root_directory": "<absolute path to directory>"

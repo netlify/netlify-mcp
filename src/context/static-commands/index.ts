@@ -4,6 +4,7 @@ import { envVarCreation } from "./env-var-creation.js";
 import { deploySite } from "./deploy-site.js";
 import { listExtensions } from "./extensions/list-extensions.js";
 import { fullExtensionDetails } from "./extensions/full-extension-details.js";
+import { installExtensionCmd } from "./extensions/install-extension.js";
 
 // static commands are those that we build and define on the MCP
 // server itself. It's not imported from docs or openapi specs
@@ -13,6 +14,7 @@ export const staticCommands: StaticCommand[] = [
   envVarCreation,
   deploySite,
   listExtensions,
+  installExtensionCmd,
   fullExtensionDetails,
   // TODO: try operation variants
   // define a new id, but the text would be the same from get-operation

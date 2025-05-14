@@ -1,15 +1,13 @@
-import { getExtension, getSite, getSiteId } from "../../../utils/api-networking.js";
+import { getExtension, getSite, getSiteId, installExtension } from "../../../utils/api-networking.js";
 import { appendErrorToLog, appendToLog } from "../../../utils/logging.js";
 import type { StaticCommand } from "../types.js";
 
-export const fullExtensionDetails: StaticCommand = {
-  operationId: 'full-extension-details',
+export const installExtensionCmd: StaticCommand = {
+  operationId: 'install-extension',
   commandText: `
-Returns detailed information about a Netlify extensions.
-Use "list-extensions" tool to get list of Netlify extensions with their extension slugs.
+Installs a Netlify extension. DO NOT USE THE CLI
 
-When the agent has a siteId or deploy_directory, it MUST use the call-netlify-apis tool for full-extension-details with the
-following payload.
+use the netlify MCP tool "call-netlify-apis" with this same operationId and the following payload to install.
 
 The payload should be a JSON object with the following properties:
 {
@@ -25,6 +23,7 @@ You must provide either the siteId or deploy_directory. Prefer the siteId if you
 
     let accountId = '';
     let siteId = '';
+    let siteName = '';
 
     const { extensionSlug, siteId: passedSiteId, deploy_directory } = params as { extensionSlug: string; siteId?: string; deploy_directory?: string };
 
@@ -33,6 +32,11 @@ You must provide either the siteId or deploy_directory. Prefer the siteId if you
     }
 
     try {
+
+      if (passedSiteId) {
+        siteId = passedSiteId;
+      }
+
       if (deploy_directory) {
         siteId = await getSiteId({ projectDir: deploy_directory });
       }
@@ -40,6 +44,7 @@ You must provide either the siteId or deploy_directory. Prefer the siteId if you
       if (siteId) {
         const site = await getSite({ siteId });
         accountId = site.account_id;
+        siteName = site.name;
       }
     } catch (error: any) {
       appendErrorToLog(`Failed to get site id: ${error.message}`);
@@ -49,17 +54,29 @@ You must provide either the siteId or deploy_directory. Prefer the siteId if you
 
     try {
       appendToLog(
-        `client called tool get_extension_details({extensionSlug: "${extensionSlug}", siteId: "${siteId}", deploy_directory: "${deploy_directory}"})`
+        `client called tool install_extension({siteId: "${siteId}", extensionSlug: "${extensionSlug}"})`
       );
+      await installExtension({
+        accountId,
+        extensionSlug
+      });
+      appendToLog(`extension "${extensionSlug}" successfully installed on accountId "${accountId}"`);
+
       const extensionData = await getExtension({
         accountId,
         extensionSlug
       });
-      appendToLog(`got extension details: ${JSON.stringify(extensionData)}`);
-      return JSON.stringify(extensionData);
+
+      if (extensionData.uiSurfaces?.includes('extension-top-level-site-configuration')) {
+        return JSON.stringify({
+          siteLevelConfigurationUrl: `https://app.netlify.com/sites/${siteName}/extensions/${extensionSlug}`
+        });
+      }
+
+      return 'Extension successfully installed';
     } catch (error: any) {
-      appendErrorToLog(`Failed to get extension details: ${error.message}`);
-      throw new Error(`Failed to get extension details: ${error.message}`);
+      appendErrorToLog(error.message);
+      throw new Error(error.message);
     }
   },
   runRequiresParams: true

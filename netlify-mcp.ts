@@ -46,12 +46,12 @@ server.tool(
 );
 
 
-// where possible we can avoid the call-netlify-command tool but if there
+// where possible we can avoid the call-netlify-apis tool but if there
 // is data that the agent should aggregate first then we will use this tool to
 // inform the agent what command to run and the parameters that are required.
 server.tool(
-  "get-netlify-command-context",
-  "required step before calling 'call-netlify-command' tool. Use to identify the correct command to run and the parameters that are required.",
+  "get-netlify-api-context",
+  "required step before calling 'call-netlify-apis' tool. Use to identify the correct command to run and the parameters that are required.",
   {
     operationId: z.enum([
       ...staticCommands.map(c => c.operationId),
@@ -68,7 +68,22 @@ server.tool(
       if(staticCmd.runOperation && !staticCmd.runRequiresParams){
         text = await staticCmd.runOperation();
       }else {
-        text = staticCmd.commandText;
+        text = `
+For this API operation "${operationId}". It's description is:
+${staticCmd.commandText}
+--
+You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
+{
+  "_v":"${toolsGetAndCallPromptingVersion}",
+  "type": "API",
+  "operationId": "${operationId}",
+  "params": <params described above>
+}
+
+--
+Extra Context:
+${accountIdContext}
+      `
       }
 
     } else if (mcpSchemas[operationId]){
@@ -77,7 +92,7 @@ server.tool(
 For this API operation "${operationId}". It's description is:
 ${apiCommand.description}
 --
-You MUST call 'call-netlify-command' tool after compiling the correct information. The first argument should have the following structure:
+You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
 {
   "_v":"${toolsGetAndCallPromptingVersion}",
   "type": "API",
@@ -102,7 +117,7 @@ ${accountIdContext}
 );
 
 server.tool(
-  "call-netlify-command",
+  "call-netlify-apis",
   `
 Call a Netlify API endpoint using the operation ID and parameters. You must use the following structure:
 {
@@ -120,8 +135,10 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
   async ({ operationId, params = {}, type }) => {
     checkCompatibility();
 
+    const staticCmd = staticCommands.find(c => c.operationId === operationId);
+
     // TODO: Revisit as this is not the right way to handle CLI commands
-    if(type === "CLI") {
+    if (type === "CLI" && !staticCmd) {
       return {
         content: [{ type: "text", text: `To get the result of the command, run: "netlify api ${operationId} --data \"${params?.replaceAll("'", "\\'")}\"` }]
       }
@@ -139,7 +156,6 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
       };
     }
 
-    const staticCmd = staticCommands.find(c => c.operationId === operationId);
     if (staticCmd && staticCmd.runOperation) {
       return {
         content: [{ type: "text", text: await staticCmd.runOperation(params) }],
@@ -150,7 +166,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
     const schema = mcpSchemas[operationId];
     if (!schema) {
       return {
-        content: [{ type: "text", text: `Unknown operation: ${operationId}. Ensure that get-netlify-command-context has been called first.` }],
+        content: [{ type: "text", text: `Unknown operation: ${operationId}. Ensure that get-netlify-api-context has been called first.` }],
         isError: true
       };
     }

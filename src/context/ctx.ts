@@ -3,7 +3,7 @@ If site ID is needed, find it in the following ways:
  - see if there is a .netlify/state.json file in the directory. The site ID can be found there.
  - lookup the site by repo which can be pulled from the git information on the directory (if available)
  - if terminal commands can be run, use 'netlify status' command which should include the site ID.
- - if this is a new site, there isn't a site id yet and you must create one which will return the site id. It's a good idea to ensure .netlify/state.json has a { "siteId": "<siteId>" } in it for future use.
+
 `;
 
 export const accountIdContext = `

@@ -177,6 +177,7 @@ export const getExtension = async ({
     `${sdkBaseUrl}/${encodeURIComponent(accountId)}/integrations/${encodeURIComponent(extensionSlug)}`,
     {
       headers: {
+        'netlify-token': await getNetlifyAccessToken(),
         'Api-Version': '2'
       }
     }
@@ -191,7 +192,7 @@ export const getExtension = async ({
   return extensionData;
 }
 
-const installExtension = async ({
+export const installExtension = async ({
   accountId,
   extensionSlug
 }: {
