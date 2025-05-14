@@ -7,7 +7,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { siteIdContext } from "../ctx.js";
 import { rm } from "fs/promises";
-import { getNetlifyAccessToken } from "../../utils/api-networking.js";
+import { authenticatedFetch } from "../../utils/api-networking.js";
 
 export const deploySite: StaticCommand = {
     operationId: 'deploy-site',
@@ -58,10 +58,9 @@ ${siteIdContext}
         const { headers, body } = await prepareZipUpload(zipPath);
 
         // Using form-data with node-fetch - use /deploys endpoint instead of /builds
-        const buildsResp = await fetch(`https://api.netlify.com/api/v1/sites/${site_id}/builds`, {
+        const buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${site_id}/builds`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${await getNetlifyAccessToken()}`,
             // 'content-type': 'multipart/form-data',  // This includes the Content-Type with boundary
             ...headers,
             'user-agent': 'netlify-mcp'

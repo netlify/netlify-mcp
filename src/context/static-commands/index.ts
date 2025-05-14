@@ -11,6 +11,8 @@ export const staticCommands: StaticCommand[] = [
   envVarCreation,
   deploySite,
 
+  listExtensions
+
   // TODO: try operation variants
   // define a new id, but the text would be the same from get-operation
   // then after the run operation we would invoke the override with the data
@@ -23,7 +25,7 @@ export const staticCommands: StaticCommand[] = [
   //   commandText: 'Get the list of sites and their ids',
   //   runOperation: async () => {
 
-  //     const response = await fetch('https://api.netlify.com/api/v1/sites', {
+  //     const response = await authenticatedFetch('https://api.netlify.com/api/v1/sites', {
   //       headers: {
   //         'Authorization': `Bearer ${process.env.NETLIFY_PERSONAL_ACCESS_TOKEN}`
   //       }

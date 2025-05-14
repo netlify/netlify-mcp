@@ -4,6 +4,7 @@ import envPaths from 'env-paths';
 import { runCommand } from './cmd.js';
 import { appendToLog } from './logging.js';
 
+
 const getAuthTokenMsg = `
 You're not logged into Netlify on this computer. Use the netlify cli to login. \`netlify login\`
 If you don't have the netlify cli installed, install it by running "npm i -g netlify-cli",
@@ -52,3 +53,25 @@ export const getNetlifyAccessToken = async (): Promise<string> => {
   return token;
 }
 
+export const unauthenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'user-agent': 'netlify-mcp',
+      ...(options.headers || {})
+    },
+  });
+  return response;
+}
+
+
+export const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = await getNetlifyAccessToken();
+  return unauthenticatedFetch(url, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      ...(options.headers || {})
+    },
+  });
+}

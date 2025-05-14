@@ -8,7 +8,8 @@ import { staticCommands } from './src/context/static-commands/index.js';
 import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
 import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
 import { getPackageVersion } from "./src/utils/version.js";
-import { getNetlifyAccessToken } from "./src/utils/api-networking.js";
+import { authenticatedFetch, getNetlifyAccessToken } from "./src/utils/api-networking.js";
+import { checkCompatibility } from "./src/utils/compatibility.js";
 
 const server = new McpServer({
   name: "netlify-mcp",
@@ -31,6 +32,8 @@ server.tool(
   "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
   { creationType: creationTypeEnum },
   async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
+
+    checkCompatibility();
 
     const context = await getNetlifyCodingContext(creationType);
     const text = context?.content || '';
@@ -55,6 +58,7 @@ server.tool(
     ] as [string, ...string[]])
   },
   async ({ operationId }) => {
+    checkCompatibility();
 
     let text = '';
     const staticCmd = staticCommands.find(c => c.operationId === operationId);
@@ -113,6 +117,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
     params: z.record(z.any()).optional()
   },
   async ({ operationId, params = {}, type }) => {
+    checkCompatibility();
 
     // TODO: Revisit as this is not the right way to handle CLI commands
     if(type === "CLI") {
@@ -182,8 +187,6 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
         method,
         headers: {
           'Accept': 'application/json',
-          'user-agent': 'netlify-mcp',
-          'Authorization': `Bearer ${await getNetlifyAccessToken()}`,
           ...(contentType ? { 'Content-Type': contentType } : {})
         }
       };
@@ -209,10 +212,8 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
 
       try {
 
-
-
         // Make the actual API call using fetch
-        const response = await fetch(url.toString(), options);
+        const response = await authenticatedFetch(url.toString(), options);
 
         // Parse the response
         let responseData: any;

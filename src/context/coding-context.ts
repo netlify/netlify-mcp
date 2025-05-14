@@ -1,4 +1,5 @@
-import { appendErrorToLog, appendToLog } from "../utils/logging.js"
+import { appendErrorToLog } from "../utils/logging.js"
+import { unauthenticatedFetch } from "../utils/api-networking.js";
 
 export interface ConsumersData {
   consumers: ConsumerConfig[]
@@ -55,7 +56,7 @@ export async function getContextConsumerConfig(){
   }
 
   try {
-    const response = await fetch(`https://docs.netlify.com/ai-context/context-consumers`)
+    const response = await unauthenticatedFetch(`https://docs.netlify.com/ai-context/context-consumers`)
     const data = await response.json() as ConsumersData;
 
     if(data?.consumers?.length > 0){
@@ -96,7 +97,7 @@ export async function getNetlifyCodingContext(contextKey: string): Promise<Conte
 
   let data = '';
   try {
-    const response = await fetch(endpoint.toString())
+    const response = await unauthenticatedFetch(endpoint.toString())
     data = await response.text() as string;
 
     if(!data){
