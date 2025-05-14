@@ -1,13 +1,16 @@
 {
-  "name": "@netlify/mcp",
-  "version": "1.0.1",
+  "name": "@netlify/netlify-mcp",
+  "version": "1.0.2",
   "description": "",
   "type": "module",
-  "main": "dist/netlify-mcp.js",
-  "bin": "dist/netlify-mcp.js",
+  "main": "./dist/netlify-mcp.js",
+  "bin": {
+    "netlify-mcp": "./dist/netlify-mcp.js"
+  },
   "scripts": {
-    "build": "tsup ./netlify-mcp.ts --format esm",
-    "start": "node dist/index.js"
+    "build": "tsup ./netlify-mcp.ts --format esm && cp src/context/dynamic-commands/openapi-external.json dist/",
+    "start": "node ./dist/netlify-mcp.js",
+    "build:publish": "rm -rf ./dist && npm run build && npm publish"
   },
   "files": [
     "dist/*",

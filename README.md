@@ -21,11 +21,11 @@ npx @modelcontextprotocol/inspector -e NETLIFY_PERSONAL_ACCESS_TOKEN={your-netli
 ```json
 {
   "mcpServers": {
-    "netlify-mcp": {
+    "local-netlify-mcp": {
       "command": "npx",
       "args": [
         "tsx",
-        "<path-to-repo>/netlify-mcp/netlify-mcp.ts"
+        "<path-to-repo>/netlify-mcp.ts"
       ],
       "env": {
         "NETLIFY_PERSONAL_ACCESS_TOKEN": "<your-netlify-personal-access-token (this is temporary)>"
@@ -35,3 +35,23 @@ npx @modelcontextprotocol/inspector -e NETLIFY_PERSONAL_ACCESS_TOKEN={your-netli
 }
 ```
 
+
+
+## Running the production version
+
+```json
+{
+  "mcpServers": {
+    "netlify-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@netlify/netlify-mcp"
+      ],
+      "env": {
+        "NETLIFY_PERSONAL_ACCESS_TOKEN": "<your-netlify-personal-access-token (this is temporary)"
+      }
+    }
+  }
+}
+```
