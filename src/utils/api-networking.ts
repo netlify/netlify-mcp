@@ -136,21 +136,16 @@ export type TRPCProcedure = {
 };
 
 
-// const getSiteId = async ({ projectDir }: { projectDir: string }): Promise<string> {
-//   const netlifySiteStatePath = path.join(projectDir, '.netlify', 'state.json');
-//   const data = await fs.readFile(netlifySiteStatePath);
-//   const parsedData = JSON.parse(data.toString());
-//   return parsedData.siteId;
-// }
+export const getSiteId = async ({ projectDir }: { projectDir: string }): Promise<string> => {
+  const netlifySiteStatePath = path.join(projectDir, '.netlify', 'state.json');
+  const data = await fs.readFile(netlifySiteStatePath);
+  const parsedData = JSON.parse(data.toString());
+  return parsedData.siteId;
+}
 
 
-const getSite = async ({ netlifyToken, siteId }: { netlifyToken: string; siteId: string }): Promise<NetlifySite> => {
-  const res = await fetch(`${netlifyApiUrl}/api/v1/sites/${siteId}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${netlifyToken}`
-    }
-  });
+export const getSite = async ({ siteId }: { siteId: string }): Promise<NetlifySite> => {
+  const res = await authenticatedFetch(`${netlifyApiUrl}/api/v1/sites/${siteId}`);
 
   if (!res.ok) {
     const data = await res.json();
@@ -171,20 +166,17 @@ export const getExtensions = async (): Promise<NetlifyExtension[]> => {
 
 
 
-const getExtension = async ({
-  netlifyToken,
+export const getExtension = async ({
   accountId,
   extensionSlug
 }: {
-  netlifyToken: string;
   accountId: string;
   extensionSlug: string;
 }): Promise<NetlifyExtension> => {
-  const res = await fetch(
+  const res = await authenticatedFetch(
     `${sdkBaseUrl}/${encodeURIComponent(accountId)}/integrations/${encodeURIComponent(extensionSlug)}`,
     {
       headers: {
-        'netlify-token': netlifyToken,
         'Api-Version': '2'
       }
     }
@@ -200,20 +192,18 @@ const getExtension = async ({
 }
 
 const installExtension = async ({
-  netlifyToken,
   accountId,
   extensionSlug
 }: {
-  netlifyToken: string;
   accountId: string;
   extensionSlug: string;
 }): Promise<NetlifyExtension> => {
-  const extensionData = await getExtension({ netlifyToken, accountId, extensionSlug });
-  const res = await fetch(`${netlifyFunctionsBaseUrl}/install-extension`, {
+  const extensionData = await getExtension({ accountId, extensionSlug });
+  const res = await authenticatedFetch(`${netlifyFunctionsBaseUrl}/install-extension`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Cookie: `_nf-auth=${netlifyToken}`
+      Cookie: `_nf-auth=${await getNetlifyAccessToken()}`
     },
     body: JSON.stringify({
       teamId: accountId,
@@ -231,20 +221,18 @@ const installExtension = async ({
 }
 
 const getSDKToken = async ({
-  netlifyToken,
   accountId,
   extensionSlug
 }: {
-  netlifyToken: string;
   accountId: string;
   extensionSlug: string;
 }): Promise<string> => {
-  const res = await fetch(`${sdkBaseUrl}/generate-token`, {
+  const res = await authenticatedFetch(`${sdkBaseUrl}/generate-token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Api-Version': '2',
-      Cookie: `_nf-auth=${netlifyToken}`
+      Cookie: `_nf-auth=${await getNetlifyAccessToken()}`
     },
     body: JSON.stringify({
       ownerId: accountId,

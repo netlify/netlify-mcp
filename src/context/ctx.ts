@@ -6,10 +6,12 @@ If site ID is needed, find it in the following ways:
  - if this is a new site, there isn't a site id yet and you must create one which will return the site id. It's a good idea to ensure .netlify/state.json has a { "siteId": "<siteId>" } in it for future use.
 `;
 
-export const baselineAPIContext = `
-${siteIdContext}
+export const accountIdContext = `
 If the account ID is needed for a site specific, find it in the following ways:
  - get the site id and then lookup the account id for the site
+
+
+${siteIdContext}
 `;
 
 

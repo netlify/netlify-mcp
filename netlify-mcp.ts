@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { baselineAPIContext } from './src/context/ctx.js';
+import { accountIdContext } from './src/context/ctx.js';
 import { staticCommands } from './src/context/static-commands/index.js';
 import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
 import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
@@ -87,7 +87,7 @@ You MUST call 'call-netlify-command' tool after compiling the correct informatio
 
 --
 Extra Context:
-${baselineAPIContext}
+${accountIdContext}
       `
     }else {
 
