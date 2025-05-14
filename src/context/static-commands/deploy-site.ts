@@ -7,6 +7,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { siteIdContext } from "../ctx.js";
 import { rm } from "fs/promises";
+import { getNetlifyAccessToken } from "../../utils/api-networking.js";
 
 export const deploySite: StaticCommand = {
     operationId: 'deploy-site',
@@ -60,7 +61,7 @@ ${siteIdContext}
         const buildsResp = await fetch(`https://api.netlify.com/api/v1/sites/${site_id}/builds`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${process.env.NETLIFY_PERSONAL_ACCESS_TOKEN}`,
+            Authorization: `Bearer ${await getNetlifyAccessToken()}`,
             // 'content-type': 'multipart/form-data',  // This includes the Content-Type with boundary
             ...headers,
             'user-agent': 'netlify-mcp'

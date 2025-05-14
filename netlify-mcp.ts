@@ -8,6 +8,7 @@ import { staticCommands } from './src/context/static-commands/index.js';
 import { getDynamicCommands, reduceVerboseOperationResponses } from './src/context/dynamic-commands/index.js';
 import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
 import { getPackageVersion } from "./src/utils/version.js";
+import { getNetlifyAccessToken } from "./src/utils/api-networking.js";
 
 const server = new McpServer({
   name: "netlify-mcp",
@@ -120,6 +121,18 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
       }
     }
 
+
+    // attempt to pull the auth token and fail with an
+    // error that informs the user how to auth if we cant
+    try {
+      await getNetlifyAccessToken();
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+        isError: true
+      };
+    }
+
     const staticCmd = staticCommands.find(c => c.operationId === operationId);
     if (staticCmd && staticCmd.runOperation) {
       return {
@@ -170,7 +183,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
         headers: {
           'Accept': 'application/json',
           'user-agent': 'netlify-mcp',
-          ...(process.env.NETLIFY_PERSONAL_ACCESS_TOKEN ? { 'Authorization': `Bearer ${process.env.NETLIFY_PERSONAL_ACCESS_TOKEN}` } : {}),
+          'Authorization': `Bearer ${await getNetlifyAccessToken()}`,
           ...(contentType ? { 'Content-Type': contentType } : {})
         }
       };
@@ -195,6 +208,7 @@ Call a Netlify API endpoint using the operation ID and parameters. You must use 
       }
 
       try {
+
 
 
         // Make the actual API call using fetch

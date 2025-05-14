@@ -1,6 +1,6 @@
 {
   "name": "@netlify/netlify-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "",
   "type": "module",
   "main": "./dist/netlify-mcp.js",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
     "archiver": "^7.0.1",
+    "env-paths": "^3.0.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
