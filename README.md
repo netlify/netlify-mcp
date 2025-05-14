@@ -14,7 +14,7 @@ Now this can be used to configure your MCP.
 in the netlify-mcp repo dir
 
 ```bash
-npx @modelcontextprotocol/inspector -e NETLIFY_PERSONAL_ACCESS_TOKEN={your-netlify-personal-access-token-this-is-temporary} npx tsx netlify-mcp.ts
+npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
 ```
 
 ## Server configs for local
@@ -26,10 +26,7 @@ npx @modelcontextprotocol/inspector -e NETLIFY_PERSONAL_ACCESS_TOKEN={your-netli
       "args": [
         "tsx",
         "<path-to-repo>/netlify-mcp.ts"
-      ],
-      "env": {
-        "NETLIFY_PERSONAL_ACCESS_TOKEN": "<your-netlify-personal-access-token (this is temporary)>"
-      }
+      ]
     }
   }
 }
@@ -46,11 +43,8 @@ npx @modelcontextprotocol/inspector -e NETLIFY_PERSONAL_ACCESS_TOKEN={your-netli
       "command": "npx",
       "args": [
         "-y",
-        "@netlify/netlify-mcp"
-      ],
-      "env": {
-        "NETLIFY_PERSONAL_ACCESS_TOKEN": "<your-netlify-personal-access-token (this is temporary)"
-      }
+        "@netlify/mcp"
+      ]
     }
   }
 }
