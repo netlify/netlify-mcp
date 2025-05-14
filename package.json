@@ -22,7 +22,8 @@
     "@modelcontextprotocol/sdk": "^1.9.0",
     "archiver": "^7.0.1",
     "env-paths": "^3.0.0",
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+    "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.1",

@@ -11,6 +11,7 @@ import { getPackageVersion } from "./src/utils/version.js";
 import { authenticatedFetch, getNetlifyAccessToken } from "./src/utils/api-networking.js";
 import { checkCompatibility } from "./src/utils/compatibility.js";
 
+
 const server = new McpServer({
   name: "netlify-mcp",
   version: getPackageVersion()

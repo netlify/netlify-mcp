@@ -19,7 +19,6 @@ export const getPackageVersion = () => {
 
       pkgVersion = packageJson.version;
     } catch (error) {
-      console.error('Failed to read package.json:', error);
       pkgVersion = '0.0.0'; // Fallback version
     }
   }
