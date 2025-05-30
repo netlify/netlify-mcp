@@ -7,7 +7,7 @@ const domain = 'user';
 
 const getUserParamsSchema = z.object({});
 
-const getUserDomainTool: DomainTool<typeof getUserParamsSchema> = {
+export const getUserDomainTool: DomainTool<typeof getUserParamsSchema> = {
   domain,
   operation: 'get-user',
   inputSchema: getUserParamsSchema,
@@ -15,5 +15,3 @@ const getUserDomainTool: DomainTool<typeof getUserParamsSchema> = {
     return JSON.stringify(await getAPIJSONResult('/api/v1/user'));
   }
 }
-
-export const userDomainTools = [getUserDomainTool]

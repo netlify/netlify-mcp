@@ -12,21 +12,22 @@
 
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { userDomainTools } from './user-tools/user.js';
+import { userDomainTools } from './user-tools/user-tools.js';
+import { deployDomainTools } from './deploy-tools/deploy-tools.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools];
 
 
 export const bindTools = async (server: McpServer) => {
 
   const toSelectorSchema = (domainTool: DomainTool<z.ZodType<any>>) => {
     return z.object({
-      domain: z.literal(domainTool.domain),
+      // domain: z.literal(domainTool.domain),
       operation: z.literal(domainTool.operation),
       params: domainTool.inputSchema,
 
@@ -70,12 +71,6 @@ export const bindTools = async (server: McpServer) => {
       if (!selectedSchema) {
         return {
           content: [{ type: "text", text: 'Failed to select a valid operation. Retry the MCP operation but select the operation and provide the right inputs.' }]
-        }
-      }
-
-      if (selectedSchema.domain !== domain) {
-        return {
-          content: [{ type: "text", text: 'Agent called the wrong MCP tool for this operation.' }]
         }
       }
 
