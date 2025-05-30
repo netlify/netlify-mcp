@@ -10,6 +10,7 @@ import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context
 import { getPackageVersion } from "./src/utils/version.js";
 import { authenticatedFetch, getNetlifyAccessToken } from "./src/utils/api-networking.js";
 import { checkCompatibility } from "./src/utils/compatibility.js";
+import { bindTools } from "./src/tools/index.js";
 
 
 const server = new McpServer({
@@ -17,9 +18,11 @@ const server = new McpServer({
   version: getPackageVersion()
 });
 
-const mcpSchemas = await getDynamicCommands();
 
-const toolsGetAndCallPromptingVersion = "1.4";
+
+// const mcpSchemas = await getDynamicCommands();
+
+// const toolsGetAndCallPromptingVersion = "1.4";
 
 // load the consumer configuration for the MCP so
 // we can share all of the available context for the
@@ -45,262 +48,264 @@ server.tool(
   }
 );
 
-
-// where possible we can avoid the call-netlify-apis tool but if there
-// is data that the agent should aggregate first then we will use this tool to
-// inform the agent what command to run and the parameters that are required.
-server.tool(
-  "get-netlify-api-context",
-  "required step before calling 'call-netlify-apis' tool. Use to identify the correct command to run and the parameters that are required.",
-  {
-    operationId: z.enum([
-      ...staticCommands.map(c => c.operationId),
-      ...Object.keys(mcpSchemas)
-    ] as [string, ...string[]])
-  },
-  async ({ operationId }) => {
-    checkCompatibility();
-
-    let text = '';
-    const staticCmd = staticCommands.find(c => c.operationId === operationId);
-    if (staticCmd) {
-
-      if(staticCmd.runOperation && !staticCmd.runRequiresParams){
-        text = await staticCmd.runOperation();
-      }else {
-        text = `
-For this API operation "${operationId}". It's description is:
-${staticCmd.commandText}
---
-You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
-{
-  "_v":"${toolsGetAndCallPromptingVersion}",
-  "type": "API",
-  "operationId": "${operationId}",
-  "params": <params described above>
-}
-
---
-Extra Context:
-${accountIdContext}
-      `
-      }
-
-    } else if (mcpSchemas[operationId]){
-      const apiCommand = mcpSchemas[operationId];
-      text = `
-For this API operation "${operationId}". It's description is:
-${apiCommand.description}
---
-You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
-{
-  "_v":"${toolsGetAndCallPromptingVersion}",
-  "type": "API",
-  "operationId": "${apiCommand}",
-  "params": ${JSON.stringify(apiCommand.parameters)}
-}
-
---
-Extra Context:
-${accountIdContext}
-      `
-    }else {
-
-      // TODO: add logging
-      text = `Unknown operation: ${operationId}. Let us know if this keeps happening.`
-    }
-
-    return ({
-      content: [{ type: "text", text }]
-    })
-  }
-);
-
-server.tool(
-  "call-netlify-apis",
-  `
-Call a Netlify API endpoint using the operation ID and parameters. You must use the following structure:
-{
-  "_v":"${toolsGetAndCallPromptingVersion}",
-  "type": "<type>",
-  "operationId": "<operationId>",
-  "params": <params>
-}
-`,
-  {
-    type: z.enum(["API", "CLI"]),
-    operationId: z.string(),
-    params: z.record(z.any()).optional()
-  },
-  async ({ operationId, params = {}, type }) => {
-    checkCompatibility();
-
-    const staticCmd = staticCommands.find(c => c.operationId === operationId);
-
-    // TODO: Revisit as this is not the right way to handle CLI commands
-    if (type === "CLI" && !staticCmd) {
-      return {
-        content: [{ type: "text", text: `To get the result of the command, run: "netlify api ${operationId} --data \"${params?.replaceAll("'", "\\'")}\"` }]
-      }
-    }
+await bindTools(server);
 
 
-    // attempt to pull the auth token and fail with an
-    // error that informs the user how to auth if we cant
-    try {
-      await getNetlifyAccessToken();
-    } catch (error: any) {
-      return {
-        content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
-        isError: true
-      };
-    }
+// // where possible we can avoid the call-netlify-apis tool but if there
+// // is data that the agent should aggregate first then we will use this tool to
+// // inform the agent what command to run and the parameters that are required.
+// server.tool(
+//   "get-netlify-api-context",
+//   "required step before calling 'call-netlify-apis' tool. Use to identify the correct command to run and the parameters that are required.",
+//   {
+//     operationId: z.enum([
+//       ...staticCommands.map(c => c.operationId),
+//       ...Object.keys(mcpSchemas)
+//     ] as [string, ...string[]])
+//   },
+//   async ({ operationId }) => {
+//     checkCompatibility();
 
-    if (staticCmd && staticCmd.runOperation) {
-      return {
-        content: [{ type: "text", text: await staticCmd.runOperation(params) }],
-      };
-    }
+//     let text = '';
+//     const staticCmd = staticCommands.find(c => c.operationId === operationId);
+//     if (staticCmd) {
 
-    // Get the schema for this operation
-    const schema = mcpSchemas[operationId];
-    if (!schema) {
-      return {
-        content: [{ type: "text", text: `Unknown operation: ${operationId}. Ensure that get-netlify-api-context has been called first.` }],
-        isError: true
-      };
-    }
+//       if(staticCmd.runOperation && !staticCmd.runRequiresParams){
+//         text = await staticCmd.runOperation();
+//       }else {
+//         text = `
+// For this API operation "${operationId}". It's description is:
+// ${staticCmd.commandText}
+// --
+// You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
+// {
+//   "_v":"${toolsGetAndCallPromptingVersion}",
+//   "type": "API",
+//   "operationId": "${operationId}",
+//   "params": <params described above>
+// }
 
-    try {
-      // Extract request information
-      const { method, path, baseUrl, contentType } = schema.request;
+// --
+// Extra Context:
+// ${accountIdContext}
+//       `
+//       }
 
-      // Replace path parameters
-      const formattedPath = path.replace(/{([^}]+)}/g, (_, name) => {
-        if (!params[name]) {
-          throw new Error(`Missing required path parameter: ${name}`);
-        }
-        return params[name];
-      });
+//     } else if (mcpSchemas[operationId]){
+//       const apiCommand = mcpSchemas[operationId];
+//       text = `
+// For this API operation "${operationId}". It's description is:
+// ${apiCommand.description}
+// --
+// You MUST call 'call-netlify-apis' tool after compiling the correct information. The first argument should have the following structure:
+// {
+//   "_v":"${toolsGetAndCallPromptingVersion}",
+//   "type": "API",
+//   "operationId": "${apiCommand}",
+//   "params": ${JSON.stringify(apiCommand.parameters)}
+// }
 
-      // Construct the URL
-      const url = new URL(formattedPath, baseUrl);
+// --
+// Extra Context:
+// ${accountIdContext}
+//       `
+//     }else {
 
-      // Add query parameters (for those with 'in: query')
-      if (schema.request && schema.request.parameters) {
-        Object.entries(schema.request.parameters).forEach(([name, info]) => {
-          if (info.in === 'query' && params[name] !== undefined) {
-            url.searchParams.append(name, params[name].toString());
-          }
-        });
-      }
+//       // TODO: add logging
+//       text = `Unknown operation: ${operationId}. Let us know if this keeps happening.`
+//     }
 
-      // Prepare request options
-      const options: {
-        method: string;
-        headers: Record<string, string>;
-        body?: string;
-      } = {
-        method,
-        headers: {
-          'Accept': 'application/json',
-          ...(contentType ? { 'Content-Type': contentType } : {})
-        }
-      };
+//     return ({
+//       content: [{ type: "text", text }]
+//     })
+//   }
+// );
 
-      // Add body for non-GET requests if there's data to send
-      const bodyData: Record<string, any> = {};
-      let hasBodyParams = false;
+// server.tool(
+//   "call-netlify-apis",
+//   `
+// Call a Netlify API endpoint using the operation ID and parameters. You must use the following structure:
+// {
+//   "_v":"${toolsGetAndCallPromptingVersion}",
+//   "type": "<type>",
+//   "operationId": "<operationId>",
+//   "params": <params>
+// }
+// `,
+//   {
+//     type: z.enum(["API", "CLI"]),
+//     operationId: z.string(),
+//     params: z.record(z.any()).optional()
+//   },
+//   async ({ operationId, params = {}, type }) => {
+//     checkCompatibility();
 
-      if (schema.request && schema.request.parameters) {
-        // Extract body parameters
-        Object.entries(schema.request.parameters).forEach(([name, info]) => {
-          if (info.in === 'body' && params[name] !== undefined) {
-            bodyData[name] = params[name];
-            hasBodyParams = true;
-          }
-        });
+//     const staticCmd = staticCommands.find(c => c.operationId === operationId);
 
-        // Add body content for supported methods if we have parameters
-        if (hasBodyParams && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-          options.body = JSON.stringify(bodyData);
-        }
-      }
+//     // TODO: Revisit as this is not the right way to handle CLI commands
+//     if (type === "CLI" && !staticCmd) {
+//       return {
+//         content: [{ type: "text", text: `To get the result of the command, run: "netlify api ${operationId} --data \"${params?.replaceAll("'", "\\'")}\"` }]
+//       }
+//     }
 
-      try {
 
-        // Make the actual API call using fetch
-        const response = await authenticatedFetch(url.toString(), options);
+//     // attempt to pull the auth token and fail with an
+//     // error that informs the user how to auth if we cant
+//     try {
+//       await getNetlifyAccessToken();
+//     } catch (error: any) {
+//       return {
+//         content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+//         isError: true
+//       };
+//     }
 
-        // Parse the response
-        let responseData: any;
-        const contentType = response.headers.get('content-type') || '';
+//     if (staticCmd && staticCmd.runOperation) {
+//       return {
+//         content: [{ type: "text", text: await staticCmd.runOperation(params) }],
+//       };
+//     }
 
-        if (contentType.includes('application/json')) {
-          responseData = await response.json();
-        } else {
-          responseData = await response.text();
-        }
+//     // Get the schema for this operation
+//     const schema = mcpSchemas[operationId];
+//     if (!schema) {
+//       return {
+//         content: [{ type: "text", text: `Unknown operation: ${operationId}. Ensure that get-netlify-api-context has been called first.` }],
+//         isError: true
+//       };
+//     }
 
-        // Check if the request was successful
-        if (!response.ok) {
-          return {
-            content: [{
-              type: "text",
-              text: `API Request Failed (${response.status} ${response.statusText}):
-- Operation: ${operationId}
-- URL: ${url}
-- Response: ${JSON.stringify(responseData, null, 2)}`
-            }],
-            isError: true
-          };
-        }
+//     try {
+//       // Extract request information
+//       const { method, path, baseUrl, contentType } = schema.request;
 
-        // For successful responses, format based on content type
-        if (contentType.includes('application/json')) {
+//       // Replace path parameters
+//       const formattedPath = path.replace(/{([^}]+)}/g, (_, name) => {
+//         if (!params[name]) {
+//           throw new Error(`Missing required path parameter: ${name}`);
+//         }
+//         return params[name];
+//       });
 
-          let reducedResponse = responseData;
-          if (mcpSchemas[operationId]){
-            reducedResponse = reduceVerboseOperationResponses(operationId, mcpSchemas[operationId], responseData);
-          }
+//       // Construct the URL
+//       const url = new URL(formattedPath, baseUrl);
 
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify(reducedResponse)
-            }]
-          };
-        } else {
-          return {
-            content: [{
-              type: "text",
-            text: `API Request Successful (${response.status} ${response.statusText}):
-- Operation: ${operationId}
-- Response Data:
-${JSON.stringify(responseData, null, 2)}`
-            }]
-          };
-        }
-      } catch (fetchError: any) {
-        return {
-          content: [{
-            type: "text",
-            text: `Error making API request: ${fetchError?.message || String(fetchError)}
-- Operation: ${operationId}
-- URL: ${url}
-- Method: ${method}`
-          }],
-          isError: true
-        };
-      }
-    } catch (error: any) {
-      return {
-        content: [{ type: "text", text: `Error preparing API request: ${error?.message || String(error)}` }],
-        isError: true
-      };
-    }
-  }
-);
+//       // Add query parameters (for those with 'in: query')
+//       if (schema.request && schema.request.parameters) {
+//         Object.entries(schema.request.parameters).forEach(([name, info]) => {
+//           if (info.in === 'query' && params[name] !== undefined) {
+//             url.searchParams.append(name, params[name].toString());
+//           }
+//         });
+//       }
+
+//       // Prepare request options
+//       const options: {
+//         method: string;
+//         headers: Record<string, string>;
+//         body?: string;
+//       } = {
+//         method,
+//         headers: {
+//           'Accept': 'application/json',
+//           ...(contentType ? { 'Content-Type': contentType } : {})
+//         }
+//       };
+
+//       // Add body for non-GET requests if there's data to send
+//       const bodyData: Record<string, any> = {};
+//       let hasBodyParams = false;
+
+//       if (schema.request && schema.request.parameters) {
+//         // Extract body parameters
+//         Object.entries(schema.request.parameters).forEach(([name, info]) => {
+//           if (info.in === 'body' && params[name] !== undefined) {
+//             bodyData[name] = params[name];
+//             hasBodyParams = true;
+//           }
+//         });
+
+//         // Add body content for supported methods if we have parameters
+//         if (hasBodyParams && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+//           options.body = JSON.stringify(bodyData);
+//         }
+//       }
+
+//       try {
+
+//         // Make the actual API call using fetch
+//         const response = await authenticatedFetch(url.toString(), options);
+
+//         // Parse the response
+//         let responseData: any;
+//         const contentType = response.headers.get('content-type') || '';
+
+//         if (contentType.includes('application/json')) {
+//           responseData = await response.json();
+//         } else {
+//           responseData = await response.text();
+//         }
+
+//         // Check if the request was successful
+//         if (!response.ok) {
+//           return {
+//             content: [{
+//               type: "text",
+//               text: `API Request Failed (${response.status} ${response.statusText}):
+// - Operation: ${operationId}
+// - URL: ${url}
+// - Response: ${JSON.stringify(responseData, null, 2)}`
+//             }],
+//             isError: true
+//           };
+//         }
+
+//         // For successful responses, format based on content type
+//         if (contentType.includes('application/json')) {
+
+//           let reducedResponse = responseData;
+//           if (mcpSchemas[operationId]){
+//             reducedResponse = reduceVerboseOperationResponses(operationId, mcpSchemas[operationId], responseData);
+//           }
+
+//           return {
+//             content: [{
+//               type: "text",
+//               text: JSON.stringify(reducedResponse)
+//             }]
+//           };
+//         } else {
+//           return {
+//             content: [{
+//               type: "text",
+//             text: `API Request Successful (${response.status} ${response.statusText}):
+// - Operation: ${operationId}
+// - Response Data:
+// ${JSON.stringify(responseData, null, 2)}`
+//             }]
+//           };
+//         }
+//       } catch (fetchError: any) {
+//         return {
+//           content: [{
+//             type: "text",
+//             text: `Error making API request: ${fetchError?.message || String(fetchError)}
+// - Operation: ${operationId}
+// - URL: ${url}
+// - Method: ${method}`
+//           }],
+//           isError: true
+//         };
+//       }
+//     } catch (error: any) {
+//       return {
+//         content: [{ type: "text", text: `Error preparing API request: ${error?.message || String(error)}` }],
+//         isError: true
+//       };
+//     }
+//   }
+// );
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

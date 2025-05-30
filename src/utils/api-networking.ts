@@ -70,9 +70,10 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 }
 
 
-export const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}) => {
   const token = await getNetlifyAccessToken();
-  return unauthenticatedFetch(url, {
+  const url = new URL(urlOrPath, 'https://api.netlify.com')
+  return unauthenticatedFetch(url.toString(), {
     ...options,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -81,7 +82,13 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
   });
 }
 
-
+export const getAPIJSONResult = async (url: string, options: RequestInit = {}) => {
+  const response = await authenticatedFetch(url, options);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch API: ${response.status}`);
+  }
+  return await response.json();
+}
 
 export type NetlifySite = {
   id: string;
