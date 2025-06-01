@@ -63,6 +63,7 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
     ...options,
     headers: {
       'user-agent': 'netlify-mcp',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {})
     },
   });

@@ -19,8 +19,8 @@ export function getEnrichedSiteModelForLLM(sites: any[] | any) {
           requiresPassword: !!site.has_password,
           // possible contexts: "all", "non_production"
           whichProjectsRequirePassword: site.has_password ? site.password_context : null,
-          requiresSSOLogin: !!site.sso_login,
-          whichProjectsRequireSSOLogin: site.sso_login ? site.sso_login_context : null
+          requiresSSOTeamLogin: !!site.sso_login,
+          whichProjectsRequireSSOTeamLogin: site.sso_login ? site.sso_login_context : null
         },
 
         urls: {
