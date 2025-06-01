@@ -1,26 +1,34 @@
 // coding context
 // focus tools on domain + focused operations
 // tool domains:
-//  site (includes builds, domains, forms, settings,)
-//  deploy
-//  user-and-team
-//  sites aggregate operations
-//  extensions
-//  database?
+//  [] site (includes builds, domains, forms, env vars, settings,)
+//    [] builds
+//    [] domains
+//    [] forms
+//    [] env vars
+//    [] settings
+//  [x] deploy
+//  [] user-and-team
+//    [x] user
+//    [] team
+//  [] sites aggregate operations
+//  [] extensions
+//  [] database?
 //
 // return errors when missing data and how the agent can get the data
 
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { userDomainTools } from './user-tools/user-tools.js';
-import { deployDomainTools } from './deploy-tools/deploy-tools.js';
+import { userDomainTools } from './user-tools/index.js';
+import { deployDomainTools } from './deploy-tools/index.js';
+import { teamDomainTools } from './team-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools];
 
 
 export const bindTools = async (server: McpServer) => {
