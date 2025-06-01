@@ -8,9 +8,9 @@
 //    [] env vars
 //    [] settings
 //  [x] deploy
-//  [] user-and-team
+//  [x] user-and-team
 //    [x] user
-//    [] team
+//    [x] team
 //  [] sites aggregate operations
 //  [] extensions
 //  [] database?
@@ -22,14 +22,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { userDomainTools } from './user-tools/index.js';
 import { deployDomainTools } from './deploy-tools/index.js';
 import { teamDomainTools } from './team-tools/index.js';
+import { projectDomainTools } from './project-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools];
-
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools];
 
 export const bindTools = async (server: McpServer) => {
 
