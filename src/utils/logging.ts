@@ -9,13 +9,13 @@ import * as os from 'os';
  */
 export function appendToLog(message: string | string[], includeTimestamp: boolean = true): void {
 
-  if(!process.env.NETLIFY_MCP_DEBUG){
-    return;
-  }
-
   try {
     const logPath = path.join(os.homedir(), 'Desktop', 'netlify', 'netlify-mcp', 'log.txt');
 
+    // only for mcp developers
+    if(!fs.existsSync(logPath)){
+      return;
+    }
     // Create the message with optional timestamp
     const timestamp = includeTimestamp ? `[${new Date().toISOString()}] ` : '';
     const logEntry = `${timestamp}${Array.isArray(message) ? message.join(' ') : message}\n`;
@@ -34,10 +34,6 @@ export function appendToLog(message: string | string[], includeTimestamp: boolea
  */
 export function appendErrorToLog(message: string | string[], error?: Error | unknown): void {
   let logMessage = `ERROR: ${Array.isArray(message) ? message.join(' ') : message}`;
-
-  if(!process.env.NETLIFY_MCP_DEBUG){
-    return;
-  }
 
   if (error) {
     if (error instanceof Error) {

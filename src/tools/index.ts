@@ -12,6 +12,7 @@
 //  [x] user-and-team
 //    [x] user
 //    [x] team
+//    [] team env vars
 //  [] sites aggregate operations
 //  [] extensions
 //  [] database?

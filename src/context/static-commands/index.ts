@@ -11,7 +11,7 @@ import { installExtensionCmd } from "./extensions/install-extension.js";
 // and such.
 export const staticCommands: StaticCommand[] = [
   fetchingSiteId,
-  envVarCreation,
+  // envVarCreation,
   deploySite,
   listExtensions,
   installExtensionCmd,

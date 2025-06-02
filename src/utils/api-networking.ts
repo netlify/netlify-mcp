@@ -97,9 +97,21 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
     if (!response.ok) {
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
-    return await response.json();
+
+    const data = await response.text();
+    if (!data) {
+      return '';
+    }
+
+    try{
+      return JSON.parse(data);
+    } catch (e) {
+      return data;
+    }
   }
 
+  const currentTime = Date.now();
+  const maxDuration = 22000; // 22 seconds
 
   let apiResults = [];
   let page = 1 + (apiInteractionOptions.pageOffset || 0);
@@ -120,7 +132,17 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
 
-    const result = await response.json();
+    const resultRaw = await response.text();
+
+    if (!resultRaw) {
+      break;
+    }
+
+    const result = JSON.parse(resultRaw);
+
+    const lastResultTime = Date.now();
+    const duration = (lastResultTime - currentTime) / 1000;
+    appendToLog(`Fetched page ${page}, received ${result.length} sites, total ${apiResults.length}, duration: ${duration} seconds`);
 
     if (Array.isArray(result)) {
 
@@ -130,7 +152,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
 
       page++;
 
-      if (result.length < pageSize || page > pageLimit) {
+      if (result.length < pageSize || page > pageLimit || duration > maxDuration) {
         break;
       }
 
@@ -204,7 +226,7 @@ export const getSiteId = async ({ projectDir }: { projectDir: string }): Promise
 
 
 export const getSite = async ({ siteId }: { siteId: string }): Promise<NetlifySite> => {
-  const res = await authenticatedFetch(`${netlifyApiUrl}/api/v1/sites/${siteId}`);
+  const res = await authenticatedFetch(`/api/v1/sites/${siteId}`);
 
   if (!res.ok) {
     const data = await res.json();

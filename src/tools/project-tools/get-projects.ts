@@ -12,7 +12,7 @@ const domain = 'project';
 
 const getProjectParamsSchema = z.object({
   teamSlug: z.string().optional(),
-  projectNameSearchValue: z.string().optional(),
+  projectNameSearchValue: z.string().optional().describe('Search for a project by partial name match'),
 });
 
 export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
