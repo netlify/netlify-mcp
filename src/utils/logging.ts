@@ -8,6 +8,11 @@ import * as os from 'os';
  * @param includeTimestamp Whether to include a timestamp with the log entry (default: true)
  */
 export function appendToLog(message: string | string[], includeTimestamp: boolean = true): void {
+
+  if(!process.env.NETLIFY_MCP_DEBUG){
+    return;
+  }
+
   try {
     const logPath = path.join(os.homedir(), 'Desktop', 'netlify', 'netlify-mcp', 'log.txt');
 
@@ -29,6 +34,10 @@ export function appendToLog(message: string | string[], includeTimestamp: boolea
  */
 export function appendErrorToLog(message: string | string[], error?: Error | unknown): void {
   let logMessage = `ERROR: ${Array.isArray(message) ? message.join(' ') : message}`;
+
+  if(!process.env.NETLIFY_MCP_DEBUG){
+    return;
+  }
 
   if (error) {
     if (error instanceof Error) {
