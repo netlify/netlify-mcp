@@ -6,6 +6,13 @@ import { appendToLog } from './logging.js';
 import { type JsonSchema7Type } from 'zod-to-json-schema';
 
 
+interface APIInteractionOptions {
+  pagination?: boolean;
+  pageSize?: number;
+  pageLimit?: number;
+  pageOffset?: number;
+}
+
 const netlifyApiUrl = 'https://api.netlify.com';
 const sdkBaseUrl = 'https://api.netlifysdk.com';
 const netlifyFunctionsBaseUrl = 'https://app.netlify.com/.netlify/functions';
@@ -83,12 +90,56 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
   });
 }
 
-export const getAPIJSONResult = async (url: string, options: RequestInit = {}) => {
-  const response = await authenticatedFetch(url, options);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch API: ${response.status}`);
+export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}): Promise<any> => {
+
+  if(!apiInteractionOptions.pagination){
+    const response = await authenticatedFetch(urlOrPath, options);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch API: ${response.status}`);
+    }
+    return await response.json();
   }
-  return await response.json();
+
+
+  let apiResults = [];
+  let page = 1 + (apiInteractionOptions.pageOffset || 0);
+
+  // avoid unbounded requests
+  let pageLimit = apiInteractionOptions.pageLimit || 100;
+  const pageSize = apiInteractionOptions.pageSize || 20;
+
+  while (true) {
+
+    const url = new URL(urlOrPath, 'https://api.netlify.com')
+    url.searchParams.set('page', page.toString());
+    url.searchParams.set('page_size', pageSize.toString());
+
+    const response = await authenticatedFetch(url.toString(), options);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch API: ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    if (Array.isArray(result)) {
+
+      apiResults.push(...result);
+
+      appendToLog(`Fetched page ${page}, received ${result.length} sites, total ${apiResults.length}`);
+
+      page++;
+
+      if (result.length < pageSize || page > pageLimit) {
+        break;
+      }
+
+    } else {
+      break;
+    }
+  }
+
+  return apiResults;
 }
 
 export type NetlifySite = {

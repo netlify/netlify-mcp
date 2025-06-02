@@ -21,38 +21,12 @@ export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
   inputSchema: getProjectParamsSchema,
   cb: async ({ teamSlug, projectNameSearchValue }) => {
 
-    let apiResults = [];
-    let page = 1;
+    let apiResults;
 
-    // avoid unbounded requests
-    let pageLimit = 100;
-    const pageSize = 20;
-
-    while (true) {
-
-      let result;
-
-      if (teamSlug) {
-        result = await getAPIJSONResult(`/api/v1/${teamSlug}/sites?page=${page}&page_size=${pageSize}`);
-      }else {
-        result = await getAPIJSONResult(`/api/v1/sites?filter=all&sort_by=published_at&order_by=asc${projectNameSearchValue ? `&name=${projectNameSearchValue}` : ''}&page=${page}&page_size=${pageSize}`);
-      }
-
-      if (Array.isArray(result)) {
-
-        apiResults.push(...result);
-
-        appendToLog(`Fetched page ${page}, received ${result.length} sites, total ${apiResults.length}`);
-
-        page++;
-
-        if (result.length < pageSize || page > pageLimit) {
-          break;
-        }
-
-      } else {
-        break;
-      }
+    if (teamSlug) {
+      apiResults = await getAPIJSONResult(`/api/v1/${teamSlug}/sites`, {}, { pagination: true });
+    } else {
+      apiResults = await getAPIJSONResult(`/api/v1/sites?filter=all&sort_by=published_at&order_by=asc${projectNameSearchValue ? `&name=${projectNameSearchValue}` : ''}`, {}, { pagination: true });
     }
 
     const enrichedSites = getEnrichedSiteModelForLLM(apiResults);

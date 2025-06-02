@@ -28,9 +28,6 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
       return 'Submission deleted';
     }
 
-    let apiResults = [];
-    let page = 1;
-
     // avoid unbounded requests
     let pageLimit = 100;
     const pageSize = 20;
@@ -43,35 +40,14 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
       }
     }
 
-    if (offset) {
-      page = Math.floor(offset / pageSize);
-    }
+    let apiResults;
 
-    while (true) {
-
-      let result;
-
-      if (formId) {
-        result =  await getAPIJSONResult(`/api/v1/forms/${formId}/submissions?page=${page}&page_size=${pageSize}`);
-      }else if(siteId) {
-        result = await getAPIJSONResult(`/api/v1/sites/${siteId}/submissions?page=${page}&page_size=${pageSize}`);
-      }else {
-        return 'Please provide a formId or siteId for selecting which form submissions to fetch'
-      }
-
-      if (Array.isArray(result)) {
-
-        apiResults.push(...result);
-
-        page++;
-
-        if (result.length < pageSize || page > pageLimit) {
-          break;
-        }
-
-      } else {
-        break;
-      }
+    if (formId) {
+      apiResults = await getAPIJSONResult(`/api/v1/forms/${formId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset });
+    } else if (siteId) {
+      apiResults = await getAPIJSONResult(`/api/v1/sites/${siteId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset });
+    } else {
+      return 'Please provide a formId or siteId for selecting which form submissions to fetch'
     }
 
     return JSON.stringify(apiResults);
