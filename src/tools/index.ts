@@ -4,7 +4,7 @@
 //  [] site (includes builds, domains, forms, env vars, settings,)
 //    [] builds
 //    [] domains
-//    [] forms
+//    [x] forms
 //    [] env vars
 //    [x] access controls
 //    [] settings
