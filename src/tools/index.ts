@@ -2,7 +2,7 @@
 // focus tools on domain + focused operations
 // tool domains:
 //  [] site (includes builds, domains, forms, env vars, settings,)
-//    [] builds
+//    [] builds - why did it fail
 //    [] domains
 //    [x] forms
 //    [x] env vars
@@ -16,8 +16,8 @@
 //    [x] team
 //    [] team env vars
 //  [] sites aggregate operations
-//  [] extensions
-//  [] database?
+//  [] extensions - install and link - not configuration
+//  [] database
 //
 // return errors when missing data and how the agent can get the data
 
@@ -27,13 +27,14 @@ import { userDomainTools } from './user-tools/index.js';
 import { deployDomainTools } from './deploy-tools/index.js';
 import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
+import { extensionDomainTools } from './extension-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools];
 
 export const bindTools = async (server: McpServer) => {
 

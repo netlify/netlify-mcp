@@ -7,4 +7,4 @@ export interface DomainTool<T extends z.ZodType> {
   cb: (input: z.infer<T>) => Promise<string>;
 }
 
-export type ToolDomain = 'project' | 'team' | 'user' | 'deploy';
+export type ToolDomain = 'project' | 'team' | 'user' | 'deploy' | 'extension';
