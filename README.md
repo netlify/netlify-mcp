@@ -1,23 +1,66 @@
-## Running locally
+# Netlify MCP Server
 
-- open this repo locally
-- run `npm install`
-- run `ntl dev`
+[Netlify MCP Server](https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/) follows the [Model Context Protocol (MCP)](https://modelcontextprotocol.org) to enable code agents to use the Netlify API and CLI—so they can create new projects, build, deploy, and manage your Netlify resources using natural language prompts.
 
-this should start up an MCP server (generally at `http://localhost:8888`)
+---
 
-Now this can be used to configure your MCP.
+## Overview
 
+The Model Context Protocol is an emerging standard protocol for connecting code agents with MCP servers, allowing them to manage resources and perform tasks using natural language. The Netlify MCP Server acts as a bridge, providing API access, CLI tools, prompts, and more for your agents.
 
-## Command for MCP Inspector
+You can connect to the Netlify MCP Server using a variety of MCP clients, including:
 
-in the netlify-mcp repo dir
+* Windsurf
+* Cursor
+* Claude
+* Copilot (VSCode)
+* Cline
+* Warp
+* [See the full list](https://modelcontextprotocol.org/clients)
+
+---
+
+## Use Cases
+
+With Netlify MCP Server, your AI agents can:
+
+* Create, manage, and deploy Netlify projects
+* Modify access controls for enhanced project security
+* Install or uninstall Netlify extensions
+* Fetch user and team information
+* Enable and manage form submissions
+* Create and manage environment variables and secrets
+* and more...
+---
+
+## Prerequisites
+
+* **Node.js 22 or higher**
+  Check with `node --version`
+* **A Netlify account**
+* **An MCP client** (e.g., Windsurf, Cursor, Claude, Copilot)
+
+> **Tip:** Install the Netlify CLI globally for the best experience:
+> `npm install -g netlify-cli`
+
+---
+
+## Getting Started
+
+### Clone and Install
 
 ```bash
-npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
+git clone <this-repo>
+cd <this-repo>
+npm install
 ```
 
-## Server configs for local
+---
+
+## Set up local MCP configuration
+
+Add a local MCP server to your MCP client by referencing the `netlify-mcp.ts` script:
+
 ```json
 {
   "mcpServers": {
@@ -32,9 +75,7 @@ npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
 }
 ```
 
-
-
-## Running the production version
+To use the production version:
 
 ```json
 {
@@ -49,3 +90,65 @@ npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
   }
 }
 ```
+
+---
+
+## MCP Inspector
+
+For debugging or inspecting your setup, run in your repo directory:
+
+```bash
+npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
+```
+
+---
+
+## Troubleshooting
+
+### Node Version
+
+* Use Node.js 22 or higher for best results.
+* If you use `nvm`, run:
+
+  ```bash
+  nvm install 22
+  nvm use 22
+  ```
+
+### Netlify authentication troubleshooting
+
+* If you run into authentication issues, you can temporarily add a [Netlify Personal Access Token (PAT)](https://app.netlify.com/user/applications#personal-access-tokens) to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "netlify-mcp": {
+      "command": "npx",
+      "args": ["-y", "@netlify/mcp"],
+      "env": {
+        "NETLIFY_PERSONAL_ACCESS_TOKEN": "YOUR-PAT-VALUE"
+      }
+    }
+  }
+}
+```
+
+**Do not commit your PAT to your repository!**
+Once resolved, remove your PAT from the config.
+
+---
+
+## Generating a New Personal Access Token (PAT)
+
+1. In the Netlify dashboard, select your user icon.
+2. Go to **User settings** > **OAuth** > **New access token**.
+3. Copy your token and add it (temporarily) to your MCP config as above.
+4. Restart or refresh your MCP client.
+
+---
+
+## Resources
+
+* [Model Context Protocol Documentation](https://modelcontextprotocol.org/docs)
+* [Official List of MCP Clients](https://modelcontextprotocol.org/clients)
+* [Netlify CLI](https://docs.netlify.com/cli/get-started/)
