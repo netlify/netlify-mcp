@@ -3,12 +3,10 @@ import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 
-const domain = 'user';
-
 const getUserParamsSchema = z.object({});
 
 export const getUserDomainTool: DomainTool<typeof getUserParamsSchema> = {
-  domain,
+  domain: 'user',
   operation: 'get-user',
   inputSchema: getUserParamsSchema,
   cb: async () => {

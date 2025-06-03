@@ -5,18 +5,13 @@ import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 import { appendToLog } from '../../utils/logging.js';
 
-// historically, everything has been "site" but we are moving to
-// presenting these as projects. Ids and such will be mapped to sites
-// on the PI level
-const domain = 'project';
-
 const getProjectParamsSchema = z.object({
   teamSlug: z.string().optional(),
   projectNameSearchValue: z.string().optional().describe('Search for a project by partial name match'),
 });
 
 export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
-  domain,
+  domain: 'project',
   operation: 'get-projects',
   inputSchema: getProjectParamsSchema,
   cb: async ({ teamSlug, projectNameSearchValue }) => {

@@ -3,11 +3,6 @@ import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 
-// historically, everything has been "site" but we are moving to
-// presenting these as projects. Ids and such will be mapped to sites
-// on the PI level
-const domain = 'project';
-
 const manageFormSubmissionsParamsSchema = z.object({
   action: z.enum(['get-submissions', 'delete-submission']),
   siteId: z.string().optional(),
@@ -18,7 +13,7 @@ const manageFormSubmissionsParamsSchema = z.object({
 });
 
 export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmissionsParamsSchema> = {
-  domain,
+  domain: 'project',
   operation: 'manage-form-submissions',
   inputSchema: manageFormSubmissionsParamsSchema,
   cb: async ({ formId, siteId, limit, offset, action, submissionId }) => {

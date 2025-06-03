@@ -11,15 +11,13 @@ import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
 import { authenticatedFetch, getSiteId } from "../../utils/api-networking.js";
 
-const domain = 'deploy';
-
 const deploySiteParamsSchema = z.object({
   deployDirectory: z.string().describe(`absolute file path to the directory containing the code that should be deployed. Must be the root of the project repo unless specified.`),
   siteId: z.string().optional().describe(`provide the site id of the site of this site. If the agent cannot find the siteId, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' CLI command to link to an existing site and get a site id.`)
 });
 
 export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
-  domain,
+  domain: 'deploy',
   operation: 'deploy-site',
   inputSchema: deploySiteParamsSchema,
   cb: async (params) => {

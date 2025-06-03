@@ -3,15 +3,13 @@ import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 
-const domain = 'deploy';
-
 const getDeployBySiteIdParamsSchema = z.object({
   siteId: z.string(),
   deployId: z.string() // todo: make optional and get last deploy for site when missing
 });
 
 export const getDeployBySiteIdDomainTool: DomainTool<typeof getDeployBySiteIdParamsSchema> = {
-  domain,
+  domain: 'deploy',
   operation: 'get-deploy-for-site',
   inputSchema: getDeployBySiteIdParamsSchema,
   cb: async (params) => {

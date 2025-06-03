@@ -4,11 +4,6 @@ import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking
 import type { DomainTool } from '../types.js';
 import { appendToLog } from '../../utils/logging.js';
 
-// historically, everything has been "site" but we are moving to
-// presenting these as projects. Ids and such will be mapped to sites
-// on the PI level
-const domain = 'project';
-
 const manageEnvVarsParamsSchema = z.object({
   getAllEnvVars: z.boolean().optional(),
   deleteEnvVar: z.boolean().optional(),
@@ -23,7 +18,7 @@ const manageEnvVarsParamsSchema = z.object({
 });
 
 export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchema> = {
-  domain,
+  domain: 'project',
   operation: 'manage-env-vars',
   inputSchema: manageEnvVarsParamsSchema,
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}) => {

@@ -8,7 +8,9 @@
 //    [] env vars
 //    [x] access controls
 //    [] settings
-//  [x] deploy
+//  [] deploy
+//    [x] build + deploy
+//    [] rollback/deploy selection
 //  [x] user-and-team
 //    [x] user
 //    [x] team

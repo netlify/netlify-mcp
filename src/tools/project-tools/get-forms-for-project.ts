@@ -3,18 +3,13 @@ import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 
-// historically, everything has been "site" but we are moving to
-// presenting these as projects. Ids and such will be mapped to sites
-// on the PI level
-const domain = 'project';
-
 const getFormsForProjectParamsSchema = z.object({
   siteId: z.string(),
   formId: z.string().optional()
 });
 
 export const getFormsForProjectDomainTool: DomainTool<typeof getFormsForProjectParamsSchema> = {
-  domain,
+  domain: 'project',
   operation: 'get-forms-for-project',
   inputSchema: getFormsForProjectParamsSchema,
   cb: async ({ siteId, formId }) => {

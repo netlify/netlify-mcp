@@ -11,6 +11,7 @@ interface APIInteractionOptions {
   pageSize?: number;
   pageLimit?: number;
   pageOffset?: number;
+  failureCallback?: (response: Response) => string | void;
 }
 
 const netlifyApiUrl = 'https://api.netlify.com';
@@ -95,6 +96,9 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
   if(!apiInteractionOptions.pagination){
     const response = await authenticatedFetch(urlOrPath, options);
     if (!response.ok) {
+      if(apiInteractionOptions.failureCallback){
+        return apiInteractionOptions.failureCallback(response);
+      }
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
 
@@ -106,6 +110,9 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
     try{
       return JSON.parse(data);
     } catch (e) {
+      if (apiInteractionOptions.failureCallback) {
+        return apiInteractionOptions.failureCallback(response);
+      }
       return data;
     }
   }
@@ -129,6 +136,9 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
     const response = await authenticatedFetch(url.toString(), options);
 
     if (!response.ok) {
+      if (apiInteractionOptions.failureCallback) {
+        return apiInteractionOptions.failureCallback(response);
+      }
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
 
