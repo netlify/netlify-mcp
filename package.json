@@ -8,7 +8,7 @@
     "netlify-mcp": "./dist/netlify-mcp.js"
   },
   "scripts": {
-    "build": "tsup ./netlify-mcp.ts --format esm && cp src/context/dynamic-commands/openapi-external.json dist/",
+    "build": "tsup ./netlify-mcp.ts --format esm",
     "start": "node ./dist/netlify-mcp.js",
     "build:publish": "rm -rf ./dist && npm run build && npm publish"
   },
