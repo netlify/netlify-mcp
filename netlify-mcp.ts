@@ -19,7 +19,6 @@ const server = new McpServer({
 });
 
 
-
 // const mcpSchemas = await getDynamicCommands();
 
 // const toolsGetAndCallPromptingVersion = "1.4";

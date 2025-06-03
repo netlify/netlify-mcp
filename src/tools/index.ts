@@ -5,7 +5,7 @@
 //    [] builds
 //    [] domains
 //    [x] forms
-//    [] env vars
+//    [x] env vars
 //    [x] access controls
 //    [] settings
 //  [] deploy

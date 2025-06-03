@@ -4,6 +4,7 @@ import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking
 import type { DomainTool } from '../types.js';
 import { appendToLog } from '../../utils/logging.js';
 
+const availableContexts = ['all', 'dev', 'branch-deploy', 'deploy-preview', 'production', 'branch'] as const;
 const manageEnvVarsParamsSchema = z.object({
   getAllEnvVars: z.boolean().optional(),
   deleteEnvVar: z.boolean().optional(),
@@ -14,7 +15,7 @@ const manageEnvVarsParamsSchema = z.object({
 
   envVarValue: z.string().optional(),
   newVarScopes: z.array(z.enum(['all', 'builds', 'functions', 'runtime', 'post_processing'])).optional().default(['all']),
-  newVarContext: z.enum(['all', 'dev', 'branch-deploy', 'deploy-preview', 'production', 'branch']).optional().default('all'),
+  newVarContext: z.enum(availableContexts).optional().default('all'),
 });
 
 export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchema> = {
@@ -56,26 +57,24 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
       if (existingEnvVar) {
 
-        // TODO: we need to handle updates where the original var is "all" so we have to
-        // spread the values throughout.
-        // update specific contexts if defined
-        // otherwise, update the env var for all contexts
-        if(newVarContext !== 'all'){
-          envVar = existingEnvVar;
-          envVar.values = envVar.values.map(value => {
-            if(value.context === newVarContext){
-              value.value = envVarValue;
-            }
-            return value;
-          });
+        const contextsToUpdate: (typeof availableContexts[number])[] = [];
+
+        if(newVarContext === 'all'){
+          contextsToUpdate.push(...(availableContexts).filter(context => context !== 'all'));
+        }else {
+          contextsToUpdate.push(newVarContext);
         }
 
-        await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {
-          method: 'PUT',
-          body: JSON.stringify(envVar)
-        });
+        for(const context of contextsToUpdate){
+          await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              context,
+              value: envVarValue
+            })
+          });
+        }
       } else {
-
         const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
           method: 'POST',
           body: JSON.stringify([envVar])
