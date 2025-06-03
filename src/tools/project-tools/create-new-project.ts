@@ -4,6 +4,7 @@ import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 import { createToolResponseWithFollowup } from '../tool-utils.js';
+import { appendToLog } from '../../utils/logging.js';
 
 const createNewProjectParamsSchema = z.object({
   teamSlug: z.string().optional(),
@@ -25,12 +26,16 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
       failureCallback: (response) => {
 
         if (response.status === 422) {
-          return 'Project names have to be unique across Netlify and this project name is already taken, would you like to try a different version of that name?';
+          throw new Error('Project names have to be unique across Netlify and this project name is already taken, would you like to try a different version of that name?');
         }
 
-        return `Failed to create project: ${response.status}`;
+        throw `Failed to create project: ${response.status}`;
       }
     });
+
+    if(!site){
+      return 'Failed to create project';
+    }
 
     return JSON.stringify(createToolResponseWithFollowup(getEnrichedSiteModelForLLM(site), 'The site was created but the user must create a deploy to get a live url.'));
   }
