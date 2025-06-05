@@ -45,42 +45,20 @@ With Netlify MCP Server, your AI agents can:
 
 ---
 
-## Getting Started
+## MCP Configuration
 
-### Clone and Install
+For the production MCP server, use the following configuration:
 
-```bash
-git clone <this-repo>
-cd <this-repo>
-npm install
-```
+Editors with one-click install:
 
----
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=netlify&config=eyJjb21tYW5kIjoibnB4IC15IEBuZXRsaWZ5L21jcCJ9)
 
-## Set up local MCP configuration
-
-Add a local MCP server to your MCP client by referencing the `netlify-mcp.ts` script:
+Configuration for MCP config files:
 
 ```json
 {
   "mcpServers": {
-    "local-netlify-mcp": {
-      "command": "npx",
-      "args": [
-        "tsx",
-        "<path-to-repo>/netlify-mcp.ts"
-      ]
-    }
-  }
-}
-```
-
-To use the production version:
-
-```json
-{
-  "mcpServers": {
-    "netlify-mcp": {
+    "netlify": {
       "command": "npx",
       "args": [
         "-y",
@@ -91,17 +69,10 @@ To use the production version:
 }
 ```
 
----
-
-## MCP Inspector
-
-For debugging or inspecting your setup, run in your repo directory:
-
-```bash
-npx @modelcontextprotocol/inspector npx tsx netlify-mcp.ts
-```
+For local development, see [Set up local MCP configuration](CONTRIBUTING.md).
 
 ---
+
 
 ## Troubleshooting
 
