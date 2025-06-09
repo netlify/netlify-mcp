@@ -16,7 +16,7 @@
 //    [x] team
 //    [] team env vars
 //  [] sites aggregate operations
-//  [] extensions - install and link - not configuration
+//  [x] extensions - install and link - not configuration
 //  [] database
 //
 // return errors when missing data and how the agent can get the data
