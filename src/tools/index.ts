@@ -60,8 +60,8 @@ export const bindTools = async (server: McpServer) => {
       selectSchema: domainTools.length > 1 ? z.union(domainTools.map(tool => toSelectorSchema(tool))) : toSelectorSchema(domainTools[0])
     };
 
-    const toolName = `ntl-${domain}-operations`;
-    const toolDescription = `Run one of the following operations ${domainTools.map(tool => tool.operation).join(', ')}`;
+    const toolName = `netlify-${domain}-services`;
+    const toolDescription = `Select and run one of the following Netlify operations ${domainTools.map(tool => tool.operation).join(', ')}`;
 
     server.tool(toolName, toolDescription, paramsSchema, async (...args) => {
       checkCompatibility();
@@ -74,8 +74,6 @@ export const bindTools = async (server: McpServer) => {
           isError: true
         };
       }
-
-      // return await tool.cb(...args);
 
       appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
 

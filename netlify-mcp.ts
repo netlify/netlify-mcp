@@ -22,7 +22,7 @@ const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
 const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
 
 server.tool(
-  "get-netlify-coding-context",
+  "netlify-coding-rules",
   "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
   { creationType: creationTypeEnum },
   async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
