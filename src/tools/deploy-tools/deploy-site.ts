@@ -3,7 +3,7 @@ import type { DomainTool } from '../types.js';
 
 import { appendErrorToLog, appendToLog } from "../../utils/logging.js";
 
-import { createWriteStream, readFileSync } from "fs";
+import { createWriteStream, readFileSync, promises as fs } from "fs";
 // @ts-ignore
 import archiver from "archiver";
 import path from "path";
@@ -102,8 +102,35 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
     }
 
     await deleteZip();
-    return JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` });
 
+    // ensure the site id is set on the site if we know it
+    try {
+      const stateFilePath = path.resolve(deployDirectory, '.netlify', 'state.json');
+      let stateFileContent = '{}';
+
+      try {
+        stateFileContent = await fs.readFile(stateFilePath, 'utf-8');
+      } catch (error) {
+        // If the file doesn't exist, we'll create it later
+      }
+
+      let state: Record<string, any> = {};
+
+      try {
+        state = JSON.parse(stateFileContent) as Record<string, any>;
+      } catch { }
+
+      // If the siteId is not present, we add it
+      if (!state.siteId) {
+        state.siteId = siteId;
+        await fs.mkdir(path.dirname(stateFilePath), { recursive: true });
+        await fs.writeFile(stateFilePath, JSON.stringify(state, null, 2));
+      }
+    } catch (error) {
+      appendErrorToLog(`Failed to read or write state file: ${error}`);
+    }
+    
+    return JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` });
   }
 }
 
