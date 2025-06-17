@@ -1,6 +1,6 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
-import { returnNeedsAuthResponse } from "./mcp-server/utils.js";
+import { headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.js";
 import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getPackageVersion } from "../../src/utils/version.js";
@@ -54,7 +54,10 @@ async function handleMCPPost(req: Request) {
   const { req: nodeReq, res: nodeRes } = toReqRes(req);
   
   try {
-    console.log('Handling MCP POST request', {body: JSON.stringify(await (await req.clone()).json(), null, 2)});
+    console.log('Handling MCP POST request', {
+      body: JSON.stringify(await (await req.clone()).json(), null, 2),
+      headers: headersToHeadersObject(req.headers)
+    });
   } catch (error) {
     console.error('Error reading request body:', error);
   }
