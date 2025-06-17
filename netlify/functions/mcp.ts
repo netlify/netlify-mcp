@@ -51,9 +51,10 @@ async function handleMCPPost(req: Request) {
   // Convert the Request object into a Node.js Request object
   const { req: nodeReq, res: nodeRes } = toReqRes(req);
   
-  if(!await userIsAuthenticated(req)){
-    return returnNeedsAuthResponse();
-  }
+  // TBD if needed.
+  // if(!await userIsAuthenticated(req)){
+  //   return returnNeedsAuthResponse();
+  // }
 
   const server = new McpServer({
     name: "netlify-mcp",
