@@ -14,6 +14,8 @@ export default async (req: Request) => {
 
   try {
 
+    console.log('mcp', {reqMethod: req.method, url: req.url});
+
     // Handle different HTTP methods
     if (req.method === "POST") {
       return handleMCPPost(req);

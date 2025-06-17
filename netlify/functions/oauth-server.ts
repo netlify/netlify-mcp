@@ -105,6 +105,8 @@ async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, ov
 
 const oAuthHandler: Handler = async (req, context) => {
 
+  console.log('oauth', {reqMethod: req.httpMethod, url: req.rawUrl});
+
   // Handle CORS preflight requests
   if(req.httpMethod === 'OPTIONS') {
     return {
