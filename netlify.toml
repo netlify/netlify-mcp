@@ -1,0 +1,25 @@
+
+[[redirects]]
+  from = "/mcp/*"
+  to = ".netlify/functions/mcp/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/oauth-server/*"
+  to = ".netlify/functions/oauth-server/:splat"
+  status = 200
+
+
+
+[[redirects]]
+  from = "/.well-known/oauth-protected-resource"
+  to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
+  status = 200
+[[redirects]]
+  from = "/.well-known/oauth-authorization-server"
+  to = ".netlify/functions/oauth-server/.well-known/oauth-authorization-server"
+  status = 200
+[[redirects]]
+  from = "/.well-known/openid-configuration"
+  to = ".netlify/functions/oauth-server/openid-configuration"
+  status = 200

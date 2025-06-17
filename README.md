@@ -80,7 +80,6 @@ For local development, see [Set up local MCP configuration](CONTRIBUTING.md).
 
 ---
 
-
 ## Troubleshooting
 
 ### Node Version

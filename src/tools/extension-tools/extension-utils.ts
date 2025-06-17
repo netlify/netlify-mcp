@@ -69,8 +69,8 @@ export const getSiteId = async ({ projectDir }: { projectDir: string }): Promise
 }
 
 
-export const getSite = async ({ siteId }: { siteId: string }): Promise<NetlifySite> => {
-  const res = await authenticatedFetch(`/api/v1/sites/${siteId}`);
+export const getSite = async ({ siteId, incomingRequest }: { siteId: string, incomingRequest?: Request }): Promise<NetlifySite> => {
+  const res = await authenticatedFetch(`/api/v1/sites/${siteId}`, {}, incomingRequest);
 
   if (!res.ok) {
     const data = await res.json();
@@ -93,19 +93,22 @@ export const getExtensions = async (): Promise<NetlifyExtension[]> => {
 
 export const getExtension = async ({
   accountId,
-  extensionSlug
+  extensionSlug,
+  request
 }: {
   accountId: string;
   extensionSlug: string;
+  request?: Request
 }): Promise<NetlifyExtension> => {
   const res = await authenticatedFetch(
     `${sdkBaseUrl}/${encodeURIComponent(accountId)}/integrations/${encodeURIComponent(extensionSlug)}`,
     {
       headers: {
-        'netlify-token': await getNetlifyAccessToken(),
+        'netlify-token': await getNetlifyAccessToken(request),
         'Api-Version': '2'
       }
-    }
+    },
+    request
   );
 
   if (!res.ok) {
@@ -120,25 +123,27 @@ export const getExtension = async ({
 export const changeExtensionInstallation = async ({
   shouldBeInstalled,
   accountId,
-  extensionSlug
+  extensionSlug,
+  request
 }: {
   shouldBeInstalled: boolean;
   accountId: string;
   extensionSlug: string;
+  request?: Request;
 }): Promise<NetlifyExtension> => {
-  const extensionData = await getExtension({ accountId, extensionSlug });
+  const extensionData = await getExtension({ accountId, extensionSlug, request });
   const res = await authenticatedFetch(`${netlifyFunctionsBaseUrl}/${shouldBeInstalled ? 'install' : 'uninstall'}-extension`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Cookie: `_nf-auth=${await getNetlifyAccessToken()}`
+      Cookie: `_nf-auth=${await getNetlifyAccessToken(request)}`
     },
     body: JSON.stringify({
       teamId: accountId,
       slug: extensionSlug,
       hostSiteUrl: extensionData.hostSiteUrl
     })
-  });
+  }, request);
 
   if (!res.ok) {
     throw new Error(`Failed to install extension: ${extensionSlug}`);
@@ -150,23 +155,25 @@ export const changeExtensionInstallation = async ({
 
 const getSDKToken = async ({
   accountId,
-  extensionSlug
+  extensionSlug,
+  request
 }: {
   accountId: string;
   extensionSlug: string;
+  request?: Request;
 }): Promise<string> => {
   const res = await authenticatedFetch(`${sdkBaseUrl}/generate-token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Api-Version': '2',
-      Cookie: `_nf-auth=${await getNetlifyAccessToken()}`
+      Cookie: `_nf-auth=${await getNetlifyAccessToken(request)}`
     },
     body: JSON.stringify({
       ownerId: accountId,
       integrationSlug: extensionSlug
     })
-  });
+  }, request);
 
   if (!res.ok) {
     const data = await res.json();

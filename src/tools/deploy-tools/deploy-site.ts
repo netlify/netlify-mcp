@@ -20,7 +20,7 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
   inputSchema: deploySiteParamsSchema,
-  cb: async (params) => {
+  cb: async (params, {request}) => {
     const { deployDirectory } = params;
 
     let deployId = '';
@@ -67,7 +67,7 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
           'user-agent': 'netlify-mcp'
         },
         body
-      });
+      }, request);
 
       const responseStatus = `${buildsResp.status} ${buildsResp.statusText}`;
       appendToLog(["Deploy response status:", responseStatus]);

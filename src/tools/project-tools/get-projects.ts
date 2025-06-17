@@ -14,14 +14,14 @@ export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
   domain: 'project',
   operation: 'get-projects',
   inputSchema: getProjectParamsSchema,
-  cb: async ({ teamSlug, projectNameSearchValue }) => {
+  cb: async ({ teamSlug, projectNameSearchValue }, {request}) => {
 
     let apiResults;
 
     if (teamSlug) {
-      apiResults = await getAPIJSONResult(`/api/v1/${teamSlug}/sites`, {}, { pagination: true });
+      apiResults = await getAPIJSONResult(`/api/v1/${teamSlug}/sites`, {}, { pagination: true }, request);
     } else {
-      apiResults = await getAPIJSONResult(`/api/v1/sites?filter=all&sort_by=published_at&order_by=asc${projectNameSearchValue ? `&name=${projectNameSearchValue}` : ''}`, {}, { pagination: true });
+      apiResults = await getAPIJSONResult(`/api/v1/sites?filter=all&sort_by=published_at&order_by=asc${projectNameSearchValue ? `&name=${projectNameSearchValue}` : ''}`, {}, { pagination: true }, request);
     }
 
     const enrichedSites = getEnrichedSiteModelForLLM(apiResults);

@@ -10,8 +10,8 @@ export const getDeployByIdDomainTool: DomainTool<typeof getDeployByIdParamsSchem
   domain: 'deploy',
   operation: 'get-deploy',
   inputSchema: getDeployByIdParamsSchema,
-  cb: async (params) => {
+  cb: async (params, {request}) => {
     const { deployId } = params;
-    return JSON.stringify(await getAPIJSONResult(`/api/v1/deploys/${deployId}`));
+    return JSON.stringify(await getAPIJSONResult(`/api/v1/deploys/${deployId}`, {}, {}, request));
   }
 }

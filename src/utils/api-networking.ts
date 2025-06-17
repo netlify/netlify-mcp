@@ -17,6 +17,14 @@ You're not logged into Netlify on this computer. Use the netlify cli to login. \
 If you don't have the netlify cli installed, install it by running "npm i -g netlify-cli",
 `
 
+export const UNAUTHED_ERROR_PREFIX = 'NetlifyUnauthError:';
+export class NetlifyUnauthError extends Error {
+  constructor(message?: string) {
+    super(`${UNAUTHED_ERROR_PREFIX} ${message || 'unauthenticated request to Netlify MCP API'}`);
+    this.name = 'NetlifyUnauthError';
+  }
+}
+
 const readTokenFromEnv = async () => {
   try {
     // Netlify CLI uses envPaths(...) to build the file path for config.json.
@@ -33,7 +41,20 @@ const readTokenFromEnv = async () => {
   return '';
 }
 
-export const getNetlifyAccessToken = async (): Promise<string> => {
+export const getNetlifyAccessToken = async (request?: Request): Promise<string> => {
+
+  if (request) {
+    const authHeader = request.headers.get('Authorization');
+    let token = '';
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+
+    if(!token) {
+      throw new NetlifyUnauthError('no Bearer token found in Authorization header');
+    }
+  }
+
   let token = '';
 
   // allow the PAT to be set just in case
@@ -54,7 +75,7 @@ export const getNetlifyAccessToken = async (): Promise<string> => {
     }
 
     if (!token) {
-      throw new Error(getAuthTokenMsg);
+      throw new NetlifyUnauthError(getAuthTokenMsg);
     }
   }
   return token;
@@ -73,8 +94,8 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 }
 
 
-export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}) => {
-  const token = await getNetlifyAccessToken();
+export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request) => {
+  const token = await getNetlifyAccessToken(incomingRequest);
   const url = new URL(urlOrPath, 'https://api.netlify.com')
   return unauthenticatedFetch(url.toString(), {
     ...options,
@@ -85,10 +106,16 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
   });
 }
 
-export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}): Promise<any> => {
+
+export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}, incomingRequest?: Request): Promise<any> => {
 
   if(!apiInteractionOptions.pagination){
-    const response = await authenticatedFetch(urlOrPath, options);
+    const response = await authenticatedFetch(urlOrPath, options, incomingRequest);
+
+    if(response.status === 401 && incomingRequest) {
+      throw new NetlifyUnauthError(`Unauthedenticated request to Netlify API. ${urlOrPath}`);
+    }
+
     if (!response.ok) {
       if(apiInteractionOptions.failureCallback){
         return apiInteractionOptions.failureCallback(response);
@@ -127,7 +154,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
     url.searchParams.set('page', page.toString());
     url.searchParams.set('page_size', pageSize.toString());
 
-    const response = await authenticatedFetch(url.toString(), options);
+    const response = await authenticatedFetch(url.toString(), options, incomingRequest);
 
     if (!response.ok) {
       if (apiInteractionOptions.failureCallback) {
@@ -188,8 +215,8 @@ export const getSiteId = async ({ projectDir }: { projectDir: string }): Promise
   return parsedData.siteId;
 }
 
-export const getSite = async ({ siteId }: { siteId: string }): Promise<NetlifySite> => {
-  const res = await authenticatedFetch(`/api/v1/sites/${siteId}`);
+export const getSite = async ({ siteId, incomingRequest }: { siteId: string, incomingRequest?: Request }): Promise<NetlifySite> => {
+  const res = await authenticatedFetch(`/api/v1/sites/${siteId}`, {}, incomingRequest);
 
   if (!res.ok) {
     const data = await res.json();

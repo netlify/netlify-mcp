@@ -16,7 +16,7 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
   domain: 'project',
   operation: 'update-visitor-access-controls',
   inputSchema: getProjectParamsSchema,
-  cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }) => {
+  cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
 
     if(requireSSOTeamLogin === undefined && requirePassword === undefined) {
       return 'You must provide either requireSSOTeamLogin or requirePassword';
@@ -46,7 +46,7 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
     const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {
       method: 'PUT',
       body: JSON.stringify(updatePayload)
-    });
+    }, {}, request);
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
   }

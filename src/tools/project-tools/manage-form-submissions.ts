@@ -16,10 +16,10 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
   domain: 'project',
   operation: 'manage-form-submissions',
   inputSchema: manageFormSubmissionsParamsSchema,
-  cb: async ({ formId, siteId, limit, offset, action, submissionId }) => {
+  cb: async ({ formId, siteId, limit, offset, action, submissionId }, {request}) => {
 
     if(action === 'delete-submission'){
-      await getAPIJSONResult(`/api/v1/submissions/${submissionId}`, { method: 'DELETE' });
+      await getAPIJSONResult(`/api/v1/submissions/${submissionId}`, { method: 'DELETE' }, {}, request);
       return 'Submission deleted';
     }
 
@@ -38,9 +38,9 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
     let apiResults;
 
     if (formId) {
-      apiResults = await getAPIJSONResult(`/api/v1/forms/${formId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset });
+      apiResults = await getAPIJSONResult(`/api/v1/forms/${formId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
     } else if (siteId) {
-      apiResults = await getAPIJSONResult(`/api/v1/sites/${siteId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset });
+      apiResults = await getAPIJSONResult(`/api/v1/sites/${siteId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
     } else {
       return 'Please provide a formId or siteId for selecting which form submissions to fetch'
     }

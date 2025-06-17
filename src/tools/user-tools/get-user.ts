@@ -9,7 +9,7 @@ export const getUserDomainTool: DomainTool<typeof getUserParamsSchema> = {
   domain: 'user',
   operation: 'get-user',
   inputSchema: getUserParamsSchema,
-  cb: async () => {
-    return JSON.stringify(await getAPIJSONResult('/api/v1/user'));
+  cb: async (_, {request}) => {
+    return JSON.stringify(await getAPIJSONResult('/api/v1/user', {}, {}, request));
   }
 }

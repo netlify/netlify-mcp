@@ -12,8 +12,8 @@ export const getDeployBySiteIdDomainTool: DomainTool<typeof getDeployBySiteIdPar
   domain: 'deploy',
   operation: 'get-deploy-for-site',
   inputSchema: getDeployBySiteIdParamsSchema,
-  cb: async (params) => {
+  cb: async (params, {request}) => {
     const { siteId, deployId } = params;
-    return JSON.stringify(await getAPIJSONResult(`/api/v1/sites/${siteId}/deploys/${deployId}`));
+    return JSON.stringify(await getAPIJSONResult(`/api/v1/sites/${siteId}/deploys/${deployId}`, {}, {}, request));
   }
 }

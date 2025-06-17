@@ -15,7 +15,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
   domain: 'project',
   operation: 'create-new-project',
   inputSchema: createNewProjectParamsSchema,
-  cb: async ({ teamSlug, name }) => {
+  cb: async ({ teamSlug, name }, {request}) => {
 
     const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
       method: 'POST',
@@ -31,7 +31,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
 
         throw `Failed to create project: ${response.status}`;
       }
-    });
+    }, request);
 
     if(!site){
       return 'Failed to create project';
