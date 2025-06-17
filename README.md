@@ -73,19 +73,6 @@ For local development, see [Set up local MCP configuration](CONTRIBUTING.md).
 
 ---
 
-## OAuth2/OIDC Authorization Server
-
-A generic OAuth2/OIDC authorization server is provided in `src/oauth-server.ts` using `oidc-provider`.
-
-- Start the server: `node src/oauth-server.ts`
-- Default issuer: `http://localhost:4000`
-- Endpoints: `/auth`, `/token`, `/jwks`, `/.well-known/openid-configuration`, `/reg`, etc.
-- Dynamic client registration, PKCE, refresh token rotation, and introspection are enabled by default.
-
-See `current-project-instructions.md` for full MCP compliance details.
-
----
-
 ## Troubleshooting
 
 ### Node Version
