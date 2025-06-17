@@ -9,7 +9,31 @@ import archiver from "archiver";
 import path from "path";
 import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
-import { authenticatedFetch, getSiteId } from "../../utils/api-networking.js";
+import { authenticatedFetch, getNetlifyAccessToken, getSiteId } from "../../utils/api-networking.js";
+import { createJWE } from '../../../netlify/functions/mcp-server/utils.js';
+
+
+const deploySiteRemotelyParamsSchema = z.object({
+  siteId: z.string().optional().describe(`provide the site id of the site of this site. If the agent cannot find the siteId, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' CLI command to link to an existing site and get a site id.`)
+});
+
+export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyParamsSchema> = {
+  domain: 'deploy',
+  operation: 'deploy-site',
+  inputSchema: deploySiteRemotelyParamsSchema,
+  omitFromRemoteMCP: true,
+  cb: async (params, {request}) => {
+
+    const proxyToken = await createJWE({
+      accessToken: await getNetlifyAccessToken(request),
+    });
+
+    return `
+zip the files in the directory and upload them to Netlify using the /proxy endpoint.
+${proxyToken}
+`
+  }
+};
 
 const deploySiteParamsSchema = z.object({
   deployDirectory: z.string().describe(`absolute file path to the directory containing the code that should be deployed. Must be the root of the project repo unless specified.`),
@@ -20,6 +44,7 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
   inputSchema: deploySiteParamsSchema,
+  omitFromRemoteMCP: true,
   cb: async (params, {request}) => {
     const { deployDirectory } = params;
 

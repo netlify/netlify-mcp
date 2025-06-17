@@ -33,13 +33,12 @@ import { getNetlifyAccessToken, NetlifyUnauthError } from '../utils/api-networki
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
-import { returnNeedsAuthResponse } from '../../netlify/functions/mcp-server/utils.js';
-import { FetchServerResponse } from 'fetch-to-node';
 
 const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools];
 
-export const bindTools = async (server: McpServer, request?: Request) => {
+export const bindTools = async (server: McpServer, remoteMCPRequest?: Request) => {
 
+  const isRemoteMCP = !!remoteMCPRequest;
   const toSelectorSchema = (domainTool: DomainTool<z.ZodType<any>>) => {
     return z.object({
       // domain: z.literal(domainTool.domain),
@@ -51,32 +50,42 @@ export const bindTools = async (server: McpServer, request?: Request) => {
     });
   }
 
-  listOfDomainTools.map(domainTools => {
-
+  listOfDomainTools.forEach(domainTools => {
+    
     const domain = domainTools[0].domain;
+    const filteredDomainTools = domainTools.filter(tool => {
+      if(isRemoteMCP && tool.omitFromRemoteMCP) {
+        return false;
+      }
+      if(!isRemoteMCP && tool.omitFromLocalMCP) {
+        return false;
+      }
+      return true;
+    });
+    const toolOperations = filteredDomainTools.map(tool => tool.operation);
 
     // join the input schemas of all domain tools into a raw array with
     // to give the llm the ability to select.
     const paramsSchema = {
       // @ts-ignore
-      selectSchema: domainTools.length > 1 ? z.union(domainTools.map(tool => toSelectorSchema(tool))) : toSelectorSchema(domainTools[0])
+      selectSchema: filteredDomainTools.length > 1 ? z.union(filteredDomainTools.map(tool => toSelectorSchema(tool))) : toSelectorSchema(filteredDomainTools[0])
     };
 
     const toolName = `netlify-${domain}-services`;
-    const toolDescription = `Select and run one of the following Netlify operations ${domainTools.map(tool => tool.operation).join(', ')}`;
+    const toolDescription = `Select and run one of the following Netlify operations ${toolOperations.join(', ')}`;
 
     server.tool(toolName, toolDescription, paramsSchema, async (...args) => {
       checkCompatibility();
 
       try {
 
-        await getNetlifyAccessToken(request);
+        await getNetlifyAccessToken(remoteMCPRequest);
       } catch (error: NetlifyUnauthError | any) {
 
         // rethrow error to the top level handler to catch
         // so we can update the fn request to return a proper
         // server response instead of a tool response
-        if (error instanceof NetlifyUnauthError && request) {
+        if (error instanceof NetlifyUnauthError && remoteMCPRequest) {
           throw new NetlifyUnauthError();
         }
 
@@ -106,7 +115,7 @@ export const bindTools = async (server: McpServer, request?: Request) => {
         }
       }
 
-      const result = await subtool.cb(selectedSchema.params, {request});
+      const result = await subtool.cb(selectedSchema.params, {request: remoteMCPRequest, isRemoteMCP});
 
       appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 

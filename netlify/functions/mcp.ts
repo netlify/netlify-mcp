@@ -14,7 +14,12 @@ export default async (req: Request) => {
 
   try {
 
-    console.log('mcp', {reqMethod: req.method, url: req.url});
+    // masked headers
+    console.log('mcp', {
+      reqMethod: req.method, 
+      url: req.url,
+      auth: (req.headers.get('Authorization') || '').slice(0, 40) + '...'
+    });
 
     // Handle different HTTP methods
     if (req.method === "POST") {
