@@ -13,7 +13,7 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
   domain: 'project',
   operation: 'update-project-name',
   inputSchema: updateProjectNameParamsSchema,
-  cb: async ({ siteId, name }) => {
+  cb: async ({ siteId, name }, {request}) => {
 
     if(name === undefined || name === '') {
       return 'You must provide a name for this site';
@@ -33,7 +33,7 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
 
         return `Failed to update project name: ${response.status}`;
       }
-    });
+    }, request);
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
   }

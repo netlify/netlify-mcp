@@ -29,14 +29,16 @@ import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
-import { getNetlifyAccessToken } from '../utils/api-networking.js';
+import { getNetlifyAccessToken, NetlifyUnauthError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
+import { returnNeedsAuthResponse } from '../../netlify/functions/mcp-server/utils.js';
+import { FetchServerResponse } from 'fetch-to-node';
 
 const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools];
 
-export const bindTools = async (server: McpServer) => {
+export const bindTools = async (server: McpServer, request?: Request, nodeResponse?: FetchServerResponse) => {
 
   const toSelectorSchema = (domainTool: DomainTool<z.ZodType<any>>) => {
     return z.object({
@@ -49,7 +51,7 @@ export const bindTools = async (server: McpServer) => {
     });
   }
 
-  listOfDomainTools.forEach(domainTools => {
+  listOfDomainTools.map(domainTools => {
 
     const domain = domainTools[0].domain;
 
@@ -67,15 +69,22 @@ export const bindTools = async (server: McpServer) => {
       checkCompatibility();
 
       try {
-        await getNetlifyAccessToken();
-      } catch (error: any) {
+
+        await getNetlifyAccessToken(request);
+      } catch (error: NetlifyUnauthError | any) {
+
+        // rethrow error to the top level handler to catch
+        // so we can update the fn request to return a proper
+        // server response instead of a tool response
+        if (error instanceof NetlifyUnauthError && request) {
+          throw new NetlifyUnauthError();
+        }
+
         return {
           content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
           isError: true
         };
       }
-
-      // return await tool.cb(...args);
 
       appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
 
@@ -97,7 +106,7 @@ export const bindTools = async (server: McpServer) => {
         }
       }
 
-      const result = await subtool.cb(selectedSchema.params);
+      const result = await subtool.cb(selectedSchema.params, {request});
 
       appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 

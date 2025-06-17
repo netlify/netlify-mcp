@@ -22,9 +22,9 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
   domain: 'project',
   operation: 'manage-env-vars',
   inputSchema: manageEnvVarsParamsSchema,
-  cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}) => {
+  cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
-    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`);
+    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {}, {}, request);
     const teamId = site?.account_id;
 
     if(!site || !teamId){
@@ -32,13 +32,13 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
     }
 
     if(deleteEnvVar){
-      await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, { method: 'DELETE' });
+      await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, { method: 'DELETE' }, {}, request);
       return `Environment variable deleted: ${envVarKey}`;
     }
 
     if(upsertEnvVar){
 
-      const existingEnvVarResp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`);
+      const existingEnvVarResp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, request);
 
       let existingEnvVar = null;
 
@@ -72,13 +72,13 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
               context,
               value: envVarValue
             })
-          });
+          }, {}, request);
         }
       } else {
         const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
           method: 'POST',
           body: JSON.stringify([envVar])
-        });
+        }, request);
 
         appendToLog(`create result${resp.status} ${await resp.text()}`);
       }
@@ -88,7 +88,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
     if(getAllEnvVars){
       if (siteId) {
-        const envVars = await getAPIJSONResult(`/api/v1/sites/${siteId}/env`);
+        const envVars = await getAPIJSONResult(`/api/v1/sites/${siteId}/env`, {}, {}, request);
 
         if (Array.isArray(envVarKey) && envVarKey.length > 0) {
           return JSON.stringify(envVars.find((envVar: any) => envVarKey === envVar.key));

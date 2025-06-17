@@ -12,8 +12,8 @@ export const getFormsForProjectDomainTool: DomainTool<typeof getFormsForProjectP
   domain: 'project',
   operation: 'get-forms-for-project',
   inputSchema: getFormsForProjectParamsSchema,
-  cb: async ({ siteId, formId }) => {
-    const forms = await getAPIJSONResult(`/api/v1/sites/${siteId}/forms`);
+  cb: async ({ siteId, formId }, {request}) => {
+    const forms = await getAPIJSONResult(`/api/v1/sites/${siteId}/forms`, {}, {}, request);
 
     if(formId && Array.isArray(forms)) {
       return JSON.stringify(forms.find(form => form.id === formId) || 'form with id does not exist');

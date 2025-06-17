@@ -13,7 +13,7 @@ export const updateFormsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
   domain: 'project',
   operation: 'update-forms',
   inputSchema: getProjectParamsSchema,
-  cb: async ({ siteId, forms }) => {
+  cb: async ({ siteId, forms }, {request}) => {
 
     if(forms === undefined) {
       return 'You must provide either "enabled" or "disabled" for this site\'s forms setting';
@@ -28,7 +28,7 @@ export const updateFormsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
       body: JSON.stringify({
         processing_settings: updatePayload
       })
-    });
+    }, {}, request);
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
   }

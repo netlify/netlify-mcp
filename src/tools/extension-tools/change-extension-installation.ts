@@ -15,14 +15,15 @@ export const changeExtensionInstallationDomainTool: DomainTool<typeof changeExte
   domain: 'extension',
   operation: 'change-extension-installation',
   inputSchema: changeExtensionInstallationParamsSchema,
-  cb: async ({ extensionSlug, shouldBeInstalled, teamId, siteId }) => {
+  cb: async ({ extensionSlug, shouldBeInstalled, teamId, siteId }, {request}) => {
 
     try {
 
       await changeExtensionInstallation({
         shouldBeInstalled,
         accountId: teamId,
-        extensionSlug
+        extensionSlug,
+        request,
       });
 
       appendToLog(`Extension "${extensionSlug}" successfully ${shouldBeInstalled ? 'installed' : 'uninstalled'} on account "${teamId}"`);
@@ -30,7 +31,8 @@ export const changeExtensionInstallationDomainTool: DomainTool<typeof changeExte
       // Check if extension has site-level configuration
       const extensionData = await getExtension({
         accountId: teamId,
-        extensionSlug
+        extensionSlug,
+        request
       });
 
       if (extensionData?.uiSurfaces?.includes('extension-team-configuration')) {
@@ -38,7 +40,7 @@ export const changeExtensionInstallationDomainTool: DomainTool<typeof changeExte
           return `Extension has been installed successfully. Configure it here: https://app.netlify.com/team/${teamId}/extension/${extensionSlug}`
         }
       }else if (siteId && extensionData.uiSurfaces?.includes('extension-top-level-site-configuration')) {
-        const site = await getSite({ siteId });
+        const site = await getSite({ siteId, incomingRequest: request });
 
         if(shouldBeInstalled){
           return `Extension has been installed successfully. Configure it here: https://app.netlify.com/sites/${site.name}/extensions/${extensionSlug}`
