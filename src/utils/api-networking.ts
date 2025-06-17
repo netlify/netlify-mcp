@@ -68,7 +68,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.slice(7);
     }
-
+    console.log({authHeader, token, requestHeaders: Object.fromEntries(request.headers.entries())});
     if(!token) {
       throw new NetlifyUnauthError('no Bearer token found in Authorization header');
     }
