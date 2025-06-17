@@ -38,7 +38,7 @@ import { FetchServerResponse } from 'fetch-to-node';
 
 const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools];
 
-export const bindTools = async (server: McpServer, request?: Request, nodeResponse?: FetchServerResponse) => {
+export const bindTools = async (server: McpServer, request?: Request) => {
 
   const toSelectorSchema = (domainTool: DomainTool<z.ZodType<any>>) => {
     return z.object({
