@@ -54,7 +54,7 @@ async function handleMCPPost(req: Request) {
   const { req: nodeReq, res: nodeRes } = toReqRes(req);
   
   try {
-    console.log('Handling MCP POST request', {body: await (await req.clone()).json()});
+    console.log('Handling MCP POST request', {body: JSON.stringify(await (await req.clone()).json(), null, 2)});
   } catch (error) {
     console.error('Error reading request body:', error);
   }
