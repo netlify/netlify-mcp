@@ -53,6 +53,12 @@ async function handleMCPPost(req: Request) {
   // Convert the Request object into a Node.js Request object
   const { req: nodeReq, res: nodeRes } = toReqRes(req);
   
+  try {
+    console.log('Handling MCP POST request', {body: await (await req.clone()).json()});
+  } catch (error) {
+    console.error('Error reading request body:', error);
+  }
+
   // TBD if needed.
   // if(!await userIsAuthenticated(req)){
   //   return returnNeedsAuthResponse();
