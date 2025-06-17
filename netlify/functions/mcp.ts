@@ -7,7 +7,7 @@ import { getPackageVersion } from "../../src/utils/version.js";
 import { z } from "zod";
 import { checkCompatibility } from "../../src/utils/compatibility.js";
 import { bindTools } from "../../src/tools/index.js";
-import { NetlifyUnauthError, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.js";
+import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.js";
 
 // Netlify serverless function handler
 export default async (req: Request) => {
@@ -51,6 +51,10 @@ async function handleMCPPost(req: Request) {
   // Convert the Request object into a Node.js Request object
   const { req: nodeReq, res: nodeRes } = toReqRes(req);
   
+  if(!await userIsAuthenticated(req)){
+    return returnNeedsAuthResponse();
+  }
+
   const server = new McpServer({
     name: "netlify-mcp",
     version: getPackageVersion(),

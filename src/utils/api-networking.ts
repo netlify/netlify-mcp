@@ -41,6 +41,25 @@ const readTokenFromEnv = async () => {
   return '';
 }
 
+export const userIsAuthenticated = async (request?: Request): Promise<boolean> => {
+  try {
+    const token = await getNetlifyAccessToken(request);
+    if (!token) {
+      return false;
+    }
+    const response = await authenticatedFetch('/api/v1/user', {}, request);
+    if(response.status === 401) {
+      return false;
+    }
+  } catch (error) {
+    if (error instanceof NetlifyUnauthError) {
+      return false;
+    }
+    throw error; // rethrow other errors
+  }
+  return true;
+}
+
 export const getNetlifyAccessToken = async (request?: Request): Promise<string> => {
 
   if (request) {
