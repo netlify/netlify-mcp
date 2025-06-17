@@ -14,7 +14,7 @@ export default async (req: Request) => {
 
   try {
 
-    console.log('mcp', {reqMethod: req.method, url: req.url});
+    console.log('mcp', {reqMethod: req.method, url: req.url, headers: Object.fromEntries(req.headers.entries())});
 
     // Handle different HTTP methods
     if (req.method === "POST") {
@@ -56,7 +56,7 @@ async function handleMCPPost(req: Request) {
   try {
     console.log('Handling MCP POST request', {
       body: JSON.stringify(await (await req.clone()).json(), null, 2),
-      headers: headersToHeadersObject(req.headers)
+      headers: headersToHeadersObject(req.headers),
     });
   } catch (error) {
     console.error('Error reading request body:', error);
