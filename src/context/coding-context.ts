@@ -1,5 +1,5 @@
 import { appendErrorToLog } from "../utils/logging.js"
-import { unauthenticatedFetch } from "../utils/api-networking.js";
+import { unauthenticatedFetch } from "../utils/api-networking.ts";
 
 export interface ConsumersData {
   consumers: ConsumerConfig[]

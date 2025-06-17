@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DomainTool } from '../types.js';
 
-import { appendErrorToLog, appendToLog } from "../../utils/logging.js";
+import { appendErrorToLog, appendToLog } from "../../utils/logging.ts";
 
 import { createWriteStream, readFileSync, promises as fs } from "fs";
 // @ts-ignore
@@ -9,9 +9,8 @@ import archiver from "archiver";
 import path from "path";
 import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
-import { authenticatedFetch, getNetlifyAccessToken, getSiteId } from "../../utils/api-networking.js";
-import { createJWE } from '../../../netlify/functions/mcp-server/utils.js';
-
+import { authenticatedFetch, getNetlifyAccessToken, getSiteId } from "../../utils/api-networking.ts";
+import { createJWE, getOAuthIssuer } from '../../../netlify/functions/mcp-server/utils.js';
 
 const deploySiteRemotelyParamsSchema = z.object({
   siteId: z.string().optional().describe(`provide the site id of the site of this site. If the agent cannot find the siteId, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' CLI command to link to an existing site and get a site id.`)
@@ -21,16 +20,37 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   domain: 'deploy',
   operation: 'deploy-site',
   inputSchema: deploySiteRemotelyParamsSchema,
-  omitFromRemoteMCP: true,
+  omitFromLocalMCP: true,
   cb: async (params, {request}) => {
+    const apiPath = `/api/v1/sites/${params.siteId}/builds`;
 
     const proxyToken = await createJWE({
       accessToken: await getNetlifyAccessToken(request),
+      siteId: params.siteId,
+      apiPath
     });
 
+    const proxyPath = `/proxy/${proxyToken}${apiPath}`;
+    const deployId = randomUUID();
+    const fileName = `site-${deployId}.zip`;
     return `
-zip the files in the directory and upload them to Netlify using the /proxy endpoint.
-${proxyToken}
+To deploy this site to Netlify, you must zip the files and upload them. Use
+the following command on POSIX machines. Do not split this command into separate steps, run it as is:
+
+\`\`\`shell
+zip -r ${fileName} . -x \\
+  ".netlify/*" \\
+  "node_modules/*" \\
+  ".git/*" \\
+  "dist/*" \\
+  ".next/*" \\
+  "*.log" \\
+  "*.env*" && curl -X POST \\
+  -F "title=Deploy from Netlify Remote MCP" \\
+  -F "zip=@${fileName};type=application/zip" \\
+  "${getOAuthIssuer()}${proxyPath}" \\
+  && rm ${fileName}
+\`\`\`
 `
   }
 };
@@ -46,6 +66,7 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
   inputSchema: deploySiteParamsSchema,
   omitFromRemoteMCP: true,
   cb: async (params, {request}) => {
+
     const { deployDirectory } = params;
 
     let deployId = '';

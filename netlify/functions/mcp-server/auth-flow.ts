@@ -1,6 +1,6 @@
 import { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
-import { createJWE, decryptJWE } from "./utils.js";
+import { createJWE, decryptJWE } from "./utils.ts";
 
 interface CODE_JWE_PAYLOAD {
   state: Record<string, any>;

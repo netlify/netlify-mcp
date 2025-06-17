@@ -73,7 +73,6 @@ export const bindTools = async (server: McpServer, remoteMCPRequest?: Request) =
 
     const toolName = `netlify-${domain}-services`;
     const toolDescription = `Select and run one of the following Netlify operations ${toolOperations.join(', ')}`;
-
     server.tool(toolName, toolDescription, paramsSchema, async (...args) => {
       checkCompatibility();
 
@@ -107,7 +106,7 @@ export const bindTools = async (server: McpServer, remoteMCPRequest?: Request) =
 
       const operation = selectedSchema.operation;
 
-      const subtool = domainTools.find(subtool => subtool.operation === operation);
+      const subtool = filteredDomainTools.find(subtool => subtool.operation === operation);
 
       if (!subtool) {
         return {

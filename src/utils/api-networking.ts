@@ -68,7 +68,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     let token = '';
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const bearerToken = authHeader.slice(7);
-      if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp')){
+      if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp') || bearerToken.startsWith('nfo')){
         token = bearerToken;
       }else {
         const decrypted = await decryptJWE(bearerToken) ;
@@ -80,7 +80,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
       }
 
     }
-    console.log({authHeader, token, requestHeaders: Object.fromEntries(request.headers.entries())});
+
     if(!token) {
       throw new NetlifyUnauthError('no Bearer token found in Authorization header');
     }

@@ -2,13 +2,14 @@ import serverless from "serverless-http";
 import type { Handler, HandlerResponse, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { Provider } from "oidc-provider";
 import type { Configuration } from "oidc-provider";
-import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.js";
-import { getOAuthIssuer, addCORSHeaders, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.js";
+import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
+import { getOAuthIssuer, addCORSHeaders, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
 const clientRedirectPath = '/oauth-server/client-redirect';
 const serverRedirectPath = '/oauth-server/server-redirect';
+const registrationEndpointPath = '/oauth-server/reg';
 
 // MCP-compliant OAuth2/OIDC server configuration
 // Minimal MCP-compliant OAuth2/OIDC server configuration
@@ -56,7 +57,7 @@ const configuration: Configuration = {
     introspection: '/oauth-server/token/introspection',
     jwks: '/404-jwks', // 404 until we can setup properly '/oauth-server/jwks',
     pushed_authorization_request: '/oauth-server/request',
-    registration: '/oauth-server/reg',
+    registration: registrationEndpointPath,
     revocation: '/oauth-server/token/revocation',
     token: tokenEndpointPath,
     userinfo: '/oauth-server/me'
@@ -93,7 +94,6 @@ async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, ov
   const wrappedAppInvoker = serverless(oidcProvider)
   const response = await wrappedAppInvoker(updatedReq, context) as HandlerResponse;
 
-
   const respHeaders = headersToHeadersObject(req.headers as Record<string, string>);
   respHeaders.delete('content-length'); // Remove content-length to avoid issues with streaming responses
 
@@ -116,7 +116,7 @@ const oAuthHandler: Handler = async (req, context) => {
   }
 
   const parsedUrl = getParsedUrl(req);
-  const reqObj = new Request(req.rawUrl, {
+  let reqObj = new Request(req.rawUrl, {
     method: req.httpMethod,
     headers: headersToHeadersObject(req.headers as Record<string, string>),
     body: req.body || null
@@ -129,6 +129,7 @@ const oAuthHandler: Handler = async (req, context) => {
   const isClientRedirectPath = parsedUrl.pathname.endsWith(clientRedirectPath);
   const isServerRedirectPath = parsedUrl.pathname.endsWith(serverRedirectPath);
   const isCodeExchangePath = parsedUrl.pathname.endsWith(tokenEndpointPath);
+  const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
 
   // we want OIDC discovery to handle these paths
   if (getProtectedResource || getAuthorizationServer) {
@@ -161,6 +162,35 @@ const oAuthHandler: Handler = async (req, context) => {
   }else if(isCodeExchangePath){
     return await handleCodeExchange(reqObj);
   }
+
+  // ensure requests have a proper application type
+  // if(isRegistrationPath){
+  //   const regInfo = JSON.parse(req.body || '{}');
+  //   if(regInfo && !regInfo.application_type && Array.isArray(regInfo.redirect_uris)){
+  //     regInfo.redirect_uris.some((uri: string) => {
+  //       if(uri.startsWith('http')){
+  //         regInfo.application_type = 'web';
+  //         return true;
+  //       }
+  //       return false;
+  //     });
+
+  //     if(regInfo.application_type !== 'web'){
+  //       regInfo.application_type = 'native';
+  //     }
+      
+  //     reqObj.headers.delete('content-length');
+  //     reqObj = new Request(req.rawUrl, {
+  //       method: reqObj.method,
+  //       headers: reqObj.headers,
+  //       body: JSON.stringify(regInfo),
+  //     });
+  //     req.headers = Object.fromEntries(reqObj.headers.entries());
+  //     req.body = JSON.stringify(regInfo);
+
+  //     console.log('updated', JSON.stringify(req, null, 2));
+  //   }
+  // }
 
   // allow catch all for these paths to be handled by the OIDC provider
   const resp = await invokeOIDCProvider(req, context, invocationOverrides);

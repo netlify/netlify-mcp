@@ -3,10 +3,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.js";
-import { getPackageVersion } from "./src/utils/version.js";
-import { checkCompatibility } from "./src/utils/compatibility.js";
-import { bindTools } from "./src/tools/index.js";
+import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.ts";
+import { getPackageVersion } from "./src/utils/version.ts";
+import { checkCompatibility } from "./src/utils/compatibility.ts";
+import { bindTools } from "./src/tools/index.ts";
 
 
 const server = new McpServer({

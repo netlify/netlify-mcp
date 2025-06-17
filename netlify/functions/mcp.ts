@@ -1,13 +1,13 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
-import { headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.js";
-import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.js";
+import { headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
+import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getPackageVersion } from "../../src/utils/version.js";
+import { getPackageVersion } from "../../src/utils/version.ts";
 import { z } from "zod";
-import { checkCompatibility } from "../../src/utils/compatibility.js";
-import { bindTools } from "../../src/tools/index.js";
-import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.js";
+import { checkCompatibility } from "../../src/utils/compatibility.ts";
+import { bindTools } from "../../src/tools/index.ts";
+import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
 
 // Netlify serverless function handler
 export default async (req: Request) => {
@@ -82,7 +82,7 @@ async function handleMCPPost(req: Request) {
   
   server.tool(
     "get-netlify-coding-context",
-    "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
+    "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library  usage, etc. Use other operations for project management.",
     { creationType: creationTypeEnum },
     async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
   
