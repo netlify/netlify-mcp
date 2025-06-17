@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import envPaths from 'env-paths';
 import { runCommand } from './cmd.js';
 import { appendToLog } from './logging.js';
+import { decryptJWE } from '../../netlify/functions/mcp-server/utils.js';
 
 interface APIInteractionOptions {
   pagination?: boolean;
@@ -66,7 +67,18 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     const authHeader = request.headers.get('Authorization');
     let token = '';
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
+      const bearerToken = authHeader.slice(7);
+      if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp')){
+        token = bearerToken;
+      }else {
+        const decrypted = await decryptJWE(bearerToken) ;
+        if(decrypted && typeof decrypted.accessToken === 'string') {
+          token = decrypted.accessToken;
+        } else {
+          console.error(`decrypted JWE did not contain accessToken. fields it does have:`, Object.keys(decrypted));
+        }
+      }
+
     }
     console.log({authHeader, token, requestHeaders: Object.fromEntries(request.headers.entries())});
     if(!token) {
