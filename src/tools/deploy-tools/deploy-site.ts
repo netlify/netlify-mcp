@@ -38,7 +38,7 @@ To deploy this site to Netlify, you must zip the files and upload them. Use
 the following command on POSIX machines. Do not split this command into separate steps, run it as is:
 
 \`\`\`shell
-npx -y bestzip ${fileName} . --exclude .netlify node_modules .git dist .next "*.log" "*.env*" && curl -X POST \\
+npx -y bestzip ${fileName} ./**/* && curl -X POST \\
  -F "title=Deploy from Netlify Remote MCP" \\
  -F "zip=@${fileName};type=application/zip" \\
  "${getOAuthIssuer()}${proxyPath}" \\
