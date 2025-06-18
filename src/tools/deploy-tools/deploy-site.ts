@@ -40,7 +40,7 @@ the following command on POSIX machines. Do not split this command into separate
 This directory must be the root of the project repo (not the dist or build output dir) unless specified otherwise.:
 
 \`\`\`shell
-npx -y @netlify/mcp --site-id ${params.siteId} --request-path "${getOAuthIssuer()}${proxyPath}"
+npx -y @netlify/mcp --site-id ${params.siteId} --upload-path "${getOAuthIssuer()}${proxyPath}"
 \`\`\`
 `
   }

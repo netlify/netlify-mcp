@@ -13,14 +13,21 @@ import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
 // check to see if it's ran as a command to zip and build
 if(process.argv.includes('--upload-path')) {
   (async ()=>{
+    console.log('Starting zip and build...');
     checkCompatibility();
     // get directory that the command was run in
     const deployDirectory = process.cwd();
     const siteId = process.argv[process.argv.indexOf('--site-id') + 1] || undefined;
     const uploadPath = process.argv[process.argv.indexOf('--upload-path') + 1] || undefined;
     console.log({deployDirectory, siteId, uploadPath});
+
+    setInterval(() => {
+      console.log('Still uploading your project...')
+    }, 1000); // keep the process alive for a while to see the logs
     const { deployId, buildId } = await zipAndBuild({ deployDirectory, siteId, uploadPath });
+    
     console.log(JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
+
     process.exit(0);
   })();
 
