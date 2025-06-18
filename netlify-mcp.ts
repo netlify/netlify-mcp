@@ -7,38 +7,57 @@ import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context
 import { getPackageVersion } from "./src/utils/version.ts";
 import { checkCompatibility } from "./src/utils/compatibility.ts";
 import { bindTools } from "./src/tools/index.ts";
+import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
 
 
-const server = new McpServer({
-  name: "netlify-mcp",
-  version: getPackageVersion()
-});
-
-// load the consumer configuration for the MCP so
-// we can share all of the available context for the
-// client to select from.
-const contextConsumer = await getContextConsumerConfig();
-const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
-
-server.tool(
-  "netlify-coding-rules",
-  "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
-  { creationType: creationTypeEnum },
-  async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
-
+// check to see if it's ran as a command to zip and build
+if(process.argv.includes('--upload-path')) {
+  (async ()=>{
     checkCompatibility();
+    // get directory that the command was run in
+    const deployDirectory = process.cwd();
+    const siteId = process.argv[process.argv.indexOf('--site-id') + 1] || undefined;
+    const uploadPath = process.argv[process.argv.indexOf('--upload-path') + 1] || undefined;
+    console.log({deployDirectory, siteId, uploadPath});
+    const { deployId, buildId } = await zipAndBuild({ deployDirectory, siteId, uploadPath });
+    console.log(JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
+    process.exit(0);
+  })();
 
-    const context = await getNetlifyCodingContext(creationType);
-    const text = context?.content || '';
+}else {
 
-    return ({
-      content: [{type: "text", text}]
-    });
-  }
-);
+  const server = new McpServer({
+    name: "netlify-mcp",
+    version: getPackageVersion()
+  });
 
-await bindTools(server);
+  // load the consumer configuration for the MCP so
+  // we can share all of the available context for the
+  // client to select from.
+  const contextConsumer = await getContextConsumerConfig();
+  const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
+  const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+  server.tool(
+    "netlify-coding-rules",
+    "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
+    { creationType: creationTypeEnum },
+    async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
+
+      checkCompatibility();
+
+      const context = await getNetlifyCodingContext(creationType);
+      const text = context?.content || '';
+
+      return ({
+        content: [{type: "text", text}]
+      });
+    }
+  );
+
+  await bindTools(server);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+}

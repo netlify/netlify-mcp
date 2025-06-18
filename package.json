@@ -1,6 +1,6 @@
 {
   "name": "@netlify/mcp",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "",
   "type": "module",
   "main": "./dist/netlify-mcp.js",
@@ -32,7 +32,7 @@
     "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
-    "@types/node": "^22.14.1",
+    "@types/node": "^22.15.32",
     "@types/oidc-provider": "^9.1.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3"

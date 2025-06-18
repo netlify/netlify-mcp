@@ -9,7 +9,7 @@ import archiver from "archiver";
 import path from "path";
 import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
-import { authenticatedFetch, getNetlifyAccessToken, getSiteId } from "../../utils/api-networking.ts";
+import { authenticatedFetch, getNetlifyAccessToken, getSiteId, unauthenticatedFetch } from "../../utils/api-networking.ts";
 import { createJWE, getOAuthIssuer } from '../../../netlify/functions/mcp-server/utils.js';
 
 const deploySiteRemotelyParamsSchema = z.object({
@@ -27,7 +27,8 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
     const proxyToken = await createJWE({
       accessToken: await getNetlifyAccessToken(request),
       siteId: params.siteId,
-      apiPath
+      apiPath,
+      apiMethod: 'POST'
     });
 
     const proxyPath = `/proxy/${proxyToken}${apiPath}`;
@@ -39,11 +40,7 @@ the following command on POSIX machines. Do not split this command into separate
 This directory must be the root of the project repo (not the dist or build output dir) unless specified otherwise.:
 
 \`\`\`shell
-npx -y bestzip ${fileName} ./**/* && curl -X POST \\
- -F "title=Deploy from Netlify Remote MCP" \\
- -F "zip=@${fileName};type=application/zip" \\
- "${getOAuthIssuer()}${proxyPath}" \\
- && rm ${fileName}
+npx -y @netlify/mcp --site-id ${params.siteId} --request-path "${getOAuthIssuer()}${proxyPath}"
 \`\`\`
 `
   }
@@ -63,11 +60,6 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
 
     const { deployDirectory } = params;
 
-    let deployId = '';
-    let buildId = '';
-
-    const id = randomUUID();
-    const fileName = `deploy-${Date.now()}-${id}.zip`;
 
     if (!deployDirectory) {
       throw new Error("Missing required parameter: deployDirectory");
@@ -81,99 +73,126 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
     if (!siteId) {
       throw new Error("Missing required parameter: siteId. Get from .netlify/state.json file or use 'netlify link' CLI command to link to an existing site and get a site id.");
     }
-
-    const zipPath = path.resolve(deployDirectory, fileName);
-
-    const deleteZip = async () => {
-      try {
-        await rm(zipPath);
-      } catch { }
-    };
-
-    try {
-
-      await zipFiles({ directory: deployDirectory, zipPath });
-
-      appendToLog(["Deploying site...", JSON.stringify({ zipPath })]);
-
-      const { headers, body } = await prepareZipUpload(zipPath);
-
-      // Using form-data with node-fetch - use /deploys endpoint instead of /builds
-      const buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, {
-        method: "POST",
-        headers: {
-          // 'content-type': 'multipart/form-data',  // This includes the Content-Type with boundary
-          ...headers,
-          'user-agent': 'netlify-mcp'
-        },
-        body
-      }, request);
-
-      const responseStatus = `${buildsResp.status} ${buildsResp.statusText}`;
-      appendToLog(["Deploy response status:", responseStatus]);
-
-      // Get response content
-      const responseText = await buildsResp.text();
-      let deployData;
-
-      try {
-        // Try to parse as JSON
-        deployData = JSON.parse(responseText);
-        appendToLog(["Deploy response body:", JSON.stringify(deployData)]);
-      } catch (e) {
-        // If not JSON, log as text
-        appendToLog(["Deploy response (not JSON):", responseText]);
-      }
-
-      if (!buildsResp.ok) {
-        const requestId = buildsResp.headers.get('x-request-id') || 'unknown';
-        appendErrorToLog(`Failed to deploy site: ${responseStatus} (Request ID: ${requestId})`, responseText);
-        throw new Error(`Failed to deploy site: ${responseStatus}`);
-      }
-
-      // Extract deploy ID from response
-      deployId = deployData?.deploy_id || '';
-      buildId = deployData?.id || '';
-      appendToLog(["Deployment started with ID:", deployId]);
-    } catch (error) {
-      appendErrorToLog(`Failed to deploy site: ${error}`);
-      await deleteZip();
-      throw new Error(`Failed to deploy site: ${error}`);
-    }
-
-    await deleteZip();
-
-    // ensure the site id is set on the site if we know it
-    try {
-      const stateFilePath = path.resolve(deployDirectory, '.netlify', 'state.json');
-      let stateFileContent = '{}';
-
-      try {
-        stateFileContent = await fs.readFile(stateFilePath, 'utf-8');
-      } catch (error) {
-        // If the file doesn't exist, we'll create it later
-      }
-
-      let state: Record<string, any> = {};
-
-      try {
-        state = JSON.parse(stateFileContent) as Record<string, any>;
-      } catch { }
-
-      // If the siteId is not present, we add it
-      if (!state.siteId) {
-        state.siteId = siteId;
-        await fs.mkdir(path.dirname(stateFilePath), { recursive: true });
-        await fs.writeFile(stateFilePath, JSON.stringify(state, null, 2));
-      }
-    } catch (error) {
-      appendErrorToLog(`Failed to read or write state file: ${error}`);
-    }
+    
+    const {deployId, buildId} = await zipAndBuild({ deployDirectory, siteId, request });
     
     return JSON.stringify({ deployId, buildId, monitorDeployUrl: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` });
   }
 }
 
+
+export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}: {
+  deployDirectory: string; 
+  siteId?: string; 
+  request?: Request;
+  uploadPath?: string; 
+}){
+  let deployId = '';
+  let buildId = '';
+  
+  const id = randomUUID();
+  const fileName = `deploy-${Date.now()}-${id}.zip`;
+
+  const zipPath = path.resolve(deployDirectory, fileName);
+
+  const deleteZip = async () => {
+    try {
+      await rm(zipPath);
+    } catch { }
+  };
+
+  try {
+
+    await zipFiles({ directory: deployDirectory, zipPath });
+
+    appendToLog(["Deploying site...", JSON.stringify({ zipPath })]);
+
+    const { headers, body } = await prepareZipUpload(zipPath);
+    const reqInit = {
+      method: "POST",
+      headers: {
+        // 'content-type': 'multipart/form-data',  // This includes the Content-Type with boundary
+        ...headers,
+        'user-agent': 'netlify-mcp'
+      },
+      body
+    };
+
+    console.log('', JSON.stringify({ deployDirectory, siteId, uploadPath }, null, 2));
+    let buildsResp;
+    if(uploadPath){
+      console.log('start sending ')
+      buildsResp = await unauthenticatedFetch(uploadPath, reqInit);
+      console.log('done sending ')
+    }else {
+      // Using form-data with node-fetch - use /deploys endpoint instead of /builds
+      buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, request);
+    }
+    
+
+    const responseStatus = `${buildsResp.status} ${buildsResp.statusText}`;
+    appendToLog(["Deploy response status:", responseStatus]);
+
+    // Get response content
+    const responseText = await buildsResp.text();
+    let deployData;
+
+    try {
+      // Try to parse as JSON
+      deployData = JSON.parse(responseText);
+      appendToLog(["Deploy response body:", JSON.stringify(deployData)]);
+    } catch (e) {
+      // If not JSON, log as text
+      appendToLog(["Deploy response (not JSON):", responseText]);
+    }
+
+    if (!buildsResp.ok) {
+      const requestId = buildsResp.headers.get('x-request-id') || 'unknown';
+      appendErrorToLog(`Failed to deploy site: ${responseStatus} (Request ID: ${requestId})`, responseText);
+      throw new Error(`Failed to deploy site: ${responseStatus}`);
+    }
+
+    // Extract deploy ID from response
+    deployId = deployData?.deploy_id || '';
+    buildId = deployData?.id || '';
+    appendToLog(["Deployment started with ID:", deployId]);
+  } catch (error) {
+    appendErrorToLog(`Failed to deploy site: ${error}`);
+    await deleteZip();
+    throw new Error(`Failed to deploy site: ${error}`);
+  }
+
+  await deleteZip();
+
+  // ensure the site id is set on the site if we know it
+  try {
+    const stateFilePath = path.resolve(deployDirectory, '.netlify', 'state.json');
+    let stateFileContent = '{}';
+
+    try {
+      stateFileContent = await fs.readFile(stateFilePath, 'utf-8');
+    } catch (error) {
+      // If the file doesn't exist, we'll create it later
+    }
+
+    let state: Record<string, any> = {};
+
+    try {
+      state = JSON.parse(stateFileContent) as Record<string, any>;
+    } catch { }
+
+    // If the siteId is not present, we add it
+    if (!state.siteId) {
+      state.siteId = siteId;
+      await fs.mkdir(path.dirname(stateFilePath), { recursive: true });
+      await fs.writeFile(stateFilePath, JSON.stringify(state, null, 2));
+    }
+  } catch (error) {
+    appendErrorToLog(`Failed to read or write state file: ${error}`);
+  }
+
+  return { deployId, buildId };
+}
 
 
 function zipFiles({ directory, zipPath }: { directory: string; zipPath: string; }) {
