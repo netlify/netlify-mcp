@@ -34,8 +34,9 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
     const deployId = randomUUID();
     const fileName = `site-${deployId}.zip`;
     return `
-To deploy this site to Netlify, you must zip the files and upload them. Use
-the following command on POSIX machines. Do not split this command into separate steps, run it as is:
+To deploy this site to Netlify, you must zip the repo source files and upload them. Use
+the following command on POSIX machines. Do not split this command into separate steps, run it as is. 
+This directory must be the root of the project repo (not the dist or build output dir) unless specified otherwise.:
 
 \`\`\`shell
 npx -y bestzip ${fileName} ./**/* && curl -X POST \\
