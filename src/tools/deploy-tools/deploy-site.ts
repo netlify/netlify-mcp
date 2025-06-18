@@ -29,7 +29,7 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
       siteId: params.siteId,
       apiPath,
       apiMethod: 'POST'
-    });
+    }, '30m');
 
     const proxyPath = `/proxy/${proxyToken}${apiPath}`;
     const deployId = randomUUID();

@@ -186,7 +186,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     };
   }
 
-  const accessTokenJEW = await createJWE({accessToken});
+  const accessTokenJEW = await createJWE({accessToken}, '48h');
 
   return {
     statusCode: 200,

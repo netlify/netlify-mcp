@@ -64,13 +64,13 @@ export function returnNeedsAuthResponse() {
   });
 }
 
-export async function createJWE(payload: Record<string, any>) {
+export async function createJWE(payload: Record<string, any>, expiresIn: string = '1h'): Promise<string> {
   const password = JWE_SECRET
   const secret = new TextEncoder().encode(password.padEnd(32, '0').slice(0, 32)) // Ensure 32 bytes
   
   const jwe = await new EncryptJWT(payload)
     .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-    .setExpirationTime('1h')
+    .setExpirationTime(expiresIn)
     .encrypt(secret)
   
   return jwe
