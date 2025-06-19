@@ -38,7 +38,7 @@ if(proxyPath) {
       process.exit(0);
     }
 
-    const deployEndpoint = `/api/v1/deploys/${deployId}`;
+    const deployEndpoint = `${proxyUrl}/api/v1/deploys/${deployId}`;
     // states: new,pending_review,accepted,rejected,enqueued,building,uploading,uploaded,preparing,prepared,processing,ready,error,retrying
     // wait for the deploy to finish
     setInterval(async () => {
