@@ -133,9 +133,7 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
     console.log('', JSON.stringify({ deployDirectory, siteId, uploadPath }, null, 2));
     let buildsResp;
     if(uploadPath){
-      console.log('start sending ')
       buildsResp = await unauthenticatedFetch(uploadPath, reqInit);
-      console.log('done sending ')
     }else {
       // Using form-data with node-fetch - use /deploys endpoint instead of /builds
       buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, request);

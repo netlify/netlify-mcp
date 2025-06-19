@@ -25,7 +25,7 @@ if(proxyPath) {
     
     const uploadingInterval = setInterval(() => {
       console.log('Uploading your project...')
-    }, 1000); // keep the process alive for a while to see the logs
+    }, 3000); // keep the process alive for a while to see the logs
     const { deployId, buildId } = await zipAndBuild({ deployDirectory, siteId, uploadPath });
     
     clearInterval(uploadingInterval);
