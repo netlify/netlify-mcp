@@ -72,7 +72,6 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
 
     const { deployDirectory } = params;
 
-
     if (!deployDirectory) {
       throw new Error("Missing required parameter: deployDirectory");
     }
@@ -138,9 +137,13 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
       buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, request);
     }
     
-
     const responseStatus = `${buildsResp.status} ${buildsResp.statusText}`;
     appendToLog(["Deploy response status:", responseStatus]);
+    if (!buildsResp.ok) {
+      const requestId = buildsResp.headers.get('x-request-id') || 'unknown';
+      appendErrorToLog(`Failed to deploy site: ${responseStatus} (Request ID: ${requestId})`);
+      throw new Error(`Failed to deploy site: ${responseStatus}`);
+    }
 
     // Get response content
     const responseText = await buildsResp.text();
@@ -149,16 +152,11 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
     try {
       // Try to parse as JSON
       deployData = JSON.parse(responseText);
+      deployData = Array.isArray(deployData) ? deployData[0] : deployData; // Handle array response
       appendToLog(["Deploy response body:", JSON.stringify(deployData)]);
     } catch (e) {
       // If not JSON, log as text
       appendToLog(["Deploy response (not JSON):", responseText]);
-    }
-
-    if (!buildsResp.ok) {
-      const requestId = buildsResp.headers.get('x-request-id') || 'unknown';
-      appendErrorToLog(`Failed to deploy site: ${responseStatus} (Request ID: ${requestId})`, responseText);
-      throw new Error(`Failed to deploy site: ${responseStatus}`);
     }
 
     // Extract deploy ID from response
