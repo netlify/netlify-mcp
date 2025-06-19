@@ -30,7 +30,6 @@ if(proxyPath) {
     
     clearInterval(uploadingInterval);
 
-    const now = new Date();
     console.log('Deploy process has started...', JSON.stringify({ deployId, buildId, watchDeployProgress: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
 
     // check for no-wait flag
@@ -39,6 +38,7 @@ if(proxyPath) {
     }
 
     const deployEndpoint = `${proxyUrl}/api/v1/deploys/${deployId}`;
+    let lastState = '';
     // states: new,pending_review,accepted,rejected,enqueued,building,uploading,uploaded,preparing,prepared,processing,ready,error,retrying
     // wait for the deploy to finish
     setInterval(async () => {
@@ -52,8 +52,8 @@ if(proxyPath) {
           console.error('Deploy failed!', JSON.stringify({ deployId, buildId, deployInfo: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
           process.exit(1);
         }
-
-        console.log('Deploy status:', deploy.state, 'at', now.toISOString(), 'will continue waiting...');
+        const sameAsLastState = lastState === deploy.state;
+        console.log(`This project deploy is ${sameAsLastState ? 'still' : 'now'} ${deploy.state}. Waiting for it to finish...`);
 
       } else {
         console.error('Error fetching deploy status:', deployLookup.statusText);
