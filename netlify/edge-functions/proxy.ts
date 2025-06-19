@@ -13,17 +13,32 @@ export default async (req: Request, ctx: Context) => {
     return new Response('Unauthorized', { status: 401 });
   }
   const decryptedToken = await decryptJWE(token);
-  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string' || !decryptedToken.apiPath) {
+  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string') {
     return new Response('Unauthorized', { status: 401 });
   }
+  
+  const requestedPath = req.url.split(token)[1];
 
-  console.log('Valid token, proceeding with proxy request', decryptedToken.apiPath);
+  if (Array.isArray(decryptedToken.apisAllowed)) {
+    const isAllowed = decryptedToken.apisAllowed.some(({ path, method }: { path: string; method: string; }) => {
+      const regex = new RegExp(path.replace(/:\w+/g, '[\\w-_]+'));
+      const pathMatches = regex.test(requestedPath);
+      return pathMatches && method === req.method;
+    });
+
+    if (!isAllowed) {
+      console.error('Unauthorized access attempt to path:', requestedPath, decryptedToken.apisAllowed);
+      return new Response('Forbidden', { status: 403 });
+    }
+  }
+  
+  console.log('Valid token and allowed path, proceeding with proxy request', requestedPath);
 
   req.headers.set('Authorization', `Bearer ${decryptedToken.accessToken}`);
   req.headers.delete('host');
 
   // rewrite the URL to be api.netlify.com
-  const url = new URL(decryptedToken.apiPath as string, 'https://api.netlify.com');
+  const url = new URL(requestedPath as string, 'https://api.netlify.com');
 
   const updatedReq = new Request(url, {
     method: decryptedToken.apiMethod as string | undefined || req.method,

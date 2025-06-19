@@ -22,26 +22,38 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   inputSchema: deploySiteRemotelyParamsSchema,
   omitFromLocalMCP: true,
   cb: async (params, {request}) => {
-    const apiPath = `/api/v1/sites/${params.siteId}/builds`;
 
     const proxyToken = await createJWE({
       accessToken: await getNetlifyAccessToken(request),
       siteId: params.siteId,
-      apiPath,
-      apiMethod: 'POST'
+      // TODO: in the future, lock this down even further
+      apisAllowed: [
+        {
+          path: `/api/v1/sites/${params.siteId}/builds`,
+          method: 'POST'
+        },
+        // allow reads of deploys
+        {
+          path: '/api/v1/deploys/:deploy_id',
+          method: 'GET'
+        }
+      ]
     }, '30m');
 
-    const proxyPath = `/proxy/${proxyToken}${apiPath}`;
-    const deployId = randomUUID();
-    const fileName = `site-${deployId}.zip`;
+    const proxyPath = `/proxy/${proxyToken}`;
+    
     return `
-To deploy this site to Netlify, you must zip the repo source files and upload them. Use
-the following command on POSIX machines. Do not split this command into separate steps, run it as is. 
-This directory must be the root of the project repo (not the dist or build output dir) unless specified otherwise.:
+
+To deploy this to Netlify, run the following command within the source/repo directory:
 
 \`\`\`shell
-npx -y @netlify/mcp --site-id ${params.siteId} --upload-path "${getOAuthIssuer()}${proxyPath}"
+npx -y @netlify/mcp --site-id ${params.siteId} --proxy-path "${getOAuthIssuer()}${proxyPath}"
 \`\`\`
+
+This command will upload the code repo and run a build in Netlify's build system.
+
+By default, the command will wait for the deployment to completely finish (which can take time). 
+If you want to skip waiting for the deployment to finish, you can add the \`--no-wait\` flag to the command.
 `
   }
 };
