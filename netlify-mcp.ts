@@ -54,7 +54,7 @@ if(proxyPath) {
         }
         const sameAsLastState = lastState === deploy.state;
         console.log(`This project deploy is ${sameAsLastState ? 'still' : 'now'} ${deploy.state}. Waiting for it to finish...`);
-
+        lastState = deploy.state;
       } else {
         console.error('Error fetching deploy status:', deployLookup.statusText);
         process.exit(0);
