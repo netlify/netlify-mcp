@@ -23,11 +23,13 @@ if(proxyPath) {
     const proxyUrl = new URL(proxyPath).toString();
     const uploadPath = `${proxyUrl}/api/v1/sites/${siteId}/builds`;
     
-    setInterval(() => {
-      console.log('Still uploading your project...')
+    const uploadingInterval = setInterval(() => {
+      console.log('Uploading your project...')
     }, 1000); // keep the process alive for a while to see the logs
     const { deployId, buildId } = await zipAndBuild({ deployDirectory, siteId, uploadPath });
     
+    clearInterval(uploadingInterval);
+
     const now = new Date();
     console.log('Deploy process has started...', JSON.stringify({ deployId, buildId, watchDeployProgress: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
 
