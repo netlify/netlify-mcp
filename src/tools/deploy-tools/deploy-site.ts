@@ -130,7 +130,6 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
       body
     };
 
-    console.log('', JSON.stringify({ deployDirectory, siteId, uploadPath }, null, 2));
     let buildsResp;
     if(uploadPath){
       buildsResp = await unauthenticatedFetch(uploadPath, reqInit);

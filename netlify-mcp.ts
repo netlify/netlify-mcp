@@ -12,7 +12,7 @@ import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
 // check to see if it's ran as a command to zip and build
 const proxyPath = process.argv[process.argv.indexOf('--proxy-path') + 1] || undefined;
 
-if(proxyPath) {
+if(process.argv.includes('--proxy-path') && proxyPath) {
   (async ()=>{
     console.log('Starting deployment process...');
     checkCompatibility();
