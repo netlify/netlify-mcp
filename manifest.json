@@ -1,0 +1,23 @@
+{
+  "dxt_version": "0.1.0",
+  "name": "Netlify MCP",
+  "version": "1.9.12",
+  "description": "MCP server for Netlify API interactions, deployments, and project management",
+  "author": {
+    "name": "Netlify",
+    "email": "support@netlify.com"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/netlify-mcp.js",
+    "mcp_config": {
+      "server_name": "netlify-mcp",
+      "server_version": "1.9.12",
+      "command": "node"
+    }
+  },
+  "build": {
+    "include": ["dist/**/*", "package.json"],
+    "exclude": ["node_modules/**/*", "src/**/*", "*.ts"]
+  }
+}
