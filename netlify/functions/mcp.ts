@@ -70,7 +70,7 @@ async function handleMCPPost(req: Request) {
   // Right now, the MCP spec is inconcistent on _when_ 
   // 401s can be returned. So, we will always do the auth
   // check, including for init.
-  if(!await userIsAuthenticated(req)){
+  if(req.url.includes('always-auth') && !await userIsAuthenticated(req)){
     return returnNeedsAuthResponse();
   }
 
