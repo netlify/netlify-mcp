@@ -85,7 +85,7 @@ export async function decryptJWE(jwe: string) {
     return payload
   } catch (error) {
     console.error('Failed to decrypt JWE:', error)
-    throw new Error('Invalid JWE token')
+    throw new Error('Invalid JWE token. Please reauthenticate or reconnect to the Netlify MCP server.')
   }
 }
 

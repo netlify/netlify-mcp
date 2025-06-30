@@ -8,6 +8,7 @@ import { z } from "zod";
 import { checkCompatibility } from "../../src/utils/compatibility.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
+import {Config} from "@netlify/functions";
 
 // Netlify serverless function handler
 export default async (req: Request) => {
@@ -66,13 +67,15 @@ async function handleMCPPost(req: Request) {
     console.error('Error reading request body:', error);
   }
 
-  // TBD if needed.
-  // if(!await userIsAuthenticated(req)){
-  //   return returnNeedsAuthResponse();
-  // }
+  // Right now, the MCP spec is inconcistent on _when_ 
+  // 401s can be returned. So, we will always do the auth
+  // check, including for init.
+  if(!await userIsAuthenticated(req)){
+    return returnNeedsAuthResponse();
+  }
 
   const server = new McpServer({
-    name: "netlify-mcp",
+    name: "netlify",
     version: getPackageVersion(),
   });
 
@@ -180,6 +183,6 @@ function handleMCPDelete() {
 // Ensure this function responds to the <domain>/mcp path
 // This can be any path you want but you'll need to ensure the
 // mcp server config you use/share matches this path.
-export const config = {
-  path: "/mcp"
+export const config: Config = {
+  path: ["/mcp"],
 };
