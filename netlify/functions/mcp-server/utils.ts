@@ -73,7 +73,7 @@ export function returnNeedsAuthResponse() {
     headers: {
         "Content-Type": "application/json",
         // 401s should point to the resource server metadata and that will point to auth endpoints
-        "WWW-Authenticate": `Bearer resource_metadata="${getOAuthIssuer()}/.well-known/oauth-protected-resource"`,
+        "WWW-Authenticate": `Bearer realm="MCP Server", resource_metadata="${getOAuthIssuer()}/.well-known/oauth-protected-resource"`,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': '*',
         'Access-Control-Allow-Headers': '*',
