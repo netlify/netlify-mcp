@@ -18,7 +18,13 @@ const configuration: Configuration = {
   // Only allow Authorization Code flow
   responseTypes: ['code'],
   // Supported scopes
-  scopes: ['openid', 'offline_access', 'read', 'write'],
+  scopes: [
+    'openid', 
+    'offline_access', 
+    'read', 
+    'write', 
+    'claudeai' // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
+  ],
   // OIDC claims (minimal)
   claims: {
     openid: ['sub'],
