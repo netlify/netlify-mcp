@@ -8,13 +8,30 @@ export function getOAuthIssuer(): string {
   return process.env.OAUTH_ISSUER || 'http://localhost:8888';
 }
 
-export function addCORSHeaders(response: HandlerResponse): HandlerResponse {
+export function addCORSHeadersToHandlerResp(response: HandlerResponse): HandlerResponse {
   const respHeaders = headersToHeadersObject(response.headers as Record<string, string> | Headers || {});
   respHeaders.set('Access-Control-Allow-Origin', '*');
   respHeaders.set('Access-Control-Allow-Methods', '*');
   respHeaders.set('Access-Control-Allow-Headers', '*');
   response.headers = Object.fromEntries(respHeaders.entries());
   return response;
+}
+
+export function addCORSHeadersToFetchResp(response: Response): Response {
+  const respHeaders = headersToHeadersObject(response.headers as Record<string, string> | Headers || {});
+  respHeaders.set('Access-Control-Allow-Origin', '*');
+  respHeaders.set('Access-Control-Allow-Methods', '*');
+  respHeaders.set('Access-Control-Allow-Headers', '*');
+
+  const newResp = new Response(response.body, {
+    status: response.status,
+    headers: {
+      ...Object.fromEntries(response.headers.entries()),
+      ...Object.fromEntries(respHeaders.entries())
+    }
+  });
+
+  return newResp;
 }
 
 export function headersToHeadersObject(headers: Headers | Record<string, string>): Headers {

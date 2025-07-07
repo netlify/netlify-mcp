@@ -1,6 +1,6 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
-import { headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
+import { addCORSHeadersToFetchResp, addCORSHeadersToHandlerResp, headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
 import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getPackageVersion } from "../../src/utils/version.ts";
@@ -29,6 +29,15 @@ export default async (req: Request) => {
       return handleMCPGet();
     } else if (req.method === "DELETE") {
       return handleMCPDelete();
+    } else if (req.method === "OPTIONS") { 
+      return new Response('', {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "*",
+          "Access-Control-Allow-Headers": "*"
+        }
+      });
     } else {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -139,7 +148,7 @@ async function handleMCPPost(req: Request) {
     console.error("Error parsing response JSON:", error);
   }
 
-  return response;
+  return addCORSHeadersToFetchResp(response);
 }
 
 // For the stateless server, GET requests are used to initialize
