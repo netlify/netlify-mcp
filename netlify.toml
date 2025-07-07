@@ -9,7 +9,15 @@
   to = ".netlify/functions/oauth-server/:splat"
   status = 200
 
-
+# just in case some client assumes these common defaults
+[[redirects]]
+  from = "/token"
+  to = ".netlify/functions/oauth-server/token"
+  status = 200
+[[redirects]]
+  from = "/authorize"
+  to = ".netlify/functions/oauth-server/auth"
+  status = 200
 
 [[redirects]]
   from = "/.well-known/oauth-protected-resource"

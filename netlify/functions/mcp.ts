@@ -159,7 +159,7 @@ function handleMCPGet() {
     JSON.stringify({
       jsonrpc: "2.0",
       error: {
-        code: -32000,
+        code: -32002,
         message: "Method not allowed.",
       },
       id: null,
@@ -176,7 +176,7 @@ function handleMCPDelete() {
     JSON.stringify({
       jsonrpc: "2.0",
       error: {
-        code: -32000,
+        code: -32002,
         message: "Method not allowed.",
       },
       id: null,
