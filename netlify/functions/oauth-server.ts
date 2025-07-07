@@ -131,6 +131,11 @@ const oAuthHandler: Handler = async (req, context) => {
   const isCodeExchangePath = parsedUrl.pathname.endsWith(tokenEndpointPath);
   const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
 
+
+  if(isRegistrationPath){
+    console.log(JSON.stringify(req.body))
+  }
+
   // we want OIDC discovery to handle these paths
   if (getProtectedResource || getAuthorizationServer) {
 
