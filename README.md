@@ -16,6 +16,7 @@ You can connect to the Netlify MCP Server using a variety of MCP clients, includ
 * Copilot (VSCode)
 * Cline
 * Warp
+* LM Studio
 * [See the full list](https://modelcontextprotocol.org/clients)
 
 ---
