@@ -134,7 +134,7 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
       buildsResp = await unauthenticatedFetch(uploadPath, reqInit);
     }else {
       // Using form-data with node-fetch - use /deploys endpoint instead of /builds
-      buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, request);
+      buildsResp = await authenticatedFetch(`https://api.netlify.com/api/v1/sites/${siteId}/builds`, reqInit, request);
     }
     
     const responseStatus = `${buildsResp.status} ${buildsResp.statusText}`;
@@ -149,9 +149,11 @@ export async function zipAndBuild({deployDirectory, siteId, request, uploadPath}
     const responseText = await buildsResp.text();
     let deployData;
 
+    appendToLog(['original response text', responseText || '<empty>']);
     try {
       // Try to parse as JSON
       deployData = JSON.parse(responseText);
+
       deployData = Array.isArray(deployData) ? deployData[0] : deployData; // Handle array response
       appendToLog(["Deploy response body:", JSON.stringify(deployData)]);
     } catch (e) {
