@@ -151,7 +151,7 @@ const oAuthHandler: Handler = async (req, context) => {
     let oidcConfig = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
 
     if(getProtectedResource){
-      oidcConfig.resource = getOAuthIssuer();
+      oidcConfig.resource = new URL('/mcp', getOAuthIssuer()).toString();
     }
 
     oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
