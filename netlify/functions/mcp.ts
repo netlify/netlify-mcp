@@ -1,6 +1,6 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
-import { addCORSHeadersToFetchResp, addCORSHeadersToHandlerResp, headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
+import { addCORSHeadersToFetchResp, addCommonHeadersToHandlerResp, headersToHeadersObject, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
 import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getPackageVersion } from "../../src/utils/version.ts";

@@ -3,7 +3,7 @@ import type { Handler, HandlerResponse, HandlerEvent, HandlerContext } from "@ne
 import { Provider } from "oidc-provider";
 import type { Configuration } from "oidc-provider";
 import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
-import { getOAuthIssuer, addCORSHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
+import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
@@ -226,7 +226,7 @@ const oAuthHandler: Handler = async (req, context) => {
 
 export const handler: Handler = async (req, context) => {
   const resp = await oAuthHandler(req, context);
-  return resp ? addCORSHeadersToHandlerResp(resp) : {
+  return resp ? addCommonHeadersToHandlerResp(resp) : {
     statusCode: 500,
     body: JSON.stringify({ error: 'Internal Server Error' }),
     headers: { 'Content-Type': 'application/json' }

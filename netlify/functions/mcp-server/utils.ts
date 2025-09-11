@@ -8,11 +8,16 @@ export function getOAuthIssuer(): string {
   return process.env.OAUTH_ISSUER || 'http://localhost:8888';
 }
 
-export function addCORSHeadersToHandlerResp(response: HandlerResponse): HandlerResponse {
+export function addCommonHeadersToHandlerResp(response: HandlerResponse): HandlerResponse {
   const respHeaders = headersToHeadersObject(response.headers as Record<string, string> | Headers || {});
   respHeaders.set('Access-Control-Allow-Origin', '*');
   respHeaders.set('Access-Control-Allow-Methods', '*');
   respHeaders.set('Access-Control-Allow-Headers', '*');
+
+  if(response.statusCode === 200) {
+    respHeaders.set('Content-type', 'application/json');
+  }
+
   response.headers = Object.fromEntries(respHeaders.entries());
   return response;
 }
