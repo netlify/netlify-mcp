@@ -14,8 +14,10 @@ export function addCommonHeadersToHandlerResp(response: HandlerResponse): Handle
   respHeaders.set('Access-Control-Allow-Methods', '*');
   respHeaders.set('Access-Control-Allow-Headers', '*');
 
-  if(response.statusCode === 200) {
-    respHeaders.set('Content-type', 'application/json');
+  if(response.statusCode === 200 && response.body) {
+    if(['{', '['].includes(response.body.trim().charAt(0))) {
+      respHeaders.set('Content-type', 'application/json');
+    }
   }
 
   response.headers = Object.fromEntries(respHeaders.entries());
