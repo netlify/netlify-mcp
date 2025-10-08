@@ -11,6 +11,9 @@ export const getFullExtensionDetailsDomainTool: DomainTool<typeof getFullExtensi
   domain: 'extension',
   operation: 'get-full-extension-details',
   inputSchema: getFullExtensionDetailsParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async ({ extensionSlug, teamId }, {request}) => {
     return JSON.stringify(await getExtension({ extensionSlug, accountId: teamId, request }));
   }

@@ -15,6 +15,9 @@ export const changeExtensionInstallationDomainTool: DomainTool<typeof changeExte
   domain: 'extension',
   operation: 'change-extension-installation',
   inputSchema: changeExtensionInstallationParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ extensionSlug, shouldBeInstalled, teamId, siteId }, {request}) => {
 
     try {

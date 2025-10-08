@@ -21,6 +21,9 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   operation: 'deploy-site',
   inputSchema: deploySiteRemotelyParamsSchema,
   omitFromLocalMCP: true,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async (params, {request}) => {
 
     const proxyToken = await createJWE({
@@ -67,6 +70,9 @@ export const deploySiteDomainTool: DomainTool<typeof deploySiteParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
   inputSchema: deploySiteParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   omitFromRemoteMCP: true,
   cb: async (params, {request}) => {
 

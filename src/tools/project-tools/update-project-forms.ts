@@ -13,6 +13,9 @@ export const updateFormsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
   domain: 'project',
   operation: 'update-forms',
   inputSchema: getProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ siteId, forms }, {request}) => {
 
     if(forms === undefined) {

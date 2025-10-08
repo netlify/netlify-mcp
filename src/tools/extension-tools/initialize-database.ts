@@ -8,6 +8,9 @@ export const initializeDatabaseDomainTool: DomainTool<typeof initializeDatabaseP
   domain: 'extension',
   operation: 'initialize-database',
   inputSchema: initializeDatabaseParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async () => {
     return 'Ensure the @netlify/neon npm package is installed. After installation, restart the development server or run new build.';
   }

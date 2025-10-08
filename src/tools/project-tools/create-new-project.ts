@@ -15,6 +15,9 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
   domain: 'project',
   operation: 'create-new-project',
   inputSchema: createNewProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ teamSlug, name }, {request}) => {
 
     const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {

@@ -16,6 +16,9 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
   domain: 'project',
   operation: 'update-visitor-access-controls',
   inputSchema: getProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
 
     if(requireSSOTeamLogin === undefined && requirePassword === undefined) {

@@ -22,6 +22,9 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
   domain: 'project',
   operation: 'manage-env-vars',
   inputSchema: manageEnvVarsParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
     const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {}, {}, request);

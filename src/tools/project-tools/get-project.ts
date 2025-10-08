@@ -12,6 +12,9 @@ export const getProjectDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'get-project',
   inputSchema: getProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async ({ siteId }, {request}) => {
     return JSON.stringify(getEnrichedSiteModelForLLM(await getAPIJSONResult(`/api/v1/sites/${siteId}`, {}, {}, request)));
   }

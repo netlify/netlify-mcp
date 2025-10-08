@@ -13,6 +13,9 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
   domain: 'project',
   operation: 'update-project-name',
   inputSchema: updateProjectNameParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ siteId, name }, {request}) => {
 
     if(name === undefined || name === '') {

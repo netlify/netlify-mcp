@@ -76,11 +76,17 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
   const contextConsumer = await getContextConsumerConfig();
   const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
   const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
-
-  server.tool(
+  server.registerTool(
     "netlify-coding-rules",
-    "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
-    { creationType: creationTypeEnum },
+    {
+      description: "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
+      inputSchema:{
+        creationType: creationTypeEnum
+      },
+      annotations: {
+        readOnlyHint: true
+      }
+    },
     async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
 
       checkCompatibility();

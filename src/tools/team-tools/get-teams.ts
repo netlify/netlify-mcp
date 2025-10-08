@@ -10,6 +10,9 @@ export const getTeamsDomainTool: DomainTool<typeof getTeamsParamsSchema> = {
   domain: 'team',
   operation: 'get-teams',
   inputSchema: getTeamsParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async (_, {request}) => {
     return JSON.stringify(getEnrichedTeamModelForLLM(await getAPIJSONResult('/api/v1/accounts', {}, {}, request)));
   }

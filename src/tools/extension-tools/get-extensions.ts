@@ -8,6 +8,9 @@ export const getExtensionsDomainTool: DomainTool<typeof getExtensionsParamsSchem
   domain: 'extension',
   operation: 'get-extensions',
   inputSchema: getExtensionsParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async () => {
     return JSON.stringify({
       context: 'This list of extensions is available to any Netlify team. This list DOES NOT inform if the extension is installed or configured for a particular team or account.',

@@ -16,6 +16,9 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
   domain: 'project',
   operation: 'manage-form-submissions',
   inputSchema: manageFormSubmissionsParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: false,
+  },
   cb: async ({ formId, siteId, limit, offset, action, submissionId }, {request}) => {
 
     if(action === 'delete-submission'){

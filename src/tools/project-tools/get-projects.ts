@@ -14,6 +14,9 @@ export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
   domain: 'project',
   operation: 'get-projects',
   inputSchema: getProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async ({ teamSlug, projectNameSearchValue }, {request}) => {
 
     let apiResults;

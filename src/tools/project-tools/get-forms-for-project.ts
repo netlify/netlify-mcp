@@ -12,6 +12,9 @@ export const getFormsForProjectDomainTool: DomainTool<typeof getFormsForProjectP
   domain: 'project',
   operation: 'get-forms-for-project',
   inputSchema: getFormsForProjectParamsSchema,
+  toolAnnotations: {
+    readOnlyHint: true,
+  },
   cb: async ({ siteId, formId }, {request}) => {
     const forms = await getAPIJSONResult(`/api/v1/sites/${siteId}/forms`, {}, {}, request);
 
