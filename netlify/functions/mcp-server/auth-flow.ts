@@ -1,6 +1,6 @@
 import { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
-import { createJWE, decryptJWE } from "./utils.ts";
+import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 
 interface CODE_JWE_PAYLOAD {
   state: Record<string, any>;
@@ -19,6 +19,27 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   
   const missingParams = requiredParams.filter(param => !params.get(param));
   if (missingParams.length > 0) {
+    // RFC 9207: Return error via redirect with iss parameter if redirect_uri is available
+    const redirectUri = params.get('redirect_uri');
+    if (redirectUri) {
+      try {
+        const errorRedirectUrl = new URL(redirectUri);
+        errorRedirectUrl.searchParams.set('error', 'invalid_request');
+        errorRedirectUrl.searchParams.set('error_description', `Missing required parameters: ${missingParams.join(', ')}`);
+        errorRedirectUrl.searchParams.set('iss', getOAuthIssuer());
+        const state = params.get('state');
+        if (state) {
+          errorRedirectUrl.searchParams.set('state', state);
+        }
+        return {
+          statusCode: 302,
+          headers: { 'Location': errorRedirectUrl.toString() },
+          body: ''
+        };
+      } catch (e) {
+        // Invalid redirect_uri, fall through to JSON error
+      }
+    }
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -125,6 +146,9 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
       rediredctURL.searchParams.set('state', stateObj.state);
     }
 
+    // RFC 9207: Include iss parameter in authorization response
+    rediredctURL.searchParams.set('iss', getOAuthIssuer());
+
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
     const jwe = await createJWE({state: stateObj, accessToken: token} satisfies CODE_JWE_PAYLOAD);
@@ -142,6 +166,27 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   } catch (error) {
     
     console.error('Failed to parse init-state:', error);
+    
+    // RFC 9207: Try to return error via redirect with iss parameter if possible
+    try {
+      const stateObj = JSON.parse(Buffer.from(initState || '', 'base64').toString('utf-8'));
+      if (stateObj.redirect_uri) {
+        const errorRedirectUrl = new URL(stateObj.redirect_uri);
+        errorRedirectUrl.searchParams.set('error', 'invalid_request');
+        errorRedirectUrl.searchParams.set('error_description', 'Invalid init-state parameter');
+        errorRedirectUrl.searchParams.set('iss', getOAuthIssuer());
+        if (stateObj.state) {
+          errorRedirectUrl.searchParams.set('state', stateObj.state);
+        }
+        return {
+          statusCode: 302,
+          headers: { 'Location': errorRedirectUrl.toString() },
+          body: ''
+        };
+      }
+    } catch (e) {
+      // Could not parse state, fall through to JSON error
+    }
     
     return {
       statusCode: 400,
