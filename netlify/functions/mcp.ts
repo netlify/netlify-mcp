@@ -65,16 +65,28 @@ export default async (req: Request) => {
 
 async function handleMCPPost(req: Request) {
 
-  // Convert the Request object into a Node.js Request object
-  const { req: nodeReq, res: nodeRes } = toReqRes(req);
-  
+  // Read body once and reuse it
+  let body: any;
   try {
+    body = await req.json();
     console.log('Handling MCP POST request', {
-      body: JSON.stringify(await (await req.clone()).json(), null, 2),
+      body: JSON.stringify(body, null, 2),
     });
   } catch (error) {
     console.error('Error reading request body:', error);
+    return new Response('Invalid JSON body', {status: 400});
   }
+
+  // Create a new Request with the body as a string to avoid re-reading issues
+  // toReqRes will try to read the body, so we need to provide a fresh request
+  const reqWithBody = new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+    body: JSON.stringify(body),
+  });
+
+  // Convert the Request object into a Node.js Request object
+  const { req: nodeReq, res: nodeRes } = toReqRes(reqWithBody);
 
   // Right now, the MCP spec is inconcistent on _when_ 
   // 401s can be returned. So, we will always do the auth
@@ -127,7 +139,6 @@ async function handleMCPPost(req: Request) {
 
   await server.connect(transport);
 
-  const body = await req.json();
   await transport.handleRequest(nodeReq, nodeRes, body);
 
   nodeRes.on("close", () => {
@@ -137,7 +148,7 @@ async function handleMCPPost(req: Request) {
 
   const response = await toFetchResponse(nodeRes);
   try {
-    const returnData = await (await response.clone()).text();
+    const returnData = await response.clone().text();
 
     if(returnData.includes(UNAUTHED_ERROR_PREFIX)){
       console.error("Unauthorized error detected in response:", returnData);
