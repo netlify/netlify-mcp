@@ -1,7 +1,7 @@
 import serverless from "serverless-http";
 import type { Handler, HandlerResponse, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { Provider } from "oidc-provider";
-import type { Configuration } from "oidc-provider";
+import type { Configuration, ClientMetadata } from "oidc-provider";
 import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 
@@ -10,6 +10,28 @@ const tokenEndpointPath = '/oauth-server/token';
 const clientRedirectPath = '/oauth-server/client-redirect';
 const serverRedirectPath = '/oauth-server/server-redirect';
 const registrationEndpointPath = '/oauth-server/reg';
+
+// Static OAuth clients - add your pre-configured clients here
+const staticClients: ClientMetadata[] = [
+  // Azure AI Foundry wants to do authentication on customer behalf but does 
+  // not support dynamic client registration yet. They asked to have us provision a dedicated
+  // client for them. Here are the details they provided.
+  // Point of contacts for Azure AI Foundry
+  // zhuoqunli@microsoft.com 
+  // AzureToolsCatalog@microsoft.com
+  {
+    client_id: 'azure-ai-foundry',
+    client_secret: Netlify.env.get('CLIENT_SECRET_AZURE_AI_FOUNDRY'), // Use secure secrets in production
+    redirect_uris: [
+      'https://global.consent.azure-apim.net/redirect/foundrynetlifymcp',
+      'https://global-test.consent.azure-apim.net/redirect/foundrynetlifymcp'
+    ],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'client_secret_post',
+  },
+  // Add more static clients as needed
+];
 
 // MCP-compliant OAuth2/OIDC server configuration
 // Minimal MCP-compliant OAuth2/OIDC server configuration
@@ -52,6 +74,9 @@ const configuration: Configuration = {
     revocation: { enabled: true },
     userinfo: { enabled: false }, // TODO: future Enable userinfo endpoint
   },
+
+  // static clients via findAccount-style lookup
+  clients: staticClients,
 
   // we don't use all of these but we prefix them to ensure our fn handles them
   routes: {
