@@ -21,7 +21,7 @@ const staticClients: ClientMetadata[] = [
   // AzureToolsCatalog@microsoft.com
   {
     client_id: 'azure-ai-foundry',
-    client_secret: Netlify.env.get('CLIENT_SECRET_AZURE_AI_FOUNDRY'), // Use secure secrets in production
+    client_secret: process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY || 'supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8', // Use secure secrets in production
     redirect_uris: [
       'https://global.consent.azure-apim.net/redirect/foundrynetlifymcp',
       'https://global-test.consent.azure-apim.net/redirect/foundrynetlifymcp'
