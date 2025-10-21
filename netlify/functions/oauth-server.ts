@@ -33,9 +33,59 @@ const staticClients: ClientMetadata[] = [
   // Add more static clients as needed
 ];
 
+// In-memory storage for dynamically registered clients
+const dynamicClients = new Map<string, ClientMetadata>();
+
+// Adapter to support both static and dynamic clients
+class ClientAdapter {
+  constructor(private name: string) {}
+
+  async upsert(id: string, payload: any, expiresIn?: number) {
+    if (this.name === 'Client') {
+      const staticClient = staticClients.find(c => c.client_id === id);
+      if (!staticClient) {
+        console.log('Registering dynamic client:', id, payload, expiresIn);
+        dynamicClients.set(id, payload);
+      }
+    }
+  }
+
+  async find(id: string) {
+    if (this.name === 'Client') {
+      // Check static clients first
+      const staticClient = staticClients.find(c => c.client_id === id);
+      if (staticClient) {
+        return staticClient;
+      }
+      // Then check dynamic clients
+      return dynamicClients.get(id);
+    }
+    return undefined;
+  }
+
+  async findByUserCode(userCode: string) {
+    return undefined;
+  }
+
+  async findByUid(uid: string) {
+    return undefined;
+  }
+
+  async destroy(id: string) {
+    if (this.name === 'Client') {
+      dynamicClients.delete(id);
+    }
+  }
+
+  async revokeByGrantId(grantId: string) {}
+
+  async consume(id: string) {}
+}
+
 // MCP-compliant OAuth2/OIDC server configuration
 // Minimal MCP-compliant OAuth2/OIDC server configuration
 const configuration: Configuration = {
+  adapter: ClientAdapter,
 
   // Only allow Authorization Code flow
   responseTypes: ['code'],
@@ -74,9 +124,6 @@ const configuration: Configuration = {
     revocation: { enabled: true },
     userinfo: { enabled: false }, // TODO: future Enable userinfo endpoint
   },
-
-  // static clients via findAccount-style lookup
-  clients: staticClients,
 
   // we don't use all of these but we prefix them to ensure our fn handles them
   routes: {
