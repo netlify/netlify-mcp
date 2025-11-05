@@ -48,7 +48,7 @@ const toSelectorSchema = (domainTool: DomainTool<any>) => {
   });
 }
 
-export const bindTools = async (server: McpServer, remoteMCPRequest?: Request) => {
+export const bindTools = async (server: McpServer, remoteMCPRequest?: Request, verboseMode: boolean = false) => {
 
   const isRemoteMCP = !!remoteMCPRequest;
 
@@ -70,12 +70,12 @@ export const bindTools = async (server: McpServer, remoteMCPRequest?: Request) =
 
     // Register read-only tools if any exist
     if (readOnlyTools.length > 0) {
-      registerDomainTools(server, readOnlyTools, domain, 'read', remoteMCPRequest);
+      registerDomainTools(server, readOnlyTools, domain, 'read', remoteMCPRequest, verboseMode);
     }
 
     // Register write tools if any exist
     if (writeTools.length > 0) {
-      registerDomainTools(server, writeTools, domain, 'write', remoteMCPRequest);
+      registerDomainTools(server, writeTools, domain, 'write', remoteMCPRequest, verboseMode);
     }
   });
 };
@@ -85,79 +85,116 @@ const registerDomainTools = (
   tools: DomainTool<any>[], 
   domain: string, 
   operationType: 'read' | 'write',
-  remoteMCPRequest?: Request
+  remoteMCPRequest?: Request,
+  verboseMode: boolean = false
 ) => {
   const toolOperations = tools.map(tool => tool.operation);
-
-  // join the input schemas of all domain tools into a raw array with
-  // to give the llm the ability to select.
-  const paramsSchema = {
-    // @ts-ignore
-    selectSchema: tools.length > 1 ? z.union(tools.map(tool => toSelectorSchema(tool))) : toSelectorSchema(tools[0])
-  };
-
   const readOnlyIndicator = operationType === 'read' ? ' (read-only)' : '';
-  const friendlyOperationType = operationType === 'read' ? 'reader' : 'updater';
-  const toolName = `netlify-${domain}-services-${friendlyOperationType}`;
-  const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}`;
 
-  
-  server.registerTool(toolName, {
-    description: toolDescription,
-    inputSchema: paramsSchema,
-    annotations: {
-      readOnlyHint: operationType === 'read'
-    }
-  }, async (...args) => {
+  if (verboseMode) {
+    // Register each tool individually (no anyOf/union)
+    tools.forEach(tool => {
+      const toolName = `netlify-${domain}-${tool.operation}`;
+      const toolDescription = `${tool.operation} operation for Netlify ${domain}${readOnlyIndicator}`;
 
-  // server.tool(toolName, toolDescription, paramsSchema, async (...args) => {
-    checkCompatibility();
+      // The MCP SDK expects inputSchema to be a plain object with Zod schemas as properties
+      // We need to extract the shape from the Zod object and use it directly
+      const schemaShape = tool.inputSchema.shape || {};
 
-    try {
+      server.registerTool(toolName, {
+        description: toolDescription,
+        inputSchema: schemaShape,
+        annotations: {
+          readOnlyHint: operationType === 'read'
+        }
+      }, async (...args) => {
+        checkCompatibility();
 
-      await getNetlifyAccessToken(remoteMCPRequest);
-    } catch (error: NetlifyUnauthError | any) {
+        try {
+          await getNetlifyAccessToken(remoteMCPRequest);
+        } catch (error: NetlifyUnauthError | any) {
+          if (error instanceof NetlifyUnauthError && remoteMCPRequest) {
+            throw new NetlifyUnauthError();
+          }
 
-      // rethrow error to the top level handler to catch
-      // so we can update the fn request to return a proper
-      // server response instead of a tool response
-      if (error instanceof NetlifyUnauthError && remoteMCPRequest) {
-        throw new NetlifyUnauthError();
+          return {
+            content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+            isError: true
+          };
+        }
+
+        appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
+
+        const result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+
+        appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(result) }]
+        }
+      });
+    });
+  } else {
+    // Register tools grouped by domain with selector (uses anyOf/union)
+    const paramsSchema = {
+      // @ts-ignore
+      selectSchema: tools.length > 1 ? z.union(tools.map(tool => toSelectorSchema(tool))) : toSelectorSchema(tools[0])
+    };
+
+    const friendlyOperationType = operationType === 'read' ? 'reader' : 'updater';
+    const toolName = `netlify-${domain}-services-${friendlyOperationType}`;
+    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}`;
+
+    server.registerTool(toolName, {
+      description: toolDescription,
+      inputSchema: paramsSchema,
+      annotations: {
+        readOnlyHint: operationType === 'read'
+      }
+    }, async (...args) => {
+      checkCompatibility();
+
+      try {
+        await getNetlifyAccessToken(remoteMCPRequest);
+      } catch (error: NetlifyUnauthError | any) {
+        if (error instanceof NetlifyUnauthError && remoteMCPRequest) {
+          throw new NetlifyUnauthError();
+        }
+
+        return {
+          content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+          isError: true
+        };
       }
 
-      return {
-        content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
-        isError: true
-      };
-    }
+      appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
 
-    appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
+      const selectedSchema = args[0]?.selectSchema as any;
 
-    const selectedSchema = args[0]?.selectSchema as any;
-
-    if (!selectedSchema) {
-      return {
-        content: [{ type: "text", text: 'Failed to select a valid operation. Retry the MCP operation but select the operation and provide the right inputs.' }]
+      if (!selectedSchema) {
+        return {
+          content: [{ type: "text", text: 'Failed to select a valid operation. Retry the MCP operation but select the operation and provide the right inputs.' }]
+        }
       }
-    }
 
-    const operation = selectedSchema.operation;
+      const operation = selectedSchema.operation;
 
-    const subtool = tools.find(subtool => subtool.operation === operation);
+      const subtool = tools.find(subtool => subtool.operation === operation);
 
-    if (!subtool) {
-      return {
-        content: [{ type: "text", text: 'Agent called the wrong MCP tool for this operation.' }]
+      if (!subtool) {
+        return {
+          content: [{ type: "text", text: 'Agent called the wrong MCP tool for this operation.' }]
+        }
       }
-    }
 
-    const result = await subtool.cb(selectedSchema.params, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+      const result = await subtool.cb(selectedSchema.params, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
 
-    appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
+      appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }]
-    }
-  });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }]
+      }
+    });
+  }
 };
 

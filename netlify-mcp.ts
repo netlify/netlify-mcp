@@ -65,6 +65,9 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
 
 }else {
 
+  // Verbose mode is for systems that can't support complex tool schemas using unions/anyOf
+  const verboseMode = process.argv.includes('--verbose');
+
   const server = new McpServer({
     name: "netlify-mcp",
     version: getPackageVersion()
@@ -100,7 +103,7 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
     }
   );
 
-  await bindTools(server);
+  await bindTools(server, undefined, verboseMode);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

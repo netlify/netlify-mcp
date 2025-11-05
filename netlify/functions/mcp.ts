@@ -77,6 +77,13 @@ async function handleMCPPost(req: Request) {
     return new Response('Invalid JSON body', {status: 400});
   }
 
+  // Check for verbose mode via query parameter
+  const url = new URL(req.url);
+  const verboseMode = url.searchParams.get('verbose') === 'true';
+  if (verboseMode) {
+    console.log('Verbose mode enabled - tools will be registered individually');
+  }
+
   // Create a new Request with the body as a string to avoid re-reading issues
   // toReqRes will try to read the body, so we need to provide a fresh request
   const reqWithBody = new Request(req.url, {
@@ -122,7 +129,7 @@ async function handleMCPPost(req: Request) {
   );
 
   try {
-    await bindTools(server, req);
+    await bindTools(server, req, verboseMode);
   } catch (error: any) {
 
     console.error('Failed to bind tools to MCP server:', error);
