@@ -41,7 +41,7 @@ const toSelectorSchema = (domainTool: DomainTool<any>) => {
   return z.object({
     // domain: z.literal(domainTool.domain),
     operation: z.literal(domainTool.operation),
-    params: domainTool.inputSchema,
+    params: domainTool.inputSchema.optional(),
 
     llmModelName: z.string().optional(),
     aiAgentName: z.string().optional()
@@ -187,7 +187,7 @@ const registerDomainTools = (
         }
       }
 
-      const result = await subtool.cb(selectedSchema.params, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+      const result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
 
       appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
