@@ -7,6 +7,11 @@ interface CODE_JWE_PAYLOAD {
   accessToken: string;
 }
 
+interface REFRESH_TOKEN_PAYLOAD {
+  accessToken: string;
+  type: 'refresh';
+}
+
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
 
 
@@ -200,12 +205,19 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
 
 export async function handleCodeExchange(req: Request): Promise<HandlerResponse> {
-  
+
   const body = await req.text();
 
   // get data from application/x-www-form-urlencoded body
   const bodyParams = new URLSearchParams(body);
+  const grantType = bodyParams.get('grant_type') || 'authorization_code';
 
+  // Handle refresh_token grant type
+  if (grantType === 'refresh_token') {
+    return handleRefreshTokenGrant(bodyParams);
+  }
+
+  // Handle authorization_code grant type
   const code = bodyParams.get('code');
   const codeVerifier = bodyParams.get('code_verifier');
 
@@ -219,7 +231,20 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     };
   }
 
-  const {accessToken, state} = (await decryptJWE(code)) as any as CODE_JWE_PAYLOAD;  
+  let decryptedCode: CODE_JWE_PAYLOAD;
+  try {
+    decryptedCode = (await decryptJWE(code)) as any as CODE_JWE_PAYLOAD;
+  } catch (error) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'invalid_grant',
+        error_description: 'Invalid or expired authorization code',
+      }),
+    };
+  }
+
+  const { accessToken, state } = decryptedCode;
 
   if(codeVerifier && !isPKCEValid(codeVerifier, state.code_challenge, state.code_challenge_method)) {
     return {
@@ -231,7 +256,82 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     };
   }
 
-  const accessTokenJEW = await createJWE({accessToken}, '48h');
+  const accessTokenJWE = await createJWE({accessToken}, '48h');
+
+  // Check if offline_access scope was requested
+  const requestedScopes = state.scope ? state.scope.split(' ') : [];
+  const hasOfflineAccess = requestedScopes.includes('offline_access');
+
+  const tokenResponse: Record<string, any> = {
+    "access_token": accessTokenJWE,
+    "token_type": "Bearer",
+    "expires_in": 172800 // 48 hours in seconds
+  };
+
+  // Only include refresh_token if offline_access was requested
+  if (hasOfflineAccess) {
+    const refreshTokenJWE = await createJWE(
+      { accessToken, type: 'refresh' } satisfies REFRESH_TOKEN_PAYLOAD,
+      '7d' // refresh token valid for 7 days
+    );
+    tokenResponse.refresh_token = refreshTokenJWE;
+  }
+
+  return {
+    statusCode: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    },
+    body: JSON.stringify(tokenResponse)
+  }
+}
+
+async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<HandlerResponse> {
+  const refreshToken = bodyParams.get('refresh_token');
+
+  if (!refreshToken) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'invalid_request',
+        error_description: 'Missing required parameter: refresh_token'
+      }),
+    };
+  }
+
+  let payload: REFRESH_TOKEN_PAYLOAD;
+  try {
+    payload = (await decryptJWE(refreshToken)) as any as REFRESH_TOKEN_PAYLOAD;
+  } catch (error) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'invalid_grant',
+        error_description: 'Invalid or expired refresh token'
+      }),
+    };
+  }
+
+  // Validate this is actually a refresh token
+  if (payload.type !== 'refresh') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'invalid_grant',
+        error_description: 'Invalid token type'
+      }),
+    };
+  }
+
+  const { accessToken } = payload;
+
+  // Issue new access token and rotate refresh token
+  const newAccessTokenJWE = await createJWE({ accessToken }, '48h');
+  const newRefreshTokenJWE = await createJWE(
+    { accessToken, type: 'refresh' } satisfies REFRESH_TOKEN_PAYLOAD,
+    '7d'
+  );
 
   return {
     statusCode: 200,
@@ -240,12 +340,12 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
       'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
     body: JSON.stringify({
-      "access_token": accessTokenJEW,
-      // "refresh_token": "REFRESH_TOKEN",
+      "access_token": newAccessTokenJWE,
+      "refresh_token": newRefreshTokenJWE,
       "token_type": "Bearer",
-      "expires_in": 3600
+      "expires_in": 172800 // 48 hours in seconds
     })
-  }
+  };
 }
 
 
