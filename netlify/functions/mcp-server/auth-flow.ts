@@ -1,9 +1,21 @@
 import { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
+import { getClientById } from "./oauth-clients.ts";
+
+interface AUTH_REQUEST_STATE {
+  response_type: 'code';
+  client_id: string;
+  redirect_uri: string;
+  code_challenge: string;
+  code_challenge_method: 'S256';
+  state?: string;
+  scope?: string;
+  nonce?: string;
+}
 
 interface CODE_JWE_PAYLOAD {
-  state: Record<string, any>;
+  state: Partial<AUTH_REQUEST_STATE>;
   accessToken: string;
 }
 
@@ -13,53 +25,71 @@ interface REFRESH_TOKEN_PAYLOAD {
 }
 
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
+const AUTH_REQUIRED_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method'] as const;
+const AUTH_OPTIONAL_PARAMS = ['state', 'scope', 'nonce'] as const;
+
+function oauthError(statusCode: number, error: string, errorDescription: string): HandlerResponse {
+  return {
+    statusCode,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    },
+    body: JSON.stringify({
+      error,
+      error_description: errorDescription,
+    }),
+  };
+}
 
 
 export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 
   const parsedUrl = new URL(req.url);
   const params = parsedUrl.searchParams;
-  const requiredParams = ['response_type', 'client_id', 'redirect_uri',];
-  const optionalParams = ['state','scope', 'nonce', 'code_challenge', 'code_challenge_method'];
   
-  const missingParams = requiredParams.filter(param => !params.get(param));
+  const missingParams = AUTH_REQUIRED_PARAMS.filter(param => !params.get(param));
   if (missingParams.length > 0) {
-    // RFC 9207: Return error via redirect with iss parameter if redirect_uri is available
-    const redirectUri = params.get('redirect_uri');
-    if (redirectUri) {
-      try {
-        const errorRedirectUrl = new URL(redirectUri);
-        errorRedirectUrl.searchParams.set('error', 'invalid_request');
-        errorRedirectUrl.searchParams.set('error_description', `Missing required parameters: ${missingParams.join(', ')}`);
-        errorRedirectUrl.searchParams.set('iss', getOAuthIssuer());
-        const state = params.get('state');
-        if (state) {
-          errorRedirectUrl.searchParams.set('state', state);
-        }
-        return {
-          statusCode: 302,
-          headers: { 'Location': errorRedirectUrl.toString() },
-          body: ''
-        };
-      } catch (e) {
-        // Invalid redirect_uri, fall through to JSON error
-      }
-    }
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_request',
-        error_description: `Missing required parameters: ${missingParams.join(', ')}`
-      }),
-    };
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`);
   }
 
-  const paramsObj: Record<string, string> = {};
-  ([] as any[]).concat(requiredParams, optionalParams).filter(param => {
-    if(params.get(param)){
-      paramsObj[param] = params.get(param) as string;
+  const responseType = params.get('response_type');
+  if (responseType !== 'code') {
+    return oauthError(400, 'unsupported_response_type', 'Only response_type=code is supported');
+  }
+
+  const codeChallengeMethod = params.get('code_challenge_method');
+  if (codeChallengeMethod !== 'S256') {
+    return oauthError(400, 'invalid_request', 'code_challenge_method must be S256');
+  }
+
+  const clientId = params.get('client_id') as string;
+  const redirectUri = params.get('redirect_uri') as string;
+  const codeChallenge = params.get('code_challenge') as string;
+
+  const client = getClientById(clientId);
+  if (!client) {
+    return oauthError(400, 'invalid_client', 'Unknown client_id');
+  }
+
+  if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
+    return oauthError(400, 'invalid_request', 'redirect_uri must exactly match a registered redirect URI');
+  }
+
+  const paramsObj: AUTH_REQUEST_STATE = {
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  };
+
+  for (const param of AUTH_OPTIONAL_PARAMS) {
+    const value = params.get(param);
+    if (value) {
+      paramsObj[param] = value;
     }
-  });
+  }
 
   // b64 value for the redirects
   const paramsState = Buffer.from(JSON.stringify(paramsObj), 'utf-8').toString('base64');
@@ -133,22 +163,51 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   const token = parsedUrl.searchParams.get('token');
 
   if (!initState || !token) { 
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_request',
-        error_description: `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim()
-      }),
-    };
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim());
   }
 
   try {
-    const stateObj = JSON.parse(Buffer.from(initState, 'base64').toString('utf-8'));
+    const stateObj = JSON.parse(Buffer.from(initState, 'base64').toString('utf-8')) as Partial<AUTH_REQUEST_STATE>;
 
-    const rediredctURL = new URL(stateObj.redirect_uri);
+    if (!stateObj.client_id) {
+      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: client_id');
+    }
+    if (!stateObj.redirect_uri) {
+      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: redirect_uri');
+    }
+    if (!stateObj.code_challenge) {
+      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: code_challenge');
+    }
+    if (stateObj.code_challenge_method !== 'S256') {
+      return oauthError(400, 'invalid_request', 'Invalid code_challenge_method in init-state');
+    }
+    if (stateObj.response_type !== 'code') {
+      return oauthError(400, 'invalid_request', 'Invalid response_type in init-state');
+    }
 
-    if(stateObj.state) {
-      rediredctURL.searchParams.set('state', stateObj.state);
+    const client = getClientById(stateObj.client_id);
+    if (!client) {
+      return oauthError(400, 'invalid_client', 'Unknown client_id');
+    }
+    if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(stateObj.redirect_uri)) {
+      return oauthError(400, 'invalid_request', 'redirect_uri must exactly match a registered redirect URI');
+    }
+
+    const validatedState: AUTH_REQUEST_STATE = {
+      response_type: 'code',
+      client_id: stateObj.client_id,
+      redirect_uri: stateObj.redirect_uri,
+      code_challenge: stateObj.code_challenge,
+      code_challenge_method: 'S256',
+      ...(stateObj.state ? { state: stateObj.state } : {}),
+      ...(stateObj.scope ? { scope: stateObj.scope } : {}),
+      ...(stateObj.nonce ? { nonce: stateObj.nonce } : {}),
+    };
+
+    const rediredctURL = new URL(validatedState.redirect_uri);
+
+    if(validatedState.state) {
+      rediredctURL.searchParams.set('state', validatedState.state);
     }
 
     // RFC 9207: Include iss parameter in authorization response
@@ -156,7 +215,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    const jwe = await createJWE({state: stateObj, accessToken: token} satisfies CODE_JWE_PAYLOAD);
+    const jwe = await createJWE({state: validatedState, accessToken: token} satisfies CODE_JWE_PAYLOAD);
 
     rediredctURL.searchParams.set('code', jwe);
 
@@ -171,35 +230,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   } catch (error) {
     
     console.error('Failed to parse init-state:', error);
-    
-    // RFC 9207: Try to return error via redirect with iss parameter if possible
-    try {
-      const stateObj = JSON.parse(Buffer.from(initState || '', 'base64').toString('utf-8'));
-      if (stateObj.redirect_uri) {
-        const errorRedirectUrl = new URL(stateObj.redirect_uri);
-        errorRedirectUrl.searchParams.set('error', 'invalid_request');
-        errorRedirectUrl.searchParams.set('error_description', 'Invalid init-state parameter');
-        errorRedirectUrl.searchParams.set('iss', getOAuthIssuer());
-        if (stateObj.state) {
-          errorRedirectUrl.searchParams.set('state', stateObj.state);
-        }
-        return {
-          statusCode: 302,
-          headers: { 'Location': errorRedirectUrl.toString() },
-          body: ''
-        };
-      }
-    } catch (e) {
-      // Could not parse state, fall through to JSON error
-    }
-    
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_request',
-        error_description: `Invalid init-state parameter`
-      }),
-    };
+    return oauthError(400, 'invalid_request', 'Invalid init-state parameter');
   }
 }
 
@@ -218,17 +249,24 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   }
 
   // Handle authorization_code grant type
-  const code = bodyParams.get('code');
-  const codeVerifier = bodyParams.get('code_verifier');
+  const requiredParams = ['code', 'client_id', 'redirect_uri', 'code_verifier'];
+  const missingParams = requiredParams.filter(param => !bodyParams.get(param));
+  if(missingParams.length > 0) {
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`);
+  }
 
-  if(!code) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_request',
-        error_description: 'Missing required parameter: code'
-      }),
-    };
+  const code = bodyParams.get('code') as string;
+  const clientId = bodyParams.get('client_id') as string;
+  const redirectUri = bodyParams.get('redirect_uri') as string;
+  const codeVerifier = bodyParams.get('code_verifier') as string;
+
+  const client = getClientById(clientId);
+  if (!client) {
+    return oauthError(400, 'invalid_client', 'Unknown client_id');
+  }
+
+  if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
+    return oauthError(400, 'invalid_grant', 'redirect_uri is not valid for client_id');
   }
 
   let decryptedCode: CODE_JWE_PAYLOAD;
@@ -246,14 +284,16 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
 
   const { accessToken, state } = decryptedCode;
 
-  if(codeVerifier && !isPKCEValid(codeVerifier, state.code_challenge, state.code_challenge_method)) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_grant',
-        error_description: 'PKCE verification failed',
-      }),
-    };
+  if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
+    return oauthError(400, 'invalid_grant', 'client_id or redirect_uri does not match authorization code');
+  }
+
+  if (!state.code_challenge || state.code_challenge_method !== 'S256') {
+    return oauthError(400, 'invalid_grant', 'Authorization code is missing PKCE binding');
+  }
+
+  if(!isPKCEValid(codeVerifier, state.code_challenge, state.code_challenge_method)) {
+    return oauthError(400, 'invalid_grant', 'PKCE verification failed');
   }
 
   const accessTokenJWE = await createJWE({accessToken}, '48h');
