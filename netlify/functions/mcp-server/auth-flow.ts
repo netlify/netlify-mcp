@@ -169,35 +169,49 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   try {
     const stateObj = JSON.parse(Buffer.from(initState, 'base64').toString('utf-8')) as Partial<AUTH_REQUEST_STATE>;
 
-    if (!stateObj.client_id) {
-      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: client_id');
-    }
-    if (!stateObj.redirect_uri) {
-      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: redirect_uri');
-    }
-    if (!stateObj.code_challenge) {
-      return oauthError(400, 'invalid_request', 'Missing required parameter in init-state: code_challenge');
-    }
-    if (stateObj.code_challenge_method !== 'S256') {
-      return oauthError(400, 'invalid_request', 'Invalid code_challenge_method in init-state');
-    }
-    if (stateObj.response_type !== 'code') {
-      return oauthError(400, 'invalid_request', 'Invalid response_type in init-state');
+    const requiredStateParams: Array<keyof AUTH_REQUEST_STATE> = [
+      'client_id',
+      'redirect_uri',
+      'code_challenge',
+      'code_challenge_method',
+      'response_type',
+    ];
+
+    for (const param of requiredStateParams) {
+      if (!stateObj[param]) {
+        return oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`);
+      }
     }
 
-    const client = getClientById(stateObj.client_id);
+    const expectedStateValues: Pick<AUTH_REQUEST_STATE, 'code_challenge_method' | 'response_type'> = {
+      code_challenge_method: 'S256',
+      response_type: 'code',
+    };
+
+    for (const [param, expectedValue] of Object.entries(expectedStateValues)) {
+      const value = stateObj[param as keyof typeof expectedStateValues];
+      if (value !== expectedValue) {
+        return oauthError(400, 'invalid_request', `Invalid ${param} in init-state`);
+      }
+    }
+
+    const clientId = stateObj.client_id as string;
+    const redirectUri = stateObj.redirect_uri as string;
+    const codeChallenge = stateObj.code_challenge as string;
+
+    const client = getClientById(clientId);
     if (!client) {
       return oauthError(400, 'invalid_client', 'Unknown client_id');
     }
-    if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(stateObj.redirect_uri)) {
+    if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
       return oauthError(400, 'invalid_request', 'redirect_uri must exactly match a registered redirect URI');
     }
 
     const validatedState: AUTH_REQUEST_STATE = {
       response_type: 'code',
-      client_id: stateObj.client_id,
-      redirect_uri: stateObj.redirect_uri,
-      code_challenge: stateObj.code_challenge,
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: codeChallenge,
       code_challenge_method: 'S256',
       ...(stateObj.state ? { state: stateObj.state } : {}),
       ...(stateObj.scope ? { scope: stateObj.scope } : {}),
