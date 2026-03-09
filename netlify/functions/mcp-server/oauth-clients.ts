@@ -32,38 +32,10 @@ export const staticClients: ClientMetadata[] = [
   },
 ];
 
-// In-memory storage for dynamically registered clients
-const dynamicClients = new Map<string, ClientMetadata>();
-
 export function getClientById(id: string | null | undefined): ClientMetadata | undefined {
   if (!id) {
     return undefined;
   }
 
-  const staticClient = staticClients.find((client) => client.client_id === id);
-  if (staticClient) {
-    return staticClient;
-  }
-
-  return dynamicClients.get(id);
-}
-
-export function registerDynamicClient(id: string, payload: ClientMetadata): void {
-  if (!id) {
-    return;
-  }
-
-  // Never override static clients.
-  if (staticClients.some((client) => client.client_id === id)) {
-    return;
-  }
-
-  dynamicClients.set(id, payload);
-}
-
-export function removeDynamicClient(id: string): void {
-  if (!id) {
-    return;
-  }
-  dynamicClients.delete(id);
+  return staticClients.find((client) => client.client_id === id);
 }

@@ -4,7 +4,7 @@ import { Provider } from "oidc-provider";
 import type { Configuration, ClientMetadata } from "oidc-provider";
 import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
-import { getClientById, registerDynamicClient, removeDynamicClient, staticClients } from "./mcp-server/oauth-clients.ts";
+import { getClientById, staticClients } from "./mcp-server/oauth-clients.ts";
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
@@ -16,14 +16,8 @@ const registrationEndpointPath = '/oauth-server/reg';
 class ClientAdapter {
   constructor(private name: string) {}
 
-  async upsert(id: string, payload: ClientMetadata, expiresIn?: number) {
-    if (this.name === 'Client') {
-      const staticClient = staticClients.find(c => c.client_id === id);
-      if (!staticClient) {
-        console.log('Registering dynamic client:', id, payload, expiresIn);
-        registerDynamicClient(id, payload);
-      }
-    }
+  async upsert(_id: string, _payload: ClientMetadata, _expiresIn?: number) {
+    // no-op: dynamic clients are not persisted
   }
 
   async find(id: string) {
@@ -33,18 +27,16 @@ class ClientAdapter {
     return undefined;
   }
 
-  async findByUserCode(userCode: string) {
+  async findByUserCode(_userCode: string) {
     return undefined;
   }
 
-  async findByUid(uid: string) {
+  async findByUid(_uid: string) {
     return undefined;
   }
 
-  async destroy(id: string) {
-    if (this.name === 'Client') {
-      removeDynamicClient(id);
-    }
+  async destroy(_id: string) {
+    // no-op: dynamic clients are not persisted
   }
 
   async revokeByGrantId(grantId: string) {}

@@ -1,7 +1,7 @@
 import { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
-import { getClientById } from "./oauth-clients.ts";
+
 
 interface AUTH_REQUEST_STATE {
   response_type: 'code';
@@ -66,15 +66,6 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   const clientId = params.get('client_id') as string;
   const redirectUri = params.get('redirect_uri') as string;
   const codeChallenge = params.get('code_challenge') as string;
-
-  const client = getClientById(clientId);
-  if (!client) {
-    return oauthError(400, 'invalid_client', 'Unknown client_id');
-  }
-
-  if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
-    return oauthError(400, 'invalid_request', 'redirect_uri must exactly match a registered redirect URI');
-  }
 
   const paramsObj: AUTH_REQUEST_STATE = {
     response_type: 'code',
@@ -199,14 +190,6 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     const redirectUri = stateObj.redirect_uri as string;
     const codeChallenge = stateObj.code_challenge as string;
 
-    const client = getClientById(clientId);
-    if (!client) {
-      return oauthError(400, 'invalid_client', 'Unknown client_id');
-    }
-    if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
-      return oauthError(400, 'invalid_request', 'redirect_uri must exactly match a registered redirect URI');
-    }
-
     const validatedState: AUTH_REQUEST_STATE = {
       response_type: 'code',
       client_id: clientId,
@@ -273,15 +256,6 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   const clientId = bodyParams.get('client_id') as string;
   const redirectUri = bodyParams.get('redirect_uri') as string;
   const codeVerifier = bodyParams.get('code_verifier') as string;
-
-  const client = getClientById(clientId);
-  if (!client) {
-    return oauthError(400, 'invalid_client', 'Unknown client_id');
-  }
-
-  if (!Array.isArray(client.redirect_uris) || !client.redirect_uris.includes(redirectUri)) {
-    return oauthError(400, 'invalid_grant', 'redirect_uri is not valid for client_id');
-  }
 
   let decryptedCode: CODE_JWE_PAYLOAD;
   try {
