@@ -4,6 +4,7 @@ import { Provider } from "oidc-provider";
 import type { Configuration, ClientMetadata } from "oidc-provider";
 import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
+import { getClientById, registerDynamicClient, removeDynamicClient, staticClients } from "./mcp-server/oauth-clients.ts";
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
@@ -11,68 +12,23 @@ const clientRedirectPath = '/oauth-server/client-redirect';
 const serverRedirectPath = '/oauth-server/server-redirect';
 const registrationEndpointPath = '/oauth-server/reg';
 
-// Static OAuth clients - add your pre-configured clients here
-const staticClients: ClientMetadata[] = [
-  // Azure AI Foundry wants to do authentication on customer behalf but does 
-  // not support dynamic client registration yet. They asked to have us provision a dedicated
-  // client for them. Here are the details they provided.
-  // Point of contacts for Azure AI Foundry
-  // zhuoqunli@microsoft.com 
-  // AzureToolsCatalog@microsoft.com
-
-  // oauth app name "Azure AI Foundry"
-  {
-    client_id: 'yncg92fdmoCfvrPSIbNH9ihx9oI5iFFoKqTY7sVQkEA',
-    client_secret: process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY || 'supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8', // Use secure secrets in production
-    redirect_uris: [
-      'https://global.consent.azure-apim.net/redirect/foundrynetlifymcp'
-    ],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_post',
-  },
-
-  // oauth app name "Azure AI Foundry Testing"
-  {
-    client_id: 'BHsAsy2hsx4NLRthhSVAA2IQ0W7d72H8o2fevaVqyaE',
-    client_secret: process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY_TESTING || 'supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8', // Use secure secrets in production
-    redirect_uris: [
-      'https://global-test.consent.azure-apim.net/redirect/foundrynetlifymcp'
-    ],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_post',
-  },
-
-  // Add more static clients as needed
-];
-
-// In-memory storage for dynamically registered clients
-const dynamicClients = new Map<string, ClientMetadata>();
-
 // Adapter to support both static and dynamic clients
 class ClientAdapter {
   constructor(private name: string) {}
 
-  async upsert(id: string, payload: any, expiresIn?: number) {
+  async upsert(id: string, payload: ClientMetadata, expiresIn?: number) {
     if (this.name === 'Client') {
       const staticClient = staticClients.find(c => c.client_id === id);
       if (!staticClient) {
         console.log('Registering dynamic client:', id, payload, expiresIn);
-        dynamicClients.set(id, payload);
+        registerDynamicClient(id, payload);
       }
     }
   }
 
   async find(id: string) {
     if (this.name === 'Client') {
-      // Check static clients first
-      const staticClient = staticClients.find(c => c.client_id === id);
-      if (staticClient) {
-        return staticClient;
-      }
-      // Then check dynamic clients
-      return dynamicClients.get(id);
+      return getClientById(id);
     }
     return undefined;
   }
@@ -87,7 +43,7 @@ class ClientAdapter {
 
   async destroy(id: string) {
     if (this.name === 'Client') {
-      dynamicClients.delete(id);
+      removeDynamicClient(id);
     }
   }
 
