@@ -1,4 +1,4 @@
-import { EncryptJWT, jwtDecrypt } from 'jose'
+import { EncryptJWT, jwtDecrypt, compactDecrypt } from 'jose'
 import type { HandlerEvent, HandlerResponse } from "@netlify/functions";
 
 const JWE_SECRET = process.env.JWE_SECRET || 'mysecrtypekey1234567890123456789012345678901234567890'; // 256-bit key for A256GCM
@@ -94,10 +94,25 @@ export async function createJWE(payload: Record<string, any>, expiresIn: string 
   
   const jwe = await new EncryptJWT(payload)
     .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+    .setIssuedAt() // record when the token was minted so expiry can be diagnosed
     .setExpirationTime(expiresIn)
     .encrypt(secret)
-  
+
   return jwe
+}
+
+/**
+ * Decode a JWE's claims WITHOUT validating exp/nbf. Used only for diagnostics so
+ * we can report when a token was issued and by how much it's expired. Never use
+ * the result for auth decisions — it bypasses claim validation.
+ */
+async function peekClaims(jwe: string, secret: Uint8Array): Promise<Record<string, any> | null> {
+  try {
+    const { plaintext } = await compactDecrypt(jwe, secret);
+    return JSON.parse(new TextDecoder().decode(plaintext));
+  } catch {
+    return null;
+  }
 }
 
 export async function decryptJWE(jwe: string) {
@@ -108,9 +123,34 @@ export async function decryptJWE(jwe: string) {
     const { payload } = await jwtDecrypt(jwe, secret)
     return payload
   } catch (error: any) {
-    if('message' in error || 'reason' in error) {
-      console.error('Failed to decrypt JWE:', error.message || '', error.reason || '', error.code || '', error.claim || '');
+    const log: Record<string, unknown> = {
+      message: error?.message || '',
+      reason: error?.reason || '',
+      code: error?.code || '',
+      claim: error?.claim || '',
+    };
+
+    // On an expiry failure, decode the (unvalidated) claims so we can see when
+    // the token was issued and by how much it's "expired" — this surfaces clock
+    // skew, where a just-minted token is rejected as already expired.
+    if (error?.code === 'ERR_JWT_EXPIRED') {
+      const claims = await peekClaims(jwe, secret);
+      const now = Math.floor(Date.now() / 1000);
+      if (claims) {
+        log.nowEpoch = now;
+        log.iat = claims.iat ?? null;
+        log.exp = claims.exp ?? null;
+        if (typeof claims.exp === 'number') {
+          log.expiredBySeconds = now - claims.exp; // negative ⇒ skew (not actually expired)
+        }
+        if (typeof claims.exp === 'number' && typeof claims.iat === 'number') {
+          log.tokenLifetimeSeconds = claims.exp - claims.iat;
+          log.ageSeconds = now - claims.iat;
+        }
+      }
     }
+
+    console.error('Failed to decrypt JWE:', log);
     throw new Error('Invalid JWE token. Please reauthenticate or reconnect to the Netlify MCP server.')
   }
 }
