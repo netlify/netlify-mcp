@@ -15,13 +15,6 @@ export default async (req: Request) => {
 
   try {
 
-    // masked headers
-    console.log('mcp', {
-      reqMethod: req.method, 
-      url: req.url,
-      auth: (req.headers.get('Authorization') || '').slice(0, 40) + '...'
-    });
-
     // Handle different HTTP methods
     if (req.method === "POST") {
       return handleMCPPost(req);
@@ -69,9 +62,6 @@ async function handleMCPPost(req: Request) {
   let body: any;
   try {
     body = await req.json();
-    console.log('Handling MCP POST request', {
-      body: JSON.stringify(body, null, 2),
-    });
   } catch (error) {
     console.error('Error reading request body:', error);
     return new Response('Invalid JSON body', {status: 400});
@@ -80,9 +70,6 @@ async function handleMCPPost(req: Request) {
   // Check for verbose mode via query parameter
   const url = new URL(req.url);
   const verboseMode = url.searchParams.get('verbose') === 'true';
-  if (verboseMode) {
-    console.log('Verbose mode enabled - tools will be registered individually');
-  }
 
   // Create a new Request with the body as a string to avoid re-reading issues
   // toReqRes will try to read the body, so we need to provide a fresh request

@@ -189,8 +189,6 @@ async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, ov
 
 const oAuthHandler: Handler = async (req, context) => {
 
-  console.log('oauth', {reqMethod: req.httpMethod, url: req.rawUrl});
-
   // Handle CORS preflight requests
   if(req.httpMethod === 'OPTIONS') {
     return {
@@ -217,7 +215,6 @@ const oAuthHandler: Handler = async (req, context) => {
 
 
   if(isRegistrationPath && req.body){
-    console.log('registration request', safeBodySummary(req.body))
     // Some clients register with a `scope` that includes values we don't
     // support; oidc-provider rejects the whole registration with
     // invalid_client_metadata. Filter the requested scopes down to the

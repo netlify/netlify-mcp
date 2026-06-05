@@ -6,7 +6,6 @@ import {Config, Context} from '@netlify/edge-functions';
 // This is to allow us to give a short lived token to something external to
 // the MCP server and use it to enrich requests
 export default async (req: Request, ctx: Context) => {
-  console.log('Received request for proxy');
   const token = ctx.params?.token as string;
 
   if (!token) {
@@ -31,8 +30,6 @@ export default async (req: Request, ctx: Context) => {
       return new Response('Forbidden', { status: 403 });
     }
   }
-  
-  console.log('Valid token and allowed path, proceeding with proxy request', requestedPath);
 
   req.headers.set('Authorization', `Bearer ${decryptedToken.accessToken}`);
   req.headers.delete('host');
@@ -46,7 +43,6 @@ export default async (req: Request, ctx: Context) => {
     body: req.body,
     redirect: 'manual', // prevent automatic redirects
   });
-  console.log('Updated request:', url.toString(), updatedReq.method);
   return fetch(updatedReq);
 };
 

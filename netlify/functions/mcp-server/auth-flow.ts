@@ -59,7 +59,25 @@ function getClientIdFromRequest(req: Request, bodyParams: URLSearchParams): stri
   return null;
 }
 
-function oauthError(statusCode: number, error: string, errorDescription: string): HandlerResponse {
+/**
+ * Build an OAuth error response and log it. `op` identifies which call failed
+ * (e.g. 'authorize', 'token', 'token/refresh', 'server-redirect') and `context`
+ * carries any extra detail about why, so failures are traceable from the logs.
+ */
+function oauthError(
+  statusCode: number,
+  error: string,
+  errorDescription: string,
+  op?: string,
+  context?: Record<string, unknown>,
+): HandlerResponse {
+  console.error('oauth error', {
+    op: op ?? 'unknown',
+    statusCode,
+    error,
+    error_description: errorDescription,
+    ...context,
+  });
   return {
     statusCode,
     headers: {
@@ -81,17 +99,17 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   
   const missingParams = AUTH_REQUIRED_PARAMS.filter(param => !params.get(param));
   if (missingParams.length > 0) {
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`);
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`, 'authorize', { missingParams, client_id: params.get('client_id') });
   }
 
   const responseType = params.get('response_type');
   if (responseType !== 'code') {
-    return oauthError(400, 'unsupported_response_type', 'Only response_type=code is supported');
+    return oauthError(400, 'unsupported_response_type', 'Only response_type=code is supported', 'authorize', { responseType, client_id: params.get('client_id') });
   }
 
   const codeChallengeMethod = params.get('code_challenge_method');
   if (codeChallengeMethod !== 'S256') {
-    return oauthError(400, 'invalid_request', 'code_challenge_method must be S256');
+    return oauthError(400, 'invalid_request', 'code_challenge_method must be S256', 'authorize', { codeChallengeMethod, client_id: params.get('client_id') });
   }
 
   const clientId = params.get('client_id') as string;
@@ -184,8 +202,8 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   const initState = parsedUrl.searchParams.get('init-state');
   const token = parsedUrl.searchParams.get('token');
 
-  if (!initState || !token) { 
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim());
+  if (!initState || !token) {
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
   try {
@@ -201,7 +219,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     for (const param of requiredStateParams) {
       if (!stateObj[param]) {
-        return oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`);
+        return oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`, 'server-redirect', { missingStateParam: param });
       }
     }
 
@@ -213,7 +231,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     for (const [param, expectedValue] of Object.entries(expectedStateValues)) {
       const value = stateObj[param as keyof typeof expectedStateValues];
       if (value !== expectedValue) {
-        return oauthError(400, 'invalid_request', `Invalid ${param} in init-state`);
+        return oauthError(400, 'invalid_request', `Invalid ${param} in init-state`, 'server-redirect', { param, value, expected: expectedValue });
       }
     }
 
@@ -256,9 +274,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     };
   
   } catch (error) {
-    
-    console.error('Failed to parse init-state:', error);
-    return oauthError(400, 'invalid_request', 'Invalid init-state parameter');
+    return oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state parse failed', detail: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -289,7 +305,11 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     .filter(([, value]) => !value)
     .map(([key]) => key);
   if(missingParams.length > 0) {
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`);
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`, 'token', {
+      grantType,
+      missingParams,
+      clientIdSource: bodyParams.get('client_id') ? 'body' : (req.headers.get('authorization') ? 'authorization-header' : 'absent'),
+    });
   }
 
   const code = requiredParams.code as string;
@@ -300,27 +320,33 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   try {
     decryptedCode = (await decryptJWE(code)) as any as CODE_JWE_PAYLOAD;
   } catch (error) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_grant',
-        error_description: 'Invalid or expired authorization code',
-      }),
-    };
+    return oauthError(400, 'invalid_grant', 'Invalid or expired authorization code', 'token', {
+      reason: 'authorization code decrypt failed',
+      detail: error instanceof Error ? error.message : String(error),
+      client_id: clientId,
+    });
   }
 
   const { accessToken, state } = decryptedCode;
 
   if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
-    return oauthError(400, 'invalid_grant', 'client_id or redirect_uri does not match authorization code');
+    return oauthError(400, 'invalid_grant', 'client_id or redirect_uri does not match authorization code', 'token', {
+      client_id: clientId,
+      clientIdMatches: state.client_id === clientId,
+      redirectUriMatches: state.redirect_uri === redirectUri,
+    });
   }
 
   if (!state.code_challenge || state.code_challenge_method !== 'S256') {
-    return oauthError(400, 'invalid_grant', 'Authorization code is missing PKCE binding');
+    return oauthError(400, 'invalid_grant', 'Authorization code is missing PKCE binding', 'token', {
+      client_id: clientId,
+      hasCodeChallenge: !!state.code_challenge,
+      codeChallengeMethod: state.code_challenge_method,
+    });
   }
 
   if(!isPKCEValid(codeVerifier, state.code_challenge, state.code_challenge_method)) {
-    return oauthError(400, 'invalid_grant', 'PKCE verification failed');
+    return oauthError(400, 'invalid_grant', 'PKCE verification failed', 'token', { client_id: clientId });
   }
 
   const accessTokenJWE = await createJWE({accessToken}, '48h');
@@ -358,37 +384,24 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
   const refreshToken = bodyParams.get('refresh_token');
 
   if (!refreshToken) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_request',
-        error_description: 'Missing required parameter: refresh_token'
-      }),
-    };
+    return oauthError(400, 'invalid_request', 'Missing required parameter: refresh_token', 'token/refresh', {
+      clientIdSource: bodyParams.get('client_id') ? 'body' : 'absent',
+    });
   }
 
   let payload: REFRESH_TOKEN_PAYLOAD;
   try {
     payload = (await decryptJWE(refreshToken)) as any as REFRESH_TOKEN_PAYLOAD;
   } catch (error) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_grant',
-        error_description: 'Invalid or expired refresh token'
-      }),
-    };
+    return oauthError(400, 'invalid_grant', 'Invalid or expired refresh token', 'token/refresh', {
+      reason: 'refresh token decrypt failed',
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // Validate this is actually a refresh token
   if (payload.type !== 'refresh') {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        error: 'invalid_grant',
-        error_description: 'Invalid token type'
-      }),
-    };
+    return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { type: payload.type });
   }
 
   const { accessToken } = payload;
