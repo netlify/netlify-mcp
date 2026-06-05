@@ -58,13 +58,26 @@ export default async (req: Request) => {
 
 async function handleMCPPost(req: Request) {
 
-  // Read body once and reuse it
+  // Read the body once as text so we can tell an empty body (common for
+  // probes/health-checks/scanners hitting the public endpoint) apart from
+  // malformed/truncated JSON (which may signal a real client or proxy issue).
+  const raw = await req.text();
+
+  if (!raw.trim()) {
+    // Empty POST — not a real MCP request. Respond without logging noise.
+    return jsonRpcError(400, -32600, 'Request body is required');
+  }
+
   let body: any;
   try {
-    body = await req.json();
+    body = JSON.parse(raw);
   } catch (error) {
-    console.error('Error reading request body:', error);
-    return new Response('Invalid JSON body', {status: 400});
+    console.error('Invalid JSON in MCP POST body', {
+      bytes: raw.length,
+      contentType: req.headers.get('content-type'),
+      userAgent: req.headers.get('user-agent'),
+    });
+    return jsonRpcError(400, -32700, 'Parse error: invalid JSON body');
   }
 
   // Check for verbose mode via query parameter
@@ -156,41 +169,30 @@ async function handleMCPPost(req: Request) {
   return addCORSHeadersToFetchResp(response);
 }
 
-// For the stateless server, GET requests are used to initialize
-// SSE connections which are stateful. Therefore, we don't need
-// to handle GET requests but we can signal to the client this error.
-function handleMCPGet() {
+// Build a JSON-RPC error response so clients get a consistent, parseable shape.
+function jsonRpcError(status: number, code: number, message: string) {
   return new Response(
     JSON.stringify({
       jsonrpc: "2.0",
-      error: {
-        code: -32002,
-        message: "Method not allowed.",
-      },
+      error: { code, message },
       id: null,
     }),
     {
-      status: 405,
+      status,
       headers: { "Content-Type": "application/json" }
     }
   );
 }
 
+// For the stateless server, GET requests are used to initialize
+// SSE connections which are stateful. Therefore, we don't need
+// to handle GET requests but we can signal to the client this error.
+function handleMCPGet() {
+  return jsonRpcError(405, -32002, "Method not allowed.");
+}
+
 function handleMCPDelete() {
-  return new Response(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      error: {
-        code: -32002,
-        message: "Method not allowed.",
-      },
-      id: null,
-    }),
-    {
-      status: 405,
-      headers: { "Content-Type": "application/json" }
-    }
-  );
+  return jsonRpcError(405, -32002, "Method not allowed.");
 }
 
 
