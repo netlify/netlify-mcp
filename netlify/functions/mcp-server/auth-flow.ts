@@ -28,6 +28,37 @@ const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
 const AUTH_REQUIRED_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method'] as const;
 const AUTH_OPTIONAL_PARAMS = ['state', 'scope', 'nonce'] as const;
 
+/**
+ * Resolve the client_id from a token request. Clients may authenticate using
+ * either client_secret_post (client_id in the form body) or client_secret_basic
+ * (client_id in the `Authorization: Basic` header, per RFC 6749 §2.3.1). Some
+ * clients send Basic auth regardless of the advertised
+ * token_endpoint_auth_method, so we check both locations.
+ */
+function getClientIdFromRequest(req: Request, bodyParams: URLSearchParams): string | null {
+  const fromBody = bodyParams.get('client_id');
+  if (fromBody) {
+    return fromBody;
+  }
+
+  // Auth scheme is case-insensitive (RFC 7235) and may be separated from the
+  // credentials by arbitrary whitespace, so normalize before matching.
+  const authHeader = req.headers.get('authorization')?.trim() ?? '';
+  const [scheme, ...rest] = authHeader.split(/\s+/);
+  if (scheme.toLowerCase() === 'basic' && rest.length > 0) {
+    try {
+      const decoded = Buffer.from(rest.join(''), 'base64').toString('utf8');
+      // Basic credentials are `urlencode(client_id):urlencode(client_secret)`
+      const clientId = decoded.split(':')[0];
+      return clientId ? decodeURIComponent(clientId) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function oauthError(statusCode: number, error: string, errorDescription: string): HandlerResponse {
   return {
     statusCode,
@@ -245,17 +276,25 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     return handleRefreshTokenGrant(bodyParams);
   }
 
-  // Handle authorization_code grant type
-  const requiredParams = ['code', 'client_id', 'redirect_uri', 'code_verifier'];
-  const missingParams = requiredParams.filter(param => !bodyParams.get(param));
+  // Handle authorization_code grant type. client_id may arrive in the body
+  // (client_secret_post) or the Authorization header (client_secret_basic).
+  const clientId = getClientIdFromRequest(req, bodyParams);
+  const requiredParams: Record<string, string | null> = {
+    code: bodyParams.get('code'),
+    client_id: clientId,
+    redirect_uri: bodyParams.get('redirect_uri'),
+    code_verifier: bodyParams.get('code_verifier'),
+  };
+  const missingParams = Object.entries(requiredParams)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
   if(missingParams.length > 0) {
     return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`);
   }
 
-  const code = bodyParams.get('code') as string;
-  const clientId = bodyParams.get('client_id') as string;
-  const redirectUri = bodyParams.get('redirect_uri') as string;
-  const codeVerifier = bodyParams.get('code_verifier') as string;
+  const code = requiredParams.code as string;
+  const redirectUri = requiredParams.redirect_uri as string;
+  const codeVerifier = requiredParams.code_verifier as string;
 
   let decryptedCode: CODE_JWE_PAYLOAD;
   try {
