@@ -12,6 +12,56 @@ const clientRedirectPath = '/oauth-server/client-redirect';
 const serverRedirectPath = '/oauth-server/server-redirect';
 const registrationEndpointPath = '/oauth-server/reg';
 
+// Scopes the Authorization Server supports. Dynamic client registration
+// requests are sanitized against this list (see oAuthHandler) so a client
+// asking for an unsupported scope doesn't get its whole registration rejected.
+const SUPPORTED_SCOPES = [
+  'openid',
+  'offline_access',
+  'read',
+  'write',
+  'claudeai', // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
+];
+
+// Body fields that must never be logged. Everything else is considered safe to
+// surface for debugging.
+const SENSITIVE_BODY_FIELDS = new Set([
+  'client_secret',
+  'password',
+  'code',
+  'code_verifier',
+  'refresh_token',
+  'access_token',
+  'id_token',
+  'client_assertion',
+  'registration_access_token',
+]);
+
+// Produce a log-safe view of a request body: parses JSON or form-encoded
+// payloads, redacts secrets, and surfaces the rest (including `scope`) so we can
+// debug failures without leaking credentials.
+function safeBodySummary(body: string | null | undefined): Record<string, unknown> {
+  if (!body) return { empty: true };
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // not JSON — fall back to form-encoded (URLSearchParams never throws)
+    parsed = Object.fromEntries(new URLSearchParams(body));
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { unparseable: true, length: body.length };
+  }
+
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    safe[key] = SENSITIVE_BODY_FIELDS.has(key) ? '[redacted]' : value;
+  }
+  return safe;
+}
+
 // Adapter to support both static and dynamic clients
 class ClientAdapter {
   constructor(private name: string) {}
@@ -52,13 +102,7 @@ const configuration: Configuration = {
   // Only allow Authorization Code flow
   responseTypes: ['code'],
   // Supported scopes
-  scopes: [
-    'openid', 
-    'offline_access', 
-    'read', 
-    'write', 
-    'claudeai' // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
-  ],
+  scopes: SUPPORTED_SCOPES,
   // OIDC claims (minimal)
   claims: {
     openid: ['sub'],
@@ -172,8 +216,36 @@ const oAuthHandler: Handler = async (req, context) => {
   const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
 
 
-  if(isRegistrationPath){
-    console.log(JSON.stringify(req.body))
+  if(isRegistrationPath && req.body){
+    console.log('registration request', safeBodySummary(req.body))
+    // Some clients register with a `scope` that includes values we don't
+    // support; oidc-provider rejects the whole registration with
+    // invalid_client_metadata. Filter the requested scopes down to the
+    // supported set (dropping the field entirely if nothing remains) so the
+    // client can still register.
+    try {
+      const regInfo = JSON.parse(req.body);
+      if (typeof regInfo.scope === 'string') {
+        const requested = regInfo.scope.split(/\s+/).filter(Boolean);
+        const allowed = requested.filter((s: string) => SUPPORTED_SCOPES.includes(s));
+        if (allowed.length !== requested.length) {
+          console.log('sanitizing registration scope', { requested, allowed });
+          if (allowed.length > 0) {
+            regInfo.scope = allowed.join(' ');
+          } else {
+            delete regInfo.scope;
+          }
+          req.body = JSON.stringify(regInfo);
+          if (req.headers) {
+            delete req.headers['content-length'];
+            delete req.headers['Content-Length'];
+            req.headers['content-length'] = String(Buffer.byteLength(req.body));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('failed to sanitize registration scope', err);
+    }
   }
 
   // we want OIDC discovery to handle these paths
@@ -245,8 +317,9 @@ const oAuthHandler: Handler = async (req, context) => {
       error: 'Bad Request',
       message: 'Invalid request to OIDC provider',
       statusCode: resp.statusCode,
-      body: resp.body,
-      headers: headersToHeadersObject(resp.headers as Record<string, string> || {})
+      path: parsedUrl.pathname,
+      requestBody: safeBodySummary(req.body),
+      responseBody: resp.body,
     })
   }
 
