@@ -89,6 +89,21 @@ async function handleMCPPost(req: Request) {
 
   debugLog('mcp post body', { method: body?.method, id: body?.id, params: body?.params });
 
+  // Request headers relevant to StreamableHTTP/MCP negotiation. `accept` must
+  // include both application/json and text/event-stream or the transport rejects
+  // the request; session/protocol headers help correlate the handshake.
+  debugLog('mcp post request', {
+    method: body?.method,
+    id: body?.id,
+    accept: req.headers.get('accept'),
+    contentType: req.headers.get('content-type'),
+    mcpSessionId: req.headers.get('mcp-session-id'),
+    mcpProtocolVersion: req.headers.get('mcp-protocol-version'),
+    userAgent: req.headers.get('user-agent'),
+    origin: req.headers.get('origin'),
+    auth: maskToken(req.headers.get('Authorization')),
+  });
+
   // Check for verbose mode via query parameter
   const url = new URL(req.url);
   const verboseMode = url.searchParams.get('verbose') === 'true';
@@ -168,6 +183,15 @@ async function handleMCPPost(req: Request) {
   const response = await toFetchResponse(nodeRes);
   try {
     const returnData = await response.clone().text();
+
+    debugLog('mcp response', {
+      method: body?.method,
+      id: body?.id,
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+      // truncate to keep logs readable; enough to see the JSON-RPC result/error shape
+      body: returnData.length > 2000 ? `${returnData.slice(0, 2000)}…(${returnData.length} bytes)` : returnData,
+    });
 
     if(returnData.includes(UNAUTHED_ERROR_PREFIX)){
       console.error("Unauthorized error detected in response:", returnData);
