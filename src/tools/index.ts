@@ -107,7 +107,7 @@ const registerDomainTools = (
         annotations: {
           readOnlyHint: operationType === 'read'
         }
-      }, async (...args) => {
+      }, async (...args: any[]) => {
         checkCompatibility();
 
         try {
@@ -118,7 +118,7 @@ const registerDomainTools = (
           }
 
           return {
-            content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+            content: [{ type: "text" as const, text: error?.message || 'Failed to get Netlify token' }],
             isError: true
           };
         }
@@ -130,7 +130,7 @@ const registerDomainTools = (
         appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
         return {
-          content: [{ type: "text", text: JSON.stringify(result) }]
+          content: [{ type: "text" as const, text: JSON.stringify(result) }]
         }
       });
     });
@@ -151,7 +151,7 @@ const registerDomainTools = (
       annotations: {
         readOnlyHint: operationType === 'read'
       }
-    }, async (...args) => {
+    }, async (...args: any[]) => {
       checkCompatibility();
 
       try {
@@ -162,7 +162,7 @@ const registerDomainTools = (
         }
 
         return {
-          content: [{ type: "text", text: error?.message || 'Failed to get Netlify token' }],
+          content: [{ type: "text" as const, text: error?.message || 'Failed to get Netlify token' }],
           isError: true
         };
       }
@@ -173,7 +173,7 @@ const registerDomainTools = (
 
       if (!selectedSchema) {
         return {
-          content: [{ type: "text", text: 'Failed to select a valid operation. Retry the MCP operation but select the operation and provide the right inputs.' }]
+          content: [{ type: "text" as const, text: 'Failed to select a valid operation. Retry the MCP operation but select the operation and provide the right inputs.' }]
         }
       }
 
@@ -183,7 +183,7 @@ const registerDomainTools = (
 
       if (!subtool) {
         return {
-          content: [{ type: "text", text: 'Agent called the wrong MCP tool for this operation.' }]
+          content: [{ type: "text" as const, text: 'Agent called the wrong MCP tool for this operation.' }]
         }
       }
 
@@ -192,7 +192,7 @@ const registerDomainTools = (
       appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
       return {
-        content: [{ type: "text", text: JSON.stringify(result) }]
+        content: [{ type: "text" as const, text: JSON.stringify(result) }]
       }
     });
   }
