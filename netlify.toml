@@ -29,6 +29,10 @@
   from = "/authorize"
   to = ".netlify/functions/oauth-server/auth"
   status = 200
+[[redirects]]
+  from = "/register"
+  to = ".netlify/functions/oauth-server/register"
+  status = 200
 
 [[redirects]]
   from = "/.well-known/oauth-protected-resource"

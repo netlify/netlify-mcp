@@ -186,9 +186,16 @@ const oAuthHandler: Handler = async (req, context) => {
   const isServerRedirectPath = parsedUrl.pathname.endsWith(serverRedirectPath);
   const isCodeExchangePath = parsedUrl.pathname.endsWith(tokenEndpointPath);
   const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
+  // Some clients POST dynamic client registration to the conventional default
+  // /register path instead of the advertised registration_endpoint. Treat it as
+  // registration and rewrite the OIDC provider invocation to the real route.
+  const isRegisterAlias = parsedUrl.pathname.endsWith('/register');
+  if (isRegisterAlias) {
+    invocationOverrides.url = registrationEndpointPath;
+  }
 
 
-  if(isRegistrationPath && req.body){
+  if((isRegistrationPath || isRegisterAlias) && req.body){
     debugLog('registration request', safeBodySummary(req.body));
     // Some clients register with a `scope` that includes values we don't
     // support; oidc-provider rejects the whole registration with
