@@ -34,6 +34,11 @@
   from = "/.well-known/oauth-protected-resource"
   to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
   status = 200
+# RFC 9728 path-based PRM: clients request this for a resource at /mcp.
+[[redirects]]
+  from = "/.well-known/oauth-protected-resource/*"
+  to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
+  status = 200
 [[redirects]]
   from = "/.well-known/oauth-authorization-server"
   to = ".netlify/functions/oauth-server/.well-known/oauth-authorization-server"

@@ -16,8 +16,12 @@ const registrationEndpointPath = '/oauth-server/reg';
 // Scopes the Authorization Server supports. Dynamic client registration
 // requests are sanitized against this list (see oAuthHandler) so a client
 // asking for an unsupported scope doesn't get its whole registration rejected.
+//
+// `openid` is intentionally omitted: this is a plain OAuth 2.1 Authorization
+// Server (MCP auth), not an OIDC provider. The token endpoint issues no
+// id_token, so we don't advertise/grant `openid` and the registration
+// sanitizer strips it — otherwise OIDC clients expect an id_token and fail.
 const SUPPORTED_SCOPES = [
-  'openid',
   'offline_access',
   'read',
   'write',
@@ -63,8 +67,11 @@ const configuration: Configuration = {
 
   // Only allow Authorization Code flow
   responseTypes: ['code'],
-  // Supported scopes
-  scopes: SUPPORTED_SCOPES,
+  // oidc-provider's internal scope set keeps `openid` (it's an OIDC library and
+  // is happiest with it present), but we never advertise or grant it — the
+  // discovery handlers strip OIDC fields and the registration sanitizer removes
+  // `openid` using SUPPORTED_SCOPES, so externally this is a plain OAuth 2.1 AS.
+  scopes: ['openid', ...SUPPORTED_SCOPES],
   // OIDC claims (minimal)
   claims: {
     openid: ['sub'],
@@ -169,7 +176,10 @@ const oAuthHandler: Handler = async (req, context) => {
   });
   const invocationOverrides: InvocationOverrides = {};
 
-  const getProtectedResource = parsedUrl.pathname.endsWith('/.well-known/oauth-protected-resource');
+  // RFC 9728: clients derive the PRM URL from the resource path, so for a
+  // resource at /mcp they request /.well-known/oauth-protected-resource/mcp.
+  // Match both that path-based form and the bare well-known path.
+  const getProtectedResource = parsedUrl.pathname.includes('/.well-known/oauth-protected-resource');
   const getAuthorizationServer = parsedUrl.pathname.endsWith('/.well-known/oauth-authorization-server');
   const isAuthPath = parsedUrl.pathname.endsWith(authorizationEndpointPath);
   const isClientRedirectPath = parsedUrl.pathname.endsWith(clientRedirectPath);
@@ -223,7 +233,7 @@ const oAuthHandler: Handler = async (req, context) => {
     const prm = urlsToHTTP({
       resource: new URL('/mcp', getOAuthIssuer()).toString(),
       authorization_servers: [issuer],
-      scopes_supported: asConfig?.scopes_supported || SUPPORTED_SCOPES,
+      scopes_supported: SUPPORTED_SCOPES,
       bearer_methods_supported: ['header'],
     }, getOAuthIssuer());
 
@@ -235,12 +245,35 @@ const oAuthHandler: Handler = async (req, context) => {
   }
 
   // RFC 8414 Authorization Server metadata — delegate to the OIDC provider's
-  // openid-configuration document.
+  // openid-configuration document, then present it as a plain OAuth 2.1 AS.
   if (getAuthorizationServer) {
     invocationOverrides.url = '/.well-known/openid-configuration';
     const response = await invokeOIDCProvider(req, context, invocationOverrides);
 
     let oidcConfig = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
+
+    // Drop the OIDC id_token/JWKS/claims signals. This server issues no
+    // id_token (the token endpoint is custom and returns only access/refresh
+    // tokens), so advertising OIDC makes clients request `openid` and then fail
+    // when no id_token comes back. Strip those fields and `openid` from scopes.
+    const OIDC_ONLY_FIELDS = [
+      'id_token_signing_alg_values_supported',
+      'id_token_encryption_alg_values_supported',
+      'id_token_encryption_enc_values_supported',
+      'jwks_uri',
+      'claims_supported',
+      'claims_parameter_supported',
+      'claim_types_supported',
+      'subject_types_supported',
+      'userinfo_endpoint',
+      'userinfo_signing_alg_values_supported',
+      'request_object_signing_alg_values_supported',
+    ];
+    for (const field of OIDC_ONLY_FIELDS) {
+      delete oidcConfig[field];
+    }
+    oidcConfig.scopes_supported = SUPPORTED_SCOPES;
+
     oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
     response.body = JSON.stringify(oidcConfig);
 
