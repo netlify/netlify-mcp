@@ -5,6 +5,7 @@ import type { Configuration, ClientMetadata } from "oidc-provider";
 import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 import { getClientById, staticClients } from "./mcp-server/oauth-clients.ts";
+import { debugLog, safeBodySummary } from "./mcp-server/logging.ts";
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
@@ -22,45 +23,6 @@ const SUPPORTED_SCOPES = [
   'write',
   'claudeai', // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
 ];
-
-// Body fields that must never be logged. Everything else is considered safe to
-// surface for debugging.
-const SENSITIVE_BODY_FIELDS = new Set([
-  'client_secret',
-  'password',
-  'code',
-  'code_verifier',
-  'refresh_token',
-  'access_token',
-  'id_token',
-  'client_assertion',
-  'registration_access_token',
-]);
-
-// Produce a log-safe view of a request body: parses JSON or form-encoded
-// payloads, redacts secrets, and surfaces the rest (including `scope`) so we can
-// debug failures without leaking credentials.
-function safeBodySummary(body: string | null | undefined): Record<string, unknown> {
-  if (!body) return { empty: true };
-
-  let parsed: unknown = null;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    // not JSON — fall back to form-encoded (URLSearchParams never throws)
-    parsed = Object.fromEntries(new URLSearchParams(body));
-  }
-
-  if (!parsed || typeof parsed !== 'object') {
-    return { unparseable: true, length: body.length };
-  }
-
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    safe[key] = SENSITIVE_BODY_FIELDS.has(key) ? '[redacted]' : value;
-  }
-  return safe;
-}
 
 // Adapter to support both static and dynamic clients
 class ClientAdapter {
@@ -189,6 +151,8 @@ async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, ov
 
 const oAuthHandler: Handler = async (req, context) => {
 
+  debugLog('oauth request', { method: req.httpMethod, url: req.rawUrl });
+
   // Handle CORS preflight requests
   if(req.httpMethod === 'OPTIONS') {
     return {
@@ -215,6 +179,7 @@ const oAuthHandler: Handler = async (req, context) => {
 
 
   if(isRegistrationPath && req.body){
+    debugLog('registration request', safeBodySummary(req.body));
     // Some clients register with a `scope` that includes values we don't
     // support; oidc-provider rejects the whole registration with
     // invalid_client_metadata. Filter the requested scopes down to the

@@ -8,12 +8,19 @@ import { z } from "zod";
 import { checkCompatibility } from "../../src/utils/compatibility.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
+import { debugLog, maskToken } from "./mcp-server/logging.ts";
 import {Config} from "@netlify/functions";
 
 // Netlify serverless function handler
 export default async (req: Request) => {
 
   try {
+
+    debugLog('mcp request', {
+      method: req.method,
+      url: req.url,
+      auth: maskToken(req.headers.get('Authorization')),
+    });
 
     // Handle different HTTP methods
     if (req.method === "POST") {
@@ -80,9 +87,12 @@ async function handleMCPPost(req: Request) {
     return jsonRpcError(400, -32700, 'Parse error: invalid JSON body');
   }
 
+  debugLog('mcp post body', { method: body?.method, id: body?.id, params: body?.params });
+
   // Check for verbose mode via query parameter
   const url = new URL(req.url);
   const verboseMode = url.searchParams.get('verbose') === 'true';
+  debugLog('mcp post handling', { verboseMode });
 
   // Create a new Request with the body as a string to avoid re-reading issues
   // toReqRes will try to read the body, so we need to provide a fresh request
@@ -99,8 +109,10 @@ async function handleMCPPost(req: Request) {
   // 401s can be returned. So, we will always do the auth
   // check, including for init.
   if(!await userIsAuthenticated(req)){
+    debugLog('mcp auth failed', { method: body?.method, id: body?.id });
     return returnNeedsAuthResponse();
   }
+  debugLog('mcp authenticated', { method: body?.method, id: body?.id });
 
   const server = new McpServer({
     name: "netlify",

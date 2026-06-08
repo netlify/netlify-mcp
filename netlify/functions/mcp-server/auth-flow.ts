@@ -1,6 +1,7 @@
 import { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
+import { debugLog } from "./logging.ts";
 
 
 interface AUTH_REQUEST_STATE {
@@ -97,6 +98,8 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   const parsedUrl = new URL(req.url);
   const params = parsedUrl.searchParams;
   
+  debugLog('authorize start', { client_id: params.get('client_id'), redirect_uri: params.get('redirect_uri'), scope: params.get('scope') });
+
   const missingParams = AUTH_REQUIRED_PARAMS.filter(param => !params.get(param));
   if (missingParams.length > 0) {
     return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`, 'authorize', { missingParams, client_id: params.get('client_id') });
@@ -261,6 +264,8 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
+    debugLog('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope });
+
     const jwe = await createJWE({state: validatedState, accessToken: token} satisfies CODE_JWE_PAYLOAD);
 
     rediredctURL.searchParams.set('code', jwe);
@@ -286,6 +291,8 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   // get data from application/x-www-form-urlencoded body
   const bodyParams = new URLSearchParams(body);
   const grantType = bodyParams.get('grant_type') || 'authorization_code';
+
+  debugLog('token exchange', { grantType, client_id: bodyParams.get('client_id'), hasAuthHeader: !!req.headers.get('authorization') });
 
   // Handle refresh_token grant type
   if (grantType === 'refresh_token') {
@@ -370,6 +377,8 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     tokenResponse.refresh_token = refreshTokenJWE;
   }
 
+  debugLog('token issued', { client_id: clientId, hasOfflineAccess, refreshTokenIssued: hasOfflineAccess });
+
   return {
     statusCode: 200,
     headers: {
@@ -412,6 +421,8 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
     { accessToken, type: 'refresh' } satisfies REFRESH_TOKEN_PAYLOAD,
     '7d'
   );
+
+  debugLog('refresh token grant: issued new tokens', {});
 
   return {
     statusCode: 200,

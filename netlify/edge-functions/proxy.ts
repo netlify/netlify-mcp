@@ -1,4 +1,5 @@
 import { decryptJWE } from "../functions/mcp-server/utils.ts";
+import { debugLog } from "../functions/mcp-server/logging.ts";
 import {Config, Context} from '@netlify/edge-functions';
 
 
@@ -7,6 +8,8 @@ import {Config, Context} from '@netlify/edge-functions';
 // the MCP server and use it to enrich requests
 export default async (req: Request, ctx: Context) => {
   const token = ctx.params?.token as string;
+
+  debugLog('proxy request', { method: req.method, url: req.url, hasToken: !!token });
 
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
@@ -43,6 +46,7 @@ export default async (req: Request, ctx: Context) => {
     body: req.body,
     redirect: 'manual', // prevent automatic redirects
   });
+  debugLog('proxy forwarding', { to: url.toString(), method: updatedReq.method });
   return fetch(updatedReq);
 };
 
