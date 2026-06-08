@@ -71,16 +71,34 @@ export function urlsToHTTP(payload: Record<string, any> | string, origin: string
   return typeof payload === 'string' ? text : JSON.parse(text);
 }
 
-export function returnNeedsAuthResponse() {
-  return new Response(`{
-    "error": "unauthenticated",
-    "error_description": "You must authenticate to use this tool"
-    }`, {
+/**
+ * 401 challenge per MCP auth spec (RFC 9728 §5.1 + OAuth 2.1 §5.3 / RFC 6750).
+ * Pass `error: 'invalid_token'` when a token WAS presented but failed validation
+ * (expired/invalid) so clients can refresh; omit it when no token was sent so the
+ * client knows to start a fresh authorization flow.
+ */
+export function returnNeedsAuthResponse(opts?: { error?: string; errorDescription?: string }) {
+  // RFC 9728 §5.1: point at the metadata for THIS resource (the MCP server at /mcp).
+  const resourceMetadata = new URL('/.well-known/oauth-protected-resource/mcp', getOAuthIssuer()).toString();
+
+  const challenge = ['realm="MCP Server"'];
+  if (opts?.error) {
+    challenge.push(`error="${opts.error}"`);
+    if (opts.errorDescription) {
+      challenge.push(`error_description="${opts.errorDescription}"`);
+    }
+  }
+  challenge.push(`resource_metadata="${resourceMetadata}"`);
+
+  return new Response(JSON.stringify({
+    error: opts?.error || 'unauthenticated',
+    error_description: opts?.errorDescription || 'You must authenticate to use this tool',
+  }), {
     status: 401,
     headers: {
         "Content-Type": "application/json",
-        // 401s should point to the resource server metadata and that will point to auth endpoints
-        "WWW-Authenticate": `Bearer realm="MCP Server", resource_metadata="${getOAuthIssuer()}/.well-known/oauth-protected-resource"`,
+        // 401s point to the resource server metadata, which points to the auth server
+        "WWW-Authenticate": `Bearer ${challenge.join(', ')}`,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': '*',
         'Access-Control-Allow-Headers': '*',

@@ -124,8 +124,13 @@ async function handleMCPPost(req: Request) {
   // 401s can be returned. So, we will always do the auth
   // check, including for init.
   if(!await userIsAuthenticated(req)){
-    debugLog('mcp auth failed', { method: body?.method, id: body?.id });
-    return returnNeedsAuthResponse();
+    // If a token was presented but failed validation, signal invalid_token so the
+    // client refreshes; if none was sent, send a bare challenge to start auth.
+    const tokenPresented = !!req.headers.get('authorization');
+    debugLog('mcp auth failed', { method: body?.method, id: body?.id, tokenPresented });
+    return returnNeedsAuthResponse(tokenPresented
+      ? { error: 'invalid_token', errorDescription: 'The access token is invalid or expired' }
+      : undefined);
   }
   debugLog('mcp authenticated', { method: body?.method, id: body?.id });
 
@@ -194,8 +199,10 @@ async function handleMCPPost(req: Request) {
     });
 
     if(returnData.includes(UNAUTHED_ERROR_PREFIX)){
+      // A downstream Netlify call rejected the token mid-request — it's no longer
+      // valid, so flag invalid_token rather than a bare challenge.
       console.error("Unauthorized error detected in response:", returnData);
-      return returnNeedsAuthResponse();
+      return returnNeedsAuthResponse({ error: 'invalid_token', errorDescription: 'The Netlify access token is no longer valid' });
     }
 
   } catch (error) {
