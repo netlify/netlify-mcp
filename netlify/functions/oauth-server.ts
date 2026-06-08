@@ -210,20 +210,38 @@ const oAuthHandler: Handler = async (req, context) => {
     }
   }
 
-  // we want OIDC discovery to handle these paths
-  if (getProtectedResource || getAuthorizationServer) {
+  // RFC 9728 Protected Resource Metadata. MCP clients read `authorization_servers`
+  // from this document to discover where to authenticate; without it they can't
+  // bootstrap the OAuth flow and just retry unauthenticated. We derive the issuer
+  // from the Authorization Server metadata so it matches exactly (including any
+  // trailing slash) and won't trip an issuer-mismatch check on the client.
+  if (getProtectedResource) {
+    const asResponse = await invokeOIDCProvider(req, context, { url: '/.well-known/openid-configuration' });
+    const asConfig = typeof asResponse.body === 'string' ? JSON.parse(asResponse.body) : asResponse.body;
+    const issuer = asConfig?.issuer || getOAuthIssuer();
 
+    const prm = urlsToHTTP({
+      resource: new URL('/mcp', getOAuthIssuer()).toString(),
+      authorization_servers: [issuer],
+      scopes_supported: asConfig?.scopes_supported || SUPPORTED_SCOPES,
+      bearer_methods_supported: ['header'],
+    }, getOAuthIssuer());
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(prm),
+    };
+  }
+
+  // RFC 8414 Authorization Server metadata — delegate to the OIDC provider's
+  // openid-configuration document.
+  if (getAuthorizationServer) {
     invocationOverrides.url = '/.well-known/openid-configuration';
     const response = await invokeOIDCProvider(req, context, invocationOverrides);
 
     let oidcConfig = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
-
-    if(getProtectedResource){
-      oidcConfig.resource = new URL('/mcp', getOAuthIssuer()).toString();
-    }
-
     oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
-
     response.body = JSON.stringify(oidcConfig);
 
     return response;

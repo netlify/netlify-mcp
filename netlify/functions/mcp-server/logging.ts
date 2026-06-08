@@ -10,7 +10,11 @@
 
 export function isVerboseLogging(): boolean {
   try {
-    const v = (process.env.MCP_VERBOSE_LOGGING || '').toLowerCase();
+    // Tolerate stray whitespace and accidental surrounding quotes, e.g. '"true"'.
+    const v = (process.env.MCP_VERBOSE_LOGGING ?? '')
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .toLowerCase();
     return v === 'true' || v === '1' || v === 'yes';
   } catch {
     // process may be unavailable in some runtimes (e.g. edge); default to off.
