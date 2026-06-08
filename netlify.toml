@@ -2,9 +2,9 @@
 # Catch-all request/response body logger. Declared here (not inline) so it runs
 # before the file-based `proxy` edge function and wraps every interaction.
 # Active only when MCP_VERBOSE_LOGGING is set.
-[[edge_functions]]
-  function = "request-logger"
-  path = "/*"
+# [[edge_functions]]
+#   function = "request-logger"
+#   path = "/*"
 
 [[edge_functions]]
   function = "proxy"
