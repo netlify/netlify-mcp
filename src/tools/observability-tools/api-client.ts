@@ -58,26 +58,26 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 };
 
 /**
- * Parse a JSON string of filters into an array. Returns undefined if invalid.
+ * Parse a JSON string of filters into an array. Throws if the JSON is invalid.
  */
 export const parseFilters = (raw?: string): QueryFilter[] | undefined => {
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as QueryFilter[];
   } catch {
-    return undefined;
+    throw new Error(`Invalid filters: expected a JSON array, got ${raw}`);
   }
 };
 
 /**
- * Parse a JSON string of sort specs into an array. Returns undefined if invalid.
+ * Parse a JSON string of sort specs into an array. Throws if the JSON is invalid.
  */
 export const parseSortBy = (raw?: string): SortBy[] | undefined => {
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as SortBy[];
   } catch {
-    return undefined;
+    throw new Error(`Invalid sort_by: expected a JSON array, got ${raw}`);
   }
 };
 
@@ -126,14 +126,14 @@ export const getCounts = async (
   siteID: string, fromTS: number, toTS: number,
   query: RequestQuery, incomingRequest?: Request
 ) => {
-  return doPost(`/api/v1/sites/${siteID}/observability/query/counts`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
+  return doPost(`/api/v1/sites/${encodeURIComponent(siteID)}/observability/query/counts`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
 };
 
 export const getTopK = async (
   siteID: string, fromTS: number, toTS: number,
   query: RequestQuery, incomingRequest?: Request
 ) => {
-  return doPost(`/api/v1/sites/${siteID}/observability/query/topk`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
+  return doPost(`/api/v1/sites/${encodeURIComponent(siteID)}/observability/query/topk`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
 };
 
 export const getTimeSeries = async (
@@ -144,18 +144,18 @@ export const getTimeSeries = async (
   if (interval && interval > 0) {
     params.set('interval', String(interval));
   }
-  return doPost(`/api/v1/sites/${siteID}/observability/query/timeseries`, params, buildPayload(query), incomingRequest);
+  return doPost(`/api/v1/sites/${encodeURIComponent(siteID)}/observability/query/timeseries`, params, buildPayload(query), incomingRequest);
 };
 
 export const getLists = async (
   siteID: string, fromTS: number, toTS: number,
   query: RequestQuery, incomingRequest?: Request
 ) => {
-  return doPost(`/api/v1/sites/${siteID}/observability/query/lists`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
+  return doPost(`/api/v1/sites/${encodeURIComponent(siteID)}/observability/query/lists`, timeWindowParams(fromTS, toTS), buildPayload(query), incomingRequest);
 };
 
 export const getRequestDetail = async (
   siteID: string, requestID: string, fromTS: number, toTS: number, incomingRequest?: Request
 ) => {
-  return doGet(`/api/v1/sites/${siteID}/observability/requests/${requestID}`, timeWindowParams(fromTS, toTS), incomingRequest);
+  return doGet(`/api/v1/sites/${encodeURIComponent(siteID)}/observability/requests/${encodeURIComponent(requestID)}`, timeWindowParams(fromTS, toTS), incomingRequest);
 };
