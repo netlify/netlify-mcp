@@ -6,7 +6,6 @@ import {
   getTimeSeries,
   getLists,
   getRequestDetail,
-  getAlerts,
   parseFilters,
   parseSortBy,
 } from './api-client.js';
@@ -128,7 +127,8 @@ const getRequestLogsDomainTool: DomainTool<typeof getRequestLogsSchema> = {
 const getRequestDetailSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
   request_id: z.string().describe('Request ID (ULID format)'),
-  from_ts: z.number().optional().describe('Optional start timestamp in milliseconds for time context'),
+  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch. Must bracket the request (e.g. a minute before it).'),
+  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch. Must bracket the request (e.g. a minute after it).'),
 });
 
 const getRequestDetailDomainTool: DomainTool<typeof getRequestDetailSchema> = {
@@ -136,28 +136,8 @@ const getRequestDetailDomainTool: DomainTool<typeof getRequestDetailSchema> = {
   operation: 'get-request-detail',
   inputSchema: getRequestDetailSchema,
   toolAnnotations: { readOnlyHint: true },
-  cb: async ({ siteId, request_id, from_ts }, { request }) => {
-    const result = await getRequestDetail(siteId, request_id, from_ts, request);
-    return JSON.stringify(result);
-  },
-};
-
-// ---- Tool: get-alerts ----
-
-const getAlertsSchema = z.object({
-  siteId: z.string().describe('Netlify site ID'),
-  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch'),
-  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch'),
-  severity: z.string().optional().describe("Comma-separated severity filter (e.g. 'critical,high')"),
-});
-
-const getAlertsDomainTool: DomainTool<typeof getAlertsSchema> = {
-  domain: 'observability',
-  operation: 'get-alerts',
-  inputSchema: getAlertsSchema,
-  toolAnnotations: { readOnlyHint: true },
-  cb: async ({ siteId, from_ts, to_ts, severity }, { request }) => {
-    const result = await getAlerts(siteId, from_ts, to_ts, severity, request);
+  cb: async ({ siteId, request_id, from_ts, to_ts }, { request }) => {
+    const result = await getRequestDetail(siteId, request_id, from_ts, to_ts, request);
     return JSON.stringify(result);
   },
 };
@@ -170,5 +150,4 @@ export const observabilityDomainTools = [
   getTimeSeriesDomainTool,
   getRequestLogsDomainTool,
   getRequestDetailDomainTool,
-  getAlertsDomainTool,
 ];

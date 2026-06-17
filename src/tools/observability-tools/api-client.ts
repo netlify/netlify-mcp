@@ -155,22 +155,7 @@ export const getLists = async (
 };
 
 export const getRequestDetail = async (
-  siteID: string, requestID: string, fromTS?: number, incomingRequest?: Request
+  siteID: string, requestID: string, fromTS: number, toTS: number, incomingRequest?: Request
 ) => {
-  const params = new URLSearchParams();
-  if (fromTS && fromTS > 0) {
-    params.set('from_ts', String(fromTS));
-  }
-  return doGet(`/api/v1/sites/${siteID}/observability/requests/${requestID}`, params, incomingRequest);
-};
-
-export const getAlerts = async (
-  siteID: string, fromTS: number, toTS: number,
-  severity?: string, incomingRequest?: Request
-) => {
-  const params = timeWindowParams(fromTS, toTS);
-  if (severity) {
-    params.set('severity', severity);
-  }
-  return doGet(`/api/v1/sites/${siteID}/observability/alerts`, params, incomingRequest);
+  return doGet(`/api/v1/sites/${siteID}/observability/requests/${requestID}`, timeWindowParams(fromTS, toTS), incomingRequest);
 };
