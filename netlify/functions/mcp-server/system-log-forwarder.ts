@@ -1,38 +1,31 @@
 // Node-only log forwarder that routes records onto Netlify's system-log channel.
 //
-// Netlify's systemLogger tags lines with `__nfSystemLog` so the platform routes
-// them onto its internal system-log channel (separate from user-facing function
-// output). This forwarder maps each record we build onto systemLogger,
-// preserving our full flat metadata under `fields`. Pass it to initLogger() from
-// a Node entry point.
+// Netlify's function runtime tags any stdout line beginning with `__nfSystemLog`
+// as a system log (internal_log_type=system), routing it to the internal
+// system-log channel separate from user-facing function output. We emit our full
+// FLAT record as the payload — rather than @netlify/functions/internal's nested
+// `{msg, fields}` shape — so the line is a single JSON.parse away from every
+// field (service, requestId, userId, …) instead of two levels deep.
 //
 // IMPORTANT: only import this from Node serverless function entry points
-// (mcp.ts, oauth-server.ts). The `@netlify/functions/internal` package imports
-// `process` and is Node-only, so it must never reach the shared logger.ts (which
-// the Deno edge functions bundle) or the stdio CLI (whose stdout is the MCP
-// protocol channel).
+// (mcp.ts, oauth-server.ts). It must never reach the Deno edge functions or the
+// stdio CLI (whose stdout is the MCP protocol channel).
 
-import { systemLogger, LogLevel } from '@netlify/functions/internal';
-import { jsonSafe, type LogForwarder } from './logger.ts';
+import { safeStringify, type LogForwarder } from './logger.ts';
+
+// Netlify's system-log marker. A stdout line beginning with this token is
+// promoted to internal_log_type=system by the function runtime. (Same tag
+// @netlify/functions/internal uses; hardcoded here so we control the payload
+// shape and avoid depending on that internal package.)
+const SYSTEM_LOG_TAG = '__nfSystemLog';
 
 export const systemLogForwarder: LogForwarder = (level, record) => {
-  // `message` becomes systemLogger's `msg`; everything else (including our
-  // timestamp/level/service) rides along as fields. jsonSafe guards against
-  // circular/bigint values that systemLogger's own JSON.stringify would throw
-  // on.
-  const { message, ...rest } = record;
-  const msg = typeof message === 'string' ? message : String(message ?? '');
-  const fields = jsonSafe(rest) as Record<string, unknown>;
-
-  // systemLogger has three levels (debug/log/error) and no `warn`, so warn folds
-  // into `log` — the original severity is still the `level` field for filtering.
-  // debug must raise the logger's own level or it self-suppresses (default Log).
-  // Any throw here is caught by the logger's forwarder guard.
+  const line = `${SYSTEM_LOG_TAG} ${safeStringify(record)}`;
   if (level === 'error') {
-    systemLogger.withFields(fields).error(msg);
-  } else if (level === 'debug') {
-    systemLogger.withLogLevel(LogLevel.Debug).withFields(fields).debug(msg);
+    console.error(line);
+  } else if (level === 'warn') {
+    console.warn(line);
   } else {
-    systemLogger.withFields(fields).log(msg);
+    console.log(line);
   }
 };
