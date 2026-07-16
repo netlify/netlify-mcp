@@ -1,7 +1,7 @@
 // Structured JSON logger with request-scoped metadata.
 //
 // Every log line is a single JSON object: the human-readable string lives in
-// `message`, and all metadata (service, requestId, version, userId, teamId, and
+// `message`, and all metadata (service, requestId, deployId, userId, teamId, and
 // any per-call fields) sits flat alongside it. Steady-state severities
 // (info/warn/error) always emit; `debug` is gated by MCP_VERBOSE_LOGGING.
 //
@@ -71,6 +71,35 @@ export function addLogContext(fields: LogContext): void {
   if (ctx) {
     Object.assign(ctx, fields);
   }
+}
+
+// The x-nf-deploy-id header carries the deploy id and is the same value the v2
+// Context.deploy.id is derived from. We prefer the documented context object
+// when it's available (v2 functions), and fall back to this header for runtimes
+// that don't expose context.deploy (the legacy Handler and edge functions).
+const NF_DEPLOY_ID_HEADER = 'x-nf-deploy-id';
+
+/**
+ * Resolve the Netlify deploy id for logging, from whatever source a runtime
+ * exposes: the v2 function Context (`context.deploy.id`, documented at
+ * docs.netlify.com/build/functions/api/#deploy), or request headers (legacy
+ * Handler / edge). Returns undefined when unavailable (e.g. local dev), so the
+ * field is simply omitted from logs.
+ */
+export function getDeployId(
+  source: { deploy?: { id?: string } } | Headers | Record<string, string | undefined>,
+): string | undefined {
+  const deploy = (source as { deploy?: { id?: string } }).deploy;
+  if (deploy && typeof deploy.id === 'string') {
+    return deploy.id;
+  }
+
+  const headers = source as Headers | Record<string, string | undefined>;
+  const value =
+    typeof (headers as Headers).get === 'function'
+      ? (headers as Headers).get(NF_DEPLOY_ID_HEADER)
+      : (headers as Record<string, string | undefined>)[NF_DEPLOY_ID_HEADER];
+  return value ?? undefined;
 }
 
 /** Generate a per-request correlation id. */
