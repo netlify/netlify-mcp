@@ -36,8 +36,8 @@ async function handleProxy(req: Request, token: string): Promise<Response> {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  // Attribute the proxied call to the user once the JWE identity work lands
-  // (identity is embedded at token-issue time); harmless no-op until then.
+  // Attribute the proxied call to the user (identity is embedded in the JWE at
+  // token-issue time; absent on raw PATs and pre-identity tokens).
   if (decryptedToken.identity && typeof decryptedToken.identity === 'object') {
     const { userId, teamId } = decryptedToken.identity as { userId?: string; teamId?: string };
     addLogContext({ userId, teamId });

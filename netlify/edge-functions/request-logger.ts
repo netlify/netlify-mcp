@@ -1,5 +1,5 @@
 import type { Context } from '@netlify/edge-functions';
-import { isVerboseLogging, maskToken, safeBodySummary } from '../functions/mcp-server/logging.ts';
+import { isVerboseLogging, maskToken, safeBodySummary, mcpBodySummary } from '../functions/mcp-server/logging.ts';
 import { log, withLogContext, newRequestId } from '../functions/mcp-server/logger.ts';
 
 // Catch-all request/response logger. Runs in front of every request (declared
@@ -23,23 +23,40 @@ export default async (request: Request, context: Context) => {
   }
 
   const url = new URL(request.url);
+  const path = url.pathname;
+  // Data-bearing paths carry user values, not protocol metadata:
+  //  - /mcp: tool call arguments and tool results
+  //  - /proxy: raw Netlify API request/response payloads
+  // We never log their body values. /mcp gets a value-free shape summary (tool
+  // name + argument names); /proxy is omitted entirely. Only OAuth/discovery
+  // paths keep full (redacted) body logging, where it's useful for debugging the
+  // auth flow and secrets are stripped by safeBodySummary.
+  const isMcp = path === '/mcp' || path.startsWith('/mcp/');
+  const isProxy = path.startsWith('/proxy/');
 
   return withLogContext(
     {
       service: 'edge',
       requestId: newRequestId(),
       httpMethod: request.method,
-      path: url.pathname,
+      path,
     },
     async () => {
       // Read the request body via a clone so the original is left intact for
-      // downstream handlers (context.next()). Bodies carry secrets (tool-call
-      // password args, OAuth codes), so they are redacted before logging, then
-      // truncated — redact-first so truncation can never split around a secret.
+      // downstream handlers (context.next()).
       let reqBody = '';
       try {
         if (request.body) {
-          reqBody = truncate(JSON.stringify(safeBodySummary(await request.clone().text())));
+          const text = await request.clone().text();
+          if (isMcp) {
+            reqBody = JSON.stringify(mcpBodySummary(text));
+          } else if (isProxy) {
+            reqBody = `<omitted: proxied API request (${text.length} bytes)>`;
+          } else {
+            // OAuth/discovery: redact known secrets, then truncate (redact-first
+            // so truncation can never split around a secret).
+            reqBody = truncate(JSON.stringify(safeBodySummary(text)));
+          }
         }
       } catch (err) {
         reqBody = `<unreadable request body: ${err instanceof Error ? err.message : String(err)}>`;
@@ -64,9 +81,14 @@ export default async (request: Request, context: Context) => {
         resBody = '<streamed: text/event-stream, body not buffered>';
       } else if (resLen > MAX_BUFFER) {
         resBody = `<skipped: ${resLen} bytes>`;
+      } else if (isProxy) {
+        resBody = '<omitted: proxied API response>';
       } else {
         try {
-          resBody = truncate(await response.clone().text());
+          const text = await response.clone().text();
+          // /mcp responses carry tool result values — log shape only. Other
+          // paths log the (truncated) body for auth-flow debugging.
+          resBody = isMcp ? JSON.stringify(mcpBodySummary(text)) : truncate(text);
         } catch (err) {
           resBody = `<unreadable response body: ${err instanceof Error ? err.message : String(err)}>`;
         }

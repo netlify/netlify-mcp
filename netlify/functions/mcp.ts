@@ -8,9 +8,9 @@ import { z } from "zod";
 import { checkCompatibility } from "../../src/utils/compatibility.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
-import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
+import { userIsAuthenticated, getTokenIdentity, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
-import { isVerboseLogging, maskToken, redactSensitive } from "./mcp-server/logging.ts";
+import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, newRequestId, initLogger } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import {Config} from "@netlify/functions";
@@ -115,13 +115,12 @@ async function handleMCPPost(req: Request) {
     clientInfoName: body?.params?.clientInfo?.name,
   });
 
-  // Guard the redaction walk behind the flag: redactSensitive() recurses the
-  // whole (attacker-controlled, pre-auth) body, and its argument is evaluated
-  // eagerly before log.debug checks the flag, so relying on the inner check
-  // wouldn't spare that work in steady state.
-  if (isVerboseLogging()) {
-    log.debug('mcp post body', { params: redactSensitive(body?.params) });
-  }
+  // Log the SHAPE of the call only — the tool name and the names of the
+  // arguments provided, never the argument VALUES. Tool arguments (and tool
+  // results, see the response log below) routinely carry secrets/PII: env var
+  // values, form submissions, project data. So we deliberately never log those
+  // values, only their property names.
+  log.debug('mcp post body', paramsSummary(body?.params));
 
   // Request headers relevant to StreamableHTTP/MCP negotiation. `accept` must
   // include both application/json and text/event-stream or the transport rejects
@@ -167,6 +166,14 @@ async function handleMCPPost(req: Request) {
       ? { error: 'invalid_token', errorDescription: 'The access token is invalid or expired' }
       : undefined);
   }
+  // Attach the caller's identity (embedded in the JWE at auth time) to the log
+  // context so every subsequent line for this request is attributed to them.
+  // Null for raw PATs or pre-identity tokens — logs simply carry no user fields.
+  const identity = await getTokenIdentity(req);
+  if (identity) {
+    addLogContext({ userId: identity.userId, teamId: identity.teamId });
+  }
+
   log.debug('mcp authenticated');
 
   const server = new McpServer({
@@ -238,11 +245,12 @@ async function handleMCPPost(req: Request) {
   try {
     const returnData = await response.clone().text();
 
+    // Log response metadata only — status, type, and size — never the body,
+    // which contains tool result values (env vars, form data, project details).
     log.debug('mcp response', {
       status: response.status,
       contentType: response.headers.get('content-type'),
-      // truncate to keep logs readable; enough to see the JSON-RPC result/error shape
-      body: returnData.length > 2000 ? `${returnData.slice(0, 2000)}…(${returnData.length} bytes)` : returnData,
+      bytes: returnData.length,
     });
 
     if(returnData.includes(UNAUTHED_ERROR_PREFIX)){

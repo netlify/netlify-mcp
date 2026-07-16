@@ -5,6 +5,7 @@ import { runCommand } from './cmd.js';
 import { appendToLog } from './logging.js';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.js';
 import { log } from '../../netlify/functions/mcp-server/logger.js';
+import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
 interface APIInteractionOptions {
   pagination?: boolean;
@@ -61,6 +62,32 @@ export const userIsAuthenticated = async (request?: Request): Promise<boolean> =
   }
   return true;
 }
+
+/**
+ * Recover the identity (userId/teamId) embedded in the JWE bearer token, for
+ * attaching to logs. Returns null when there's no request, no JWE bearer token,
+ * or a raw personal access token (nfp/nfu/nfo) — those carry no embedded
+ * identity. Never throws.
+ */
+export const getTokenIdentity = async (request?: Request): Promise<TokenIdentity | null> => {
+  if (!request) return null;
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+  const bearer = authHeader.slice(7);
+  // Raw PATs are used directly and carry no embedded identity.
+  if (bearer.startsWith('nfu') || bearer.startsWith('nfp') || bearer.startsWith('nfo')) {
+    return null;
+  }
+
+  try {
+    const decrypted = await decryptJWE(bearer);
+    const identity = (decrypted as any)?.identity;
+    return identity && typeof identity === 'object' ? (identity as TokenIdentity) : null;
+  } catch {
+    return null;
+  }
+};
 
 export const getNetlifyAccessToken = async (request?: Request): Promise<string> => {
 

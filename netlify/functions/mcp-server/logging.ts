@@ -125,3 +125,49 @@ export function safeBodySummary(body: string | null | undefined): Record<string,
 
   return redactSensitive(parsed as Record<string, unknown>);
 }
+
+// A value-free summary of JSON-RPC params: the tool name and the NAMES of the
+// arguments sent (for tools/call), or the top-level param names for other
+// methods — but never any values. Tool arguments carry secrets/PII (env var
+// values, form submissions), so only their shape is ever logged.
+export function paramsSummary(params: any): Record<string, unknown> {
+  if (!params || typeof params !== 'object') {
+    return {};
+  }
+  const summary: Record<string, unknown> = {};
+  if (typeof params.name === 'string') {
+    summary.toolName = params.name;
+  }
+  if (params.arguments && typeof params.arguments === 'object') {
+    summary.argKeys = Object.keys(params.arguments);
+  } else {
+    summary.paramKeys = Object.keys(params);
+  }
+  return summary;
+}
+
+// A value-free summary of a raw MCP JSON-RPC body (request OR response) for the
+// edge logger. Surfaces only shape — method/id, the tool name and argument
+// names on a request, and whether a response carried a result/error — never any
+// argument or result VALUES.
+export function mcpBodySummary(body: string | null | undefined): Record<string, unknown> {
+  if (!body) return { empty: true };
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { unparseable: true, length: body.length };
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return { unparseable: true, length: body.length };
+  }
+
+  return {
+    ...(parsed.method !== undefined ? { method: parsed.method } : {}),
+    ...(parsed.id !== undefined ? { id: parsed.id } : {}),
+    ...paramsSummary(parsed.params),
+    ...(parsed.result !== undefined ? { hasResult: true } : {}),
+    ...(parsed.error !== undefined ? { hasError: true } : {}),
+  };
+}

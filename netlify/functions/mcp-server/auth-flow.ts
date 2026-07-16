@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
 import { log } from "./logger.ts";
+import { resolveIdentity, type TokenIdentity } from "./identity.ts";
 import {
   createStatelessClientId,
   inferApplicationType,
@@ -94,11 +95,21 @@ interface AUTH_REQUEST_STATE {
 interface CODE_JWE_PAYLOAD {
   state: Partial<AUTH_REQUEST_STATE>;
   accessToken: string;
+  // Resolved once at server-redirect and carried through so it can be attached
+  // to logs on later requests. Optional: absent on failure and on tokens issued
+  // before identity resolution existed.
+  identity?: TokenIdentity;
+}
+
+interface ACCESS_TOKEN_PAYLOAD {
+  accessToken: string;
+  identity?: TokenIdentity;
 }
 
 interface REFRESH_TOKEN_PAYLOAD {
   accessToken: string;
   type: 'refresh';
+  identity?: TokenIdentity;
 }
 
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
@@ -354,11 +365,16 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     // RFC 9207: Include iss parameter in authorization response
     rediredctURL.searchParams.set('iss', getOAuthIssuer());
 
+    // Resolve the user/team for this token once, here, so it can be embedded in
+    // the code (and downstream access/refresh tokens) without a per-request
+    // lookup. Best-effort — never blocks issuing the code.
+    const identity = await resolveIdentity(token);
+
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    log.debug('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope });
+    log.debug('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope, hasIdentity: !!identity });
 
-    const jwe = await createJWE({state: validatedState, accessToken: token} satisfies CODE_JWE_PAYLOAD);
+    const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
     rediredctURL.searchParams.set('code', jwe);
 
@@ -518,7 +534,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     });
   }
 
-  const { accessToken, state } = decryptedCode;
+  const { accessToken, state, identity } = decryptedCode;
 
   if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
     return oauthError(400, 'invalid_grant', 'client_id or redirect_uri does not match authorization code', 'token', {
@@ -540,7 +556,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     return oauthError(400, 'invalid_grant', 'PKCE verification failed', 'token', { client_id: clientId });
   }
 
-  const accessTokenJWE = await createJWE({accessToken}, '48h');
+  const accessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
 
   // Check if offline_access scope was requested
   const requestedScopes = state.scope ? state.scope.split(' ') : [];
@@ -555,7 +571,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   // Only include refresh_token if offline_access was requested
   if (hasOfflineAccess) {
     const refreshTokenJWE = await createJWE(
-      { accessToken, type: 'refresh' } satisfies REFRESH_TOKEN_PAYLOAD,
+      { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
       '7d' // refresh token valid for 7 days
     );
     tokenResponse.refresh_token = refreshTokenJWE;
@@ -597,12 +613,13 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
     return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { type: payload.type });
   }
 
-  const { accessToken } = payload;
+  const { accessToken, identity } = payload;
 
-  // Issue new access token and rotate refresh token
-  const newAccessTokenJWE = await createJWE({ accessToken }, '48h');
+  // Issue new access token and rotate refresh token, carrying identity forward
+  // so it survives the token's full refresh lifetime.
+  const newAccessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
   const newRefreshTokenJWE = await createJWE(
-    { accessToken, type: 'refresh' } satisfies REFRESH_TOKEN_PAYLOAD,
+    { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
     '7d'
   );
 
