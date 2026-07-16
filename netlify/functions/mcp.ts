@@ -11,8 +11,13 @@ import { registerClaudeDesignImportTool } from "../../src/tools/design-import/im
 import { userIsAuthenticated, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
 import { isVerboseLogging, maskToken, redactSensitive } from "./mcp-server/logging.ts";
-import { log, withLogContext, addLogContext, newRequestId } from "./mcp-server/logger.ts";
+import { log, withLogContext, addLogContext, newRequestId, initLogger } from "./mcp-server/logger.ts";
+import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import {Config} from "@netlify/functions";
+
+// Route structured logs onto Netlify's system-log channel for this Node
+// function. Runs once at cold start; edge/CLI keep the default console forwarder.
+initLogger({ forward: systemLogForwarder });
 
 // Netlify serverless function handler
 export default async (req: Request) => {

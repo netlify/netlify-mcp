@@ -94,20 +94,64 @@ function serializeError(err: unknown): unknown {
 // JSON.stringify can throw on circular structures (e.g. an Error's cause chain
 // or a request object accidentally passed as a field). Fall back to a
 // circular-safe pass so a logging call can never crash the request.
-function safeStringify(record: Record<string, unknown>): string {
+export function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(record);
+    return JSON.stringify(value);
   } catch {
     const seen = new WeakSet();
-    return JSON.stringify(record, (_key, value) => {
-      if (typeof value === 'bigint') return value.toString();
-      if (value && typeof value === 'object') {
-        if (seen.has(value)) return '[circular]';
-        seen.add(value);
+    return JSON.stringify(value, (_key, val) => {
+      if (typeof val === 'bigint') return val.toString();
+      if (val && typeof val === 'object') {
+        if (seen.has(val)) return '[circular]';
+        seen.add(val);
       }
-      return value;
+      return val;
     });
   }
+}
+
+/**
+ * Return a JSON-safe deep clone of `value` (circular refs → '[circular]',
+ * bigints → strings). Used by sinks that hand the record to another serializer
+ * (e.g. systemLogger's own JSON.stringify) which would otherwise throw.
+ */
+export function jsonSafe<T>(value: T): T {
+  return JSON.parse(safeStringify(value));
+}
+
+// A forwarder receives every fully-built log record and ships it to an
+// additional destination. It runs ON TOP OF the always-on console write, never
+// instead of it — so structured logs are guaranteed even if the forwarder (or
+// its dependency) is unavailable.
+export type LogForwarder = (level: LogLevel, record: Record<string, unknown>) => void;
+
+// Always-on: flat JSON to the matching console stream, for every log line
+// regardless of whether a forwarder is configured.
+function writeToConsole(level: LogLevel, record: Record<string, unknown>): void {
+  const line = safeStringify(record);
+  if (level === 'error') {
+    console.error(line);
+  } else if (level === 'warn') {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+}
+
+// Optional additional destination. Node function entry points set this to the
+// systemLogger forwarder (see system-log-forwarder.ts) so lines also land on
+// Netlify's system-log channel; when unset (edge, CLI, or pre-init) only the
+// console write happens. The systemLogger package is Node-only, which is why
+// this is injected rather than baked in.
+let forwarder: LogForwarder | null = null;
+
+/**
+ * Register an additional destination for every log record, on top of the
+ * always-on console write. The runtime with an extra destination (Node
+ * functions → systemLogger) calls this once at cold start.
+ */
+export function initLogger(options: { forward: LogForwarder }): void {
+  forwarder = options.forward;
 }
 
 function emit(level: LogLevel, message: string, fields?: LogContext): void {
@@ -145,13 +189,17 @@ function emit(level: LogLevel, message: string, fields?: LogContext): void {
     ...extra,
   };
 
-  const line = safeStringify(record);
-  if (level === 'error') {
-    console.error(line);
-  } else if (level === 'warn') {
-    console.warn(line);
-  } else {
-    console.log(line);
+  // Always write to the console first, so the structured line is guaranteed
+  // even if a forwarder throws.
+  writeToConsole(level, record);
+
+  if (forwarder) {
+    try {
+      forwarder(level, record);
+    } catch {
+      // A forwarder failure must never break the request or lose the console
+      // line we already wrote.
+    }
   }
 }
 

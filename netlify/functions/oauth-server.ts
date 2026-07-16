@@ -7,8 +7,13 @@ import { resolveClient } from "./mcp-server/client-registry.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 import { getClientById, staticClients } from "./mcp-server/oauth-clients.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, newRequestId } from "./mcp-server/logger.ts";
+import { log, withLogContext, newRequestId, initLogger } from "./mcp-server/logger.ts";
+import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { getPackageVersion } from "../../src/utils/version.ts";
+
+// Route structured logs onto Netlify's system-log channel for this Node
+// function. Runs once at cold start; edge/CLI keep the default console forwarder.
+initLogger({ forward: systemLogForwarder });
 
 const authorizationEndpointPath = '/oauth-server/auth';
 const tokenEndpointPath = '/oauth-server/token';
