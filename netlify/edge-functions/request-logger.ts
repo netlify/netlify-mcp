@@ -41,6 +41,7 @@ export default async (request: Request, context: Context) => {
       deployId: getDeployId(request.headers),
       httpMethod: request.method,
       path,
+      userAgent: request.headers.get('user-agent') ?? undefined,
     },
     async () => {
       // Read the request body via a clone so the original is left intact for

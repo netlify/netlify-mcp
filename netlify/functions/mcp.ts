@@ -34,6 +34,7 @@ export default async (req: Request, context: Context) => {
       deployId: getDeployId(context),
       httpMethod: req.method,
       path: url.pathname,
+      userAgent: req.headers.get('user-agent') ?? undefined,
     },
     async () => {
       try {
@@ -102,7 +103,6 @@ async function handleMCPPost(req: Request) {
     log.error('Invalid JSON in MCP POST body', {
       bytes: raw.length,
       contentType: req.headers.get('content-type'),
-      userAgent: req.headers.get('user-agent'),
     });
     return jsonRpcError(400, -32700, 'Parse error: invalid JSON body');
   }
@@ -130,7 +130,6 @@ async function handleMCPPost(req: Request) {
     contentType: req.headers.get('content-type'),
     mcpSessionId: req.headers.get('mcp-session-id'),
     mcpProtocolVersion: req.headers.get('mcp-protocol-version'),
-    userAgent: req.headers.get('user-agent'),
     // origin/referer identify which surface a request comes from; kept for
     // diagnosing client behaviour when verbose logging is enabled.
     origin: req.headers.get('origin'),

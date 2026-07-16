@@ -21,6 +21,7 @@ export default async (req: Request, ctx: Context) => {
       requestId: newRequestId(),
       deployId: getDeployId(req.headers),
       httpMethod: req.method,
+      userAgent: req.headers.get('user-agent') ?? undefined,
     },
     () => handleProxy(req, token),
   );

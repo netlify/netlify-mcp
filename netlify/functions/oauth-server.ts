@@ -332,6 +332,7 @@ export const handler: Handler = async (req, context) => {
       deployId: getDeployId(req.headers as Record<string, string | undefined>),
       httpMethod: req.httpMethod,
       path: req.path,
+      userAgent: (req.headers as Record<string, string | undefined>)['user-agent'],
     },
     async () => {
       const resp = await oAuthHandler(req, context);
