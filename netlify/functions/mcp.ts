@@ -174,7 +174,14 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  log.debug('mcp authenticated');
+  log.debug('mcp request auth passed');
+
+  // Always-on record of each tool invocation (value-free — tool name + argument
+  // names only, via paramsSummary). Other JSON-RPC methods (initialize,
+  // tools/list, …) stay at debug so steady-state logs aren't noisy.
+  if (body?.method === 'tools/call') {
+    log.info('tool call', paramsSummary(body?.params));
+  }
 
   const server = new McpServer({
     name: "netlify",

@@ -372,7 +372,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    log.debug('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope, hasIdentity: !!identity });
+    log.info('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope, hasIdentity: !!identity });
 
     const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
@@ -577,7 +577,16 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     tokenResponse.refresh_token = refreshTokenJWE;
   }
 
-  log.debug('token issued', { client_id: clientId, hasOfflineAccess, refreshTokenIssued: hasOfflineAccess });
+  // The confident "user authenticated" point: the full OAuth handshake has
+  // completed here (PKCE validated, session token minted) after Netlify
+  // authenticated the human at server-redirect. Fires once per interactive
+  // login; a silent refresh (handleRefreshTokenGrant) is deliberately NOT this.
+  log.info('user authenticated', {
+    userId: identity?.userId,
+    teamId: identity?.teamId,
+    client_id: clientId,
+    hasOfflineAccess,
+  });
 
   return {
     statusCode: 200,
@@ -623,7 +632,7 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
     '7d'
   );
 
-  log.debug('refresh token grant: issued new tokens', {});
+  log.info('refresh token grant: issued new tokens', { userId: identity?.userId, teamId: identity?.teamId });
 
   return {
     statusCode: 200,
