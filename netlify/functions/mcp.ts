@@ -179,6 +179,10 @@ async function handleMCPPost(req: Request) {
   // names only, via paramsSummary). Other JSON-RPC methods (initialize,
   // tools/list, …) stay at debug so steady-state logs aren't noisy.
   if (body?.method === 'tools/call') {
+    // Put the tool name in the request context so everything downstream — the
+    // tool call line AND any 'netlify api call failed' lines from within it —
+    // is attributed to this tool.
+    addLogContext({ toolName: body?.params?.name });
     log.info('tool call', paramsSummary(body?.params));
   }
 

@@ -157,13 +157,30 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request) => {
   const token = await getNetlifyAccessToken(incomingRequest);
   const url = new URL(urlOrPath, 'https://api.netlify.com')
-  return unauthenticatedFetch(url.toString(), {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      ...(options.headers || {})
-    },
-  });
+  const method = (options.method || 'GET').toString().toUpperCase();
+
+  try {
+    const response = await unauthenticatedFetch(url.toString(), {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...(options.headers || {})
+      },
+    });
+
+    // Surface failed Netlify API calls as a queryable event. Value-free: method,
+    // path, and status only — never request/response bodies or query strings.
+    // This runs inside the request's log context, so failures carry the
+    // requestId/userId/toolName that triggered them.
+    if (!response.ok) {
+      log.warn('netlify api call failed', { method, apiPath: url.pathname, status: response.status });
+    }
+    return response;
+  } catch (err) {
+    // Network-level failure (DNS, timeout, connection reset) — no HTTP status.
+    log.error('netlify api call errored', { method, apiPath: url.pathname, err });
+    throw err;
+  }
 }
 
 
