@@ -29,11 +29,12 @@ initLogger({ forward: systemLogForwarder });
 // protocol revisions. Auth is pass-through — we gate in front and the tools
 // read the token from the request themselves (unchanged from v1).
 const mcpHandler = createMcpHandler(
-  async () => {
+  async (ctx) => {
     const server = new McpServer({
       name: "netlify",
       version: getPackageVersion(),
     });
+    const registeredTools: string[] = [];
 
     const contextConsumer = await getContextConsumerConfig();
     const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
@@ -56,12 +57,26 @@ const mcpHandler = createMcpHandler(
         return { content: [{ type: "text" as const, text: context?.content || "" }] };
       },
     );
+    registeredTools.push("get-netlify-coding-context");
 
     // SPIKE TODO: register the domain tools + Claude design-import here once
     // their zod v3 schemas are migrated to zod/v4 (v2's registerTool types
     // inputSchema against zod/v4). Today `bindTools(server, req, verboseMode)`
     // and `registerClaudeDesignImportTool(server, req)` would not type-check
     // against the v2 McpServer.
+
+    // Visibility in the function logs: which protocol era this request is served
+    // as, and EXACTLY which tools are exposed. On this spike branch only the
+    // coding-context tool is registered — the domain tools (bindTools) and
+    // design-import are deferred pending the zod v4 migration, which is why
+    // clients currently see nothing else. This makes that explicit per request.
+    log.info('mcp server built', {
+      era: ctx.era,
+      toolCount: registeredTools.length,
+      tools: registeredTools,
+      domainToolsRegistered: false,
+    });
+
     return server;
   },
   { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
@@ -202,6 +217,10 @@ async function handleMCPPost(req: Request) {
   if (body?.method === 'tools/call') {
     addLogContext({ toolName: body?.params?.name });
     log.info('tool call', paramsSummary(body?.params));
+  } else if (body?.method === 'tools/list') {
+    // Tool discovery — pair this with the 'mcp server built' line (which reports
+    // toolCount/tools) to see exactly what a client is offered.
+    log.info('tools list requested');
   }
 
   // Reconstruct a request with the buffered body so the v2 handler can read it
