@@ -35,6 +35,7 @@ export default async (req: Request, context: Context) => {
       httpMethod: req.method,
       path: url.pathname,
       userAgent: req.headers.get('user-agent') ?? undefined,
+      mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
     async () => {
       try {
@@ -113,6 +114,7 @@ async function handleMCPPost(req: Request) {
     mcpMethod: body?.method,
     mcpId: body?.id,
     clientInfoName: body?.params?.clientInfo?.name,
+    clientInfoVersion: body?.params?.clientInfo?.version,
   });
 
   // Log the SHAPE of the call only — the tool name and the names of the
@@ -129,7 +131,6 @@ async function handleMCPPost(req: Request) {
     accept: req.headers.get('accept'),
     contentType: req.headers.get('content-type'),
     mcpSessionId: req.headers.get('mcp-session-id'),
-    mcpProtocolVersion: req.headers.get('mcp-protocol-version'),
     // origin/referer identify which surface a request comes from; kept for
     // diagnosing client behaviour when verbose logging is enabled.
     origin: req.headers.get('origin'),
