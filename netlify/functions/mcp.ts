@@ -1,20 +1,17 @@
-// SPIKE: migrated to the MCP TypeScript SDK v2 (@modelcontextprotocol/server,
-// 2.0.0-beta.4) to support the 2026-07-28 protocol. v2's createMcpHandler serves
-// BOTH 2026-07-28 (modern) and 2025-era (legacy) traffic from one web-standard
-// (Request)=>Response handler — replacing v1's StreamableHTTPServerTransport +
-// fetch-to-node bridge.
-//
-// DEFERRED (not in this spike): bindTools (all domain tools) and the Claude
-// design-import tool. Those register schemas built with zod v3, but v2's
-// registerTool types against `zod/v4`. Migrating them is the remaining lift —
-// see SPIKE note below. Only get-netlify-coding-context is wired here to prove
-// the transport + dual-era serving end to end.
+// Netlify MCP server on the MCP TypeScript SDK v2 (@modelcontextprotocol/server).
+// createMcpHandler serves BOTH 2026-07-28 (modern) and 2025-era (legacy) traffic
+// from one web-standard (Request)=>Response handler — replacing v1's
+// StreamableHTTPServerTransport + fetch-to-node bridge.
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { addCORSHeadersToFetchResp, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
 import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.ts";
 import { getPackageVersion } from "../../src/utils/version.ts";
 import { checkCompatibility } from "../../src/utils/compatibility.ts";
+import { bindTools } from "../../src/tools/index.ts";
+import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
+import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, newRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
@@ -23,64 +20,6 @@ import {Config, Context} from "@netlify/functions";
 // Route structured logs onto Netlify's system-log channel for this Node
 // function. Runs once at cold start; edge/CLI keep the default console forwarder.
 initLogger({ forward: systemLogForwarder });
-
-// The v2 handler is created once. Its factory runs per request and returns a
-// fresh McpServer; `era` (legacy|modern) lets the same handler serve both
-// protocol revisions. Auth is pass-through — we gate in front and the tools
-// read the token from the request themselves (unchanged from v1).
-const mcpHandler = createMcpHandler(
-  async (ctx) => {
-    const server = new McpServer({
-      name: "netlify",
-      version: getPackageVersion(),
-    });
-    const registeredTools: string[] = [];
-
-    const contextConsumer = await getContextConsumerConfig();
-    const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-
-    // SPIKE: registered WITHOUT an inputSchema. The real tool takes a
-    // `creationType` enum built with zod v3, but v2's registerTool types
-    // inputSchema against zod v4 (the SDK depends on zod@^4.2.0; the project is
-    // on zod@3.25.76). Proving the transport here; the schema'd registration
-    // returns once the project moves to zod v4 (same lift as bindTools).
-    server.registerTool(
-      "get-netlify-coding-context",
-      {
-        description:
-          "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
-        annotations: { readOnlyHint: true },
-      },
-      async () => {
-        checkCompatibility();
-        const context = await getNetlifyCodingContext(availableContextTypes[0]);
-        return { content: [{ type: "text" as const, text: context?.content || "" }] };
-      },
-    );
-    registeredTools.push("get-netlify-coding-context");
-
-    // SPIKE TODO: register the domain tools + Claude design-import here once
-    // their zod v3 schemas are migrated to zod/v4 (v2's registerTool types
-    // inputSchema against zod/v4). Today `bindTools(server, req, verboseMode)`
-    // and `registerClaudeDesignImportTool(server, req)` would not type-check
-    // against the v2 McpServer.
-
-    // Visibility in the function logs: which protocol era this request is served
-    // as, and EXACTLY which tools are exposed. On this spike branch only the
-    // coding-context tool is registered — the domain tools (bindTools) and
-    // design-import are deferred pending the zod v4 migration, which is why
-    // clients currently see nothing else. This makes that explicit per request.
-    log.info('mcp server built', {
-      era: ctx.era,
-      toolCount: registeredTools.length,
-      tools: registeredTools,
-      domainToolsRegistered: false,
-    });
-
-    return server;
-  },
-  { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
-);
 
 // Netlify serverless function handler
 export default async (req: Request, context: Context) => {
@@ -105,7 +44,6 @@ export default async (req: Request, context: Context) => {
 
         log.debug('mcp request', { auth: maskToken(req.headers.get('Authorization')) });
 
-        // Handle different HTTP methods
         if (req.method === "POST") {
           return await handleMCPPost(req);
         } else if (req.method === "GET") {
@@ -131,16 +69,10 @@ export default async (req: Request, context: Context) => {
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
-            error: {
-              code: -32603,
-              message: "Internal server error",
-            },
+            error: { code: -32603, message: "Internal server error" },
             id: null,
           }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" }
-          }
+          { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
     }
@@ -150,13 +82,11 @@ export default async (req: Request, context: Context) => {
 
 async function handleMCPPost(req: Request) {
 
-  // Read the body once as text so we can tell an empty body (common for
-  // probes/health-checks/scanners hitting the public endpoint) apart from
-  // malformed/truncated JSON (which may signal a real client or proxy issue).
+  // Read the body once as text so we can tell an empty body (probes/scanners)
+  // apart from malformed/truncated JSON.
   const raw = await req.text();
 
   if (!raw.trim()) {
-    // Empty POST — not a real MCP request. Respond without logging noise.
     return jsonRpcError(400, -32600, 'Request body is required');
   }
 
@@ -172,7 +102,7 @@ async function handleMCPPost(req: Request) {
   }
 
   // Fold the MCP call identity into the request context so every subsequent line
-  // (auth, tool binding, response) is attributed to this JSON-RPC call.
+  // is attributed to this JSON-RPC call.
   addLogContext({
     mcpMethod: body?.method,
     mcpId: body?.id,
@@ -180,8 +110,7 @@ async function handleMCPPost(req: Request) {
     clientInfoVersion: body?.params?.clientInfo?.version,
   });
 
-  // Log the SHAPE of the call only — the tool name and the names of the
-  // arguments provided, never the argument VALUES.
+  // Log the SHAPE of the call only — tool name + argument names, never values.
   log.debug('mcp post body', paramsSummary(body?.params));
 
   log.debug('mcp post request', {
@@ -193,11 +122,9 @@ async function handleMCPPost(req: Request) {
     auth: maskToken(req.headers.get('Authorization')),
   });
 
-  // Right now, the MCP spec is inconsistent on _when_ 401s can be returned. So
-  // we always do the auth check, including for init.
+  // Always auth-check (including init) — the MCP spec is inconsistent on when
+  // 401s may be returned.
   if(!await userIsAuthenticated(req)){
-    // If a token was presented but failed validation, signal invalid_token so the
-    // client refreshes; if none was sent, send a bare challenge to start auth.
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
     return returnNeedsAuthResponse(tokenPresented
@@ -218,27 +145,71 @@ async function handleMCPPost(req: Request) {
     addLogContext({ toolName: body?.params?.name });
     log.info('tool call', paramsSummary(body?.params));
   } else if (body?.method === 'tools/list') {
-    // Tool discovery — pair this with the 'mcp server built' line (which reports
-    // toolCount/tools) to see exactly what a client is offered.
     log.info('tools list requested');
   }
 
+  const verboseMode = new URL(req.url).searchParams.get('verbose') === 'true';
+
   // Reconstruct a request with the buffered body so the v2 handler can read it
-  // (we already consumed req's stream above). v2's fetch is web-standard, so no
-  // Node req/res bridge is needed.
+  // (req's stream was consumed above).
   const reqWithBody = new Request(req.url, {
     method: req.method,
     headers: req.headers,
     body: JSON.stringify(body),
   });
 
-  const response = await mcpHandler.fetch(reqWithBody);
+  // Build the MCP server for THIS request. The factory closes over the request +
+  // parsed body so tools read the token (getNetlifyAccessToken) and client
+  // detection behave exactly as on v1. createMcpHandler serves whichever protocol
+  // era the client speaks (ctx.era: legacy=2025 | modern=2026-07-28).
+  const handler = createMcpHandler(
+    async (ctx) => {
+      const server = new McpServer({ name: "netlify", version: getPackageVersion() });
+
+      const contextConsumer = await getContextConsumerConfig();
+      const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
+      const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
+
+      server.registerTool(
+        "get-netlify-coding-context",
+        {
+          description:
+            "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
+          inputSchema: { creationType: creationTypeEnum },
+          annotations: { readOnlyHint: true },
+        },
+        async ({ creationType }) => {
+          checkCompatibility();
+          const context = await getNetlifyCodingContext(creationType);
+          return { content: [{ type: "text" as const, text: context?.content || "" }] };
+        },
+      );
+
+      // Claude-only top-level design-import tool (detected from the request/body).
+      if (isClaudeMCPClient(req, body)) {
+        registerClaudeDesignImportTool(server, req);
+      }
+
+      // All Netlify domain tools. A failure here shouldn't sink the whole request
+      // (coding-context still works), so log and continue.
+      try {
+        await bindTools(server, req, verboseMode);
+      } catch (error) {
+        log.error('Failed to bind domain tools', { err: error });
+      }
+
+      log.info('mcp server built', { era: ctx.era, verboseMode, domainToolsRegistered: true });
+      return server;
+    },
+    { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
+  );
+
+  const response = await handler.fetch(reqWithBody);
 
   try {
     const returnData = await response.clone().text();
 
-    // Log response metadata only — status, type, and size — never the body,
-    // which contains tool result values (env vars, form data, project details).
+    // Log response metadata only — never the body (tool result values).
     log.debug('mcp response', {
       status: response.status,
       contentType: response.headers.get('content-type'),
@@ -246,8 +217,6 @@ async function handleMCPPost(req: Request) {
     });
 
     if(returnData.includes(UNAUTHED_ERROR_PREFIX)){
-      // A downstream Netlify call rejected the token mid-request — it's no longer
-      // valid, so flag invalid_token rather than a bare challenge.
       log.error("Unauthorized error detected in response");
       return returnNeedsAuthResponse({ error: 'invalid_token', errorDescription: 'The Netlify access token is no longer valid' });
     }
@@ -267,10 +236,7 @@ function jsonRpcError(status: number, code: number, message: string) {
       error: { code, message },
       id: null,
     }),
-    {
-      status,
-      headers: { "Content-Type": "application/json" }
-    }
+    { status, headers: { "Content-Type": "application/json" } }
   );
 }
 

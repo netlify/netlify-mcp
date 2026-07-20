@@ -1,4 +1,4 @@
-import { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+import type { ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
 export interface DomainTool<T extends z.ZodType> {
