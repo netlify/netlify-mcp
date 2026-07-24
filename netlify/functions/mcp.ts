@@ -102,12 +102,25 @@ async function handleMCPPost(req: Request) {
   }
 
   // Fold the MCP call identity into the request context so every subsequent line
-  // is attributed to this JSON-RPC call.
+  // is attributed to this JSON-RPC call. The `initialize` request additionally
+  // carries the version the client is REQUESTING (params.protocolVersion) — the
+  // mcp-protocol-version HEADER is absent on init and only reports the negotiated
+  // version on later requests, so the body is the only place the requested
+  // version appears. Client title and the NAMES of declared capabilities are
+  // safe, value-free shape; capabilities on non-init requests are undefined and
+  // simply omitted from the log line.
+  const clientCapabilities = body?.params?.capabilities;
   addLogContext({
     mcpMethod: body?.method,
     mcpId: body?.id,
     clientInfoName: body?.params?.clientInfo?.name,
     clientInfoVersion: body?.params?.clientInfo?.version,
+    clientInfoTitle: body?.params?.clientInfo?.title,
+    mcpProtocolVersionRequested: body?.params?.protocolVersion,
+    clientCapabilities:
+      clientCapabilities && typeof clientCapabilities === 'object'
+        ? Object.keys(clientCapabilities)
+        : undefined,
   });
 
   // Log the SHAPE of the call only — tool name + argument names, never values.
