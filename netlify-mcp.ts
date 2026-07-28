@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.ts";
 import { getPackageVersion } from "./src/utils/version.ts";
@@ -68,44 +68,46 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
   // Verbose mode is for systems that can't support complex tool schemas using unions/anyOf
   const verboseMode = process.argv.includes('--verbose');
 
-  const server = new McpServer({
-    name: "netlify-mcp",
-    version: getPackageVersion()
-  });
+  // v2 stdio serving: the factory builds a fresh server per connection.
+  serveStdio(async () => {
+    const server = new McpServer({
+      name: "netlify-mcp",
+      version: getPackageVersion()
+    });
 
-  // load the consumer configuration for the MCP so
-  // we can share all of the available context for the
-  // client to select from.
-  const contextConsumer = await getContextConsumerConfig();
-  const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-  const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
-  server.registerTool(
-    "netlify-coding-rules",
-    {
-      description: "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
-      inputSchema:{
-        creationType: creationTypeEnum
+    // load the consumer configuration for the MCP so
+    // we can share all of the available context for the
+    // client to select from.
+    const contextConsumer = await getContextConsumerConfig();
+    const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
+    const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
+    server.registerTool(
+      "netlify-coding-rules",
+      {
+        description: "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
+        inputSchema:{
+          creationType: creationTypeEnum
+        },
+        annotations: {
+          readOnlyHint: true
+        }
       },
-      annotations: {
-        readOnlyHint: true
+      async ({creationType}) => {
+
+        checkCompatibility();
+
+        const context = await getNetlifyCodingContext(creationType);
+        const text = context?.content || '';
+
+        return ({
+          content: [{type: "text" as const, text}]
+        });
       }
-    },
-    async ({creationType}: {creationType: z.infer<typeof creationTypeEnum>}) => {
+    );
 
-      checkCompatibility();
+    await bindTools(server, undefined, verboseMode);
 
-      const context = await getNetlifyCodingContext(creationType);
-      const text = context?.content || '';
-
-      return ({
-        content: [{type: "text", text}]
-      });
-    }
-  );
-
-  await bindTools(server, undefined, verboseMode);
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+    return server;
+  });
 
 }

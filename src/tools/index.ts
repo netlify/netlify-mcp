@@ -22,7 +22,7 @@
 // return errors when missing data and how the agent can get the data
 
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { userDomainTools } from './user-tools/index.js';
 import { deployDomainTools } from './deploy-tools/index.js';
 import { teamDomainTools } from './team-tools/index.js';
