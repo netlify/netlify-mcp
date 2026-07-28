@@ -181,22 +181,30 @@ async function handleMCPPost(req: Request) {
 
       const contextConsumer = await getContextConsumerConfig();
       const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-      const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
 
-      server.registerTool(
-        "get-netlify-coding-context",
-        {
-          description:
-            "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
-          inputSchema: { creationType: creationTypeEnum },
-          annotations: { readOnlyHint: true },
-        },
-        async ({ creationType }) => {
-          checkCompatibility();
-          const context = await getNetlifyCodingContext(creationType);
-          return { content: [{ type: "text" as const, text: context?.content || "" }] };
-        },
-      );
+      // Only register the coding-context tool when we actually have scopes to
+      // offer. With no scopes (e.g. the consumer config failed to fetch at cold
+      // start), z.enum([]) yields an uncallable tool — its required creationType
+      // can satisfy no value — so skip it until scopes become available. Normal
+      // enum construction proceeds whenever at least one scope exists.
+      if (availableContextTypes.length > 0) {
+        const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
+
+        server.registerTool(
+          "get-netlify-coding-context",
+          {
+            description:
+              "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
+            inputSchema: { creationType: creationTypeEnum },
+            annotations: { readOnlyHint: true },
+          },
+          async ({ creationType }) => {
+            checkCompatibility();
+            const context = await getNetlifyCodingContext(creationType);
+            return { content: [{ type: "text" as const, text: context?.content || "" }] };
+          },
+        );
+      }
 
       // Claude-only top-level design-import tool (detected from the request/body).
       if (isClaudeMCPClient(req, body)) {
@@ -204,14 +212,17 @@ async function handleMCPPost(req: Request) {
       }
 
       // All Netlify domain tools. A failure here shouldn't sink the whole request
-      // (coding-context still works), so log and continue.
+      // (coding-context still works), so log and continue. Track whether
+      // registration actually completed so the telemetry below reflects reality.
+      let domainToolsRegistered = false;
       try {
         await bindTools(server, req, verboseMode);
+        domainToolsRegistered = true;
       } catch (error) {
         log.error('Failed to bind domain tools', { err: error });
       }
 
-      log.info('mcp server built', { era: ctx.era, verboseMode, domainToolsRegistered: true });
+      log.info('mcp server built', { era: ctx.era, verboseMode, domainToolsRegistered });
       return server;
     },
     { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
