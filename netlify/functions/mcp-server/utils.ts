@@ -254,7 +254,10 @@ export async function decryptJWE(jwe: string) {
       }
     }
 
-    log.error('Failed to decrypt JWE', errorDetails);
+    const isRoutineExpiry = error?.code === 'ERR_JWT_EXPIRED'
+      && typeof errorDetails.expiredBySeconds === 'number'
+      && errorDetails.expiredBySeconds >= 0;
+    log[isRoutineExpiry ? 'warn' : 'error']('Failed to decrypt JWE', errorDetails);
     throw new Error('Invalid JWE token. Please reauthenticate or reconnect to the Netlify MCP server.')
   }
 }

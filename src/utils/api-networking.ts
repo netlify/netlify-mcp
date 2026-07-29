@@ -99,11 +99,16 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
       if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp') || bearerToken.startsWith('nfo')){
         token = bearerToken;
       }else {
-        const decrypted = await decryptJWE(bearerToken) ;
+        let decrypted: Record<string, any> | undefined;
+        try {
+          decrypted = await decryptJWE(bearerToken);
+        } catch {
+          throw new NetlifyUnauthError('Bearer token is invalid or expired');
+        }
         if(decrypted && typeof decrypted.accessToken === 'string') {
           token = decrypted.accessToken;
         } else {
-          log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted) });
+          log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted ?? {}) });
         }
       }
 
