@@ -43,14 +43,14 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
       ]
     }, '30m');
 
-    const proxyPath = `/proxy/${proxyToken}`;
-    
+    const proxyUrl = new URL(`/proxy/${proxyToken}`, getOAuthIssuer()).toString();
+
     return `
 
 To deploy this to Netlify, run the following command within the source/repo directory:
 
 \`\`\`shell
-npx -y @netlify/mcp@latest --site-id ${params.siteId} --proxy-path "${getOAuthIssuer()}${proxyPath}"
+npx -y @netlify/mcp@latest --site-id ${params.siteId} --proxy-path "${proxyUrl}"
 \`\`\`
 
 This command will upload the code repo and run a build in Netlify's build system.
