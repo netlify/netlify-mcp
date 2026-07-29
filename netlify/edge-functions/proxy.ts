@@ -28,7 +28,8 @@ export default async (req: Request, ctx: Context) => {
 };
 
 export async function handleProxy(req: Request, token: string): Promise<Response> {
-  log.debug('proxy request', { url: req.url, hasToken: !!token });
+  // Never log req.url — the path embeds the bearer token.
+  log.debug('proxy request', { hasToken: !!token, apiPath: token ? req.url.split(token)[1] : undefined });
 
   if (!token) {
     return new Response('Unauthorized', { status: 401 });

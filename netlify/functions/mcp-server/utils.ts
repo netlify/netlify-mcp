@@ -258,7 +258,7 @@ export async function decryptJWE(jwe: string) {
     // else (clock skew, wrong key, malformed) stays error.
     const isRoutineExpiry = error?.code === 'ERR_JWT_EXPIRED'
       && typeof errorDetails.expiredBySeconds === 'number'
-      && errorDetails.expiredBySeconds > 0;
+      && errorDetails.expiredBySeconds >= 0;
     log[isRoutineExpiry ? 'warn' : 'error']('Failed to decrypt JWE', errorDetails);
     throw new Error('Invalid JWE token. Please reauthenticate or reconnect to the Netlify MCP server.')
   }

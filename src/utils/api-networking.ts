@@ -110,7 +110,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
         if(decrypted && typeof decrypted.accessToken === 'string') {
           token = decrypted.accessToken;
         } else {
-          log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted) });
+          log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted ?? {}) });
         }
       }
 
