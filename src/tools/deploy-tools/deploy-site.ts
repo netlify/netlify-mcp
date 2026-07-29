@@ -10,7 +10,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
 import { authenticatedFetch, getNetlifyAccessToken, getSiteId, unauthenticatedFetch } from "../../utils/api-networking.ts";
-import { createJWE, getOAuthIssuer } from '../../../netlify/functions/mcp-server/utils.js';
+import { createJWE, getOAuthIssuer } from '../../../netlify/functions/mcp-server/utils.ts';
 
 const deploySiteRemotelyParamsSchema = z.object({
   siteId: z.string().optional().describe(`provide the site id of the site of this site. If the agent cannot find the siteId, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' CLI command to link to an existing site and get a site id.`)
@@ -43,14 +43,14 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
       ]
     }, '30m');
 
-    const proxyPath = `/proxy/${proxyToken}`;
-    
+    const proxyUrl = new URL(`/proxy/${proxyToken}`, getOAuthIssuer()).toString();
+
     return `
 
 To deploy this to Netlify, run the following command within the source/repo directory:
 
 \`\`\`shell
-npx -y @netlify/mcp@latest --site-id ${params.siteId} --proxy-path "${getOAuthIssuer()}${proxyPath}"
+npx -y @netlify/mcp@latest --site-id ${params.siteId} --proxy-path "${proxyUrl}"
 \`\`\`
 
 This command will upload the code repo and run a build in Netlify's build system.
