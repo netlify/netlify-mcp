@@ -99,7 +99,14 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
       if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp') || bearerToken.startsWith('nfo')){
         token = bearerToken;
       }else {
-        const decrypted = await decryptJWE(bearerToken) ;
+        let decrypted: Record<string, any> | undefined;
+        try {
+          decrypted = await decryptJWE(bearerToken);
+        } catch {
+          // Expired/undecryptable bearer is an auth failure (401 invalid_token
+          // so clients refresh), not a server error.
+          throw new NetlifyUnauthError('Bearer token is invalid or expired');
+        }
         if(decrypted && typeof decrypted.accessToken === 'string') {
           token = decrypted.accessToken;
         } else {

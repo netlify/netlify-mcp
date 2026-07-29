@@ -1,6 +1,6 @@
 import { decryptJWE } from "../functions/mcp-server/utils.ts";
 import { log, withLogContext, addLogContext, newRequestId, getDeployId } from "../functions/mcp-server/logger.ts";
-import {Config, Context} from '@netlify/edge-functions';
+import type {Config, Context} from '@netlify/edge-functions';
 
 // Escape regex metacharacters so an allowed-path template is matched literally
 // (except for our own `:param` placeholders, which are substituted afterwards).
@@ -27,13 +27,19 @@ export default async (req: Request, ctx: Context) => {
   );
 };
 
-async function handleProxy(req: Request, token: string): Promise<Response> {
+export async function handleProxy(req: Request, token: string): Promise<Response> {
   log.debug('proxy request', { url: req.url, hasToken: !!token });
 
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
   }
-  const decryptedToken = await decryptJWE(token);
+  // decryptJWE throws on expired/invalid tokens — an auth failure, not a crash.
+  let decryptedToken: Record<string, any> | undefined;
+  try {
+    decryptedToken = await decryptJWE(token);
+  } catch {
+    return new Response('Unauthorized', { status: 401 });
+  }
   if (!decryptedToken || typeof decryptedToken.accessToken !== 'string') {
     return new Response('Unauthorized', { status: 401 });
   }
