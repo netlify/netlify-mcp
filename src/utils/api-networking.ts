@@ -103,8 +103,6 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
         try {
           decrypted = await decryptJWE(bearerToken);
         } catch {
-          // Expired/undecryptable bearer is an auth failure (401 invalid_token
-          // so clients refresh), not a server error.
           throw new NetlifyUnauthError('Bearer token is invalid or expired');
         }
         if(decrypted && typeof decrypted.accessToken === 'string') {

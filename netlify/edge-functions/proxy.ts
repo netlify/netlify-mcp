@@ -28,13 +28,11 @@ export default async (req: Request, ctx: Context) => {
 };
 
 export async function handleProxy(req: Request, token: string): Promise<Response> {
-  // Never log req.url — the path embeds the bearer token.
   log.debug('proxy request', { hasToken: !!token, apiPath: token ? req.url.split(token)[1] : undefined });
 
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
   }
-  // decryptJWE throws on expired/invalid tokens — an auth failure, not a crash.
   let decryptedToken: Record<string, any> | undefined;
   try {
     decryptedToken = await decryptJWE(token);

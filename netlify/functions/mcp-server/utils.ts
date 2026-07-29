@@ -254,8 +254,6 @@ export async function decryptJWE(jwe: string) {
       }
     }
 
-    // Genuine expiry is routine (handled as 401 upstream) — warn. Everything
-    // else (clock skew, wrong key, malformed) stays error.
     const isRoutineExpiry = error?.code === 'ERR_JWT_EXPIRED'
       && typeof errorDetails.expiredBySeconds === 'number'
       && errorDetails.expiredBySeconds >= 0;

@@ -2,9 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-// Expired or undecryptable bearers must surface as auth failures (401 /
-// invalid_token) so clients refresh — never as a 500 from an uncaught throw.
-
 process.env.OAUTH_ISSUER = 'https://netlify-mcp.netlify.app';
 process.env.JWE_SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
 
