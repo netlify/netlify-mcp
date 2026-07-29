@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { log } from '../../netlify/functions/mcp-server/logger.js';
+import { log } from '../../netlify/functions/mcp-server/logger.ts';
 
 /**
  * Appends a message to the log file

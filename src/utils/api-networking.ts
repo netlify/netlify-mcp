@@ -1,10 +1,10 @@
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
 import envPaths from 'env-paths';
-import { runCommand } from './cmd.js';
-import { appendToLog } from './logging.js';
-import { decryptJWE } from '../../netlify/functions/mcp-server/utils.js';
-import { log } from '../../netlify/functions/mcp-server/logger.js';
+import { runCommand } from './cmd.ts';
+import { appendToLog } from './logging.ts';
+import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
+import { log } from '../../netlify/functions/mcp-server/logger.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
 interface APIInteractionOptions {
