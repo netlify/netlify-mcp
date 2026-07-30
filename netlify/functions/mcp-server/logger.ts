@@ -102,8 +102,32 @@ export function getDeployId(
   return value ?? undefined;
 }
 
-/** Generate a per-request correlation id. */
-export function newRequestId(): string {
+// Netlify stamps every request with x-nf-request-id and propagates it across the
+// edge → function hop. Reusing it as our correlation id means the edge
+// (proxy/request-logger) and function (mcp/oauth) log lines for one request share
+// a single requestId — end-to-end correlation — instead of each layer minting
+// its own.
+const NF_REQUEST_ID_HEADER = 'x-nf-request-id';
+
+/**
+ * Resolve a per-request correlation id. Prefers the incoming x-nf-request-id
+ * header when present (so a request keeps ONE id across edge → function),
+ * otherwise mints a fresh id. Accepts either a web `Headers` (functions/edge) or
+ * the legacy Handler's plain header object (oauth-server); called with no
+ * argument it always mints.
+ */
+export function getRequestId(
+  headers?: Headers | Record<string, string | undefined>,
+): string {
+  const incoming =
+    headers === undefined
+      ? undefined
+      : typeof (headers as Headers).get === 'function'
+        ? (headers as Headers).get(NF_REQUEST_ID_HEADER) ?? undefined
+        : (headers as Record<string, string | undefined>)[NF_REQUEST_ID_HEADER];
+  if (incoming) {
+    return incoming;
+  }
   try {
     return crypto.randomUUID();
   } catch {

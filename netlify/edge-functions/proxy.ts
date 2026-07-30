@@ -1,5 +1,5 @@
 import { decryptJWE } from "../functions/mcp-server/utils.ts";
-import { log, withLogContext, addLogContext, newRequestId, getDeployId } from "../functions/mcp-server/logger.ts";
+import { log, withLogContext, addLogContext, getRequestId, getDeployId } from "../functions/mcp-server/logger.ts";
 import type {Config, Context} from '@netlify/edge-functions';
 
 // Escape regex metacharacters so an allowed-path template is matched literally
@@ -18,7 +18,7 @@ export default async (req: Request, ctx: Context) => {
   return withLogContext(
     {
       service: 'proxy',
-      requestId: newRequestId(),
+      requestId: getRequestId(req.headers),
       deployId: getDeployId(req.headers),
       httpMethod: req.method,
       userAgent: req.headers.get('user-agent') ?? undefined,

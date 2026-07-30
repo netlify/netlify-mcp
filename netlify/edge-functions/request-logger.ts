@@ -1,6 +1,6 @@
 import type { Context } from '@netlify/edge-functions';
 import { isVerboseLogging, maskToken, safeBodySummary, mcpBodySummary } from '../functions/mcp-server/logging.ts';
-import { log, withLogContext, newRequestId, getDeployId } from '../functions/mcp-server/logger.ts';
+import { log, withLogContext, getRequestId, getDeployId } from '../functions/mcp-server/logger.ts';
 
 // Catch-all request/response logger. Runs in front of every request (declared
 // first in netlify.toml so it wraps the proxy edge function and all regular
@@ -37,7 +37,7 @@ export default async (request: Request, context: Context) => {
   return withLogContext(
     {
       service: 'edge',
-      requestId: newRequestId(),
+      requestId: getRequestId(request.headers),
       deployId: getDeployId(request.headers),
       httpMethod: request.method,
       path,

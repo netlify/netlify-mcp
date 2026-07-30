@@ -7,7 +7,7 @@ import { resolveClient } from "./mcp-server/client-registry.ts";
 import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
 import { getClientById, staticClients } from "./mcp-server/oauth-clients.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, newRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { log, withLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 
 // Route structured logs onto Netlify's system-log channel for this Node
@@ -328,7 +328,7 @@ export const handler: Handler = async (req, context) => {
   return withLogContext(
     {
       service: 'oauth',
-      requestId: newRequestId(),
+      requestId: getRequestId(req.headers as Record<string, string | undefined>),
       deployId: getDeployId(req.headers as Record<string, string | undefined>),
       httpMethod: req.httpMethod,
       path: req.path,

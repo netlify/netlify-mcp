@@ -13,7 +13,7 @@ import { registerClaudeDesignImportTool } from "../../src/tools/design-import/im
 import { userIsAuthenticated, getTokenIdentity, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, addLogContext, newRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import {Config, Context} from "@netlify/functions";
 
@@ -32,7 +32,7 @@ export default async (req: Request, context: Context) => {
   return withLogContext(
     {
       service: 'mcp',
-      requestId: newRequestId(),
+      requestId: getRequestId(req.headers),
       deployId: getDeployId(context),
       httpMethod: req.method,
       path: url.pathname,
