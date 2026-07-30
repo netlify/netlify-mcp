@@ -5,6 +5,7 @@ import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
+import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
 interface APIInteractionOptions {
@@ -178,7 +179,20 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     // This runs inside the request's log context, so failures carry the
     // requestId/userId/toolName that triggered them.
     if (!response.ok) {
-      log.warn('netlify api call failed', { method, apiPath: url.pathname, status: response.status });
+      if (response.status === 401) {
+        // A 401 is a routine token-expiry signal, not an API failure — it's
+        // expected and handled, so log it as an auth event rather than warning.
+        // On remote MCP, flag the request so the HTTP handler answers with a
+        // proper OAuth challenge, no matter what the calling tool does with this
+        // response (throw a generic error, run a failureCallback, paginate,
+        // etc.). The local CLI path (no incomingRequest) resolves auth differently.
+        log.debug('netlify api returned 401', { method, apiPath: url.pathname });
+        if (incomingRequest) {
+          flagAuthChallenge('The Netlify access token is no longer valid');
+        }
+      } else {
+        log.warn('netlify api call failed', { method, apiPath: url.pathname, status: response.status });
+      }
     }
     return response;
   } catch (err) {

@@ -10,10 +10,11 @@ import { getPackageVersion } from "../../src/utils/version.ts";
 import { checkCompatibility } from "../../src/utils/compatibility.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
-import { userIsAuthenticated, getTokenIdentity, UNAUTHED_ERROR_PREFIX } from "../../src/utils/api-networking.ts";
+import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import {Config, Context} from "@netlify/functions";
 
@@ -39,7 +40,10 @@ export default async (req: Request, context: Context) => {
       userAgent: req.headers.get('user-agent') ?? undefined,
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
-    async () => {
+    // Open a request-signals scope around the whole request so tool/API code can
+    // flag an auth challenge (see request-signals.ts) that handleMCPPost reads
+    // back after the MCP SDK has produced its response.
+    () => withRequestSignals(async () => {
       try {
 
         log.debug('mcp request', { auth: maskToken(req.headers.get('Authorization')) });
@@ -75,7 +79,7 @@ export default async (req: Request, context: Context) => {
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
-    }
+    })
   );
 };
 
@@ -233,24 +237,24 @@ async function handleMCPPost(req: Request) {
 
   const response = await handler.fetch(reqWithBody);
 
-  try {
-    const returnData = await response.clone().text();
-
-    // Log response metadata only — never the body (tool result values).
-    log.debug('mcp response', {
-      status: response.status,
-      contentType: response.headers.get('content-type'),
-      bytes: returnData.length,
+  // If any authenticated Netlify API call returned 401 during tool execution, the
+  // SDK has already turned that into a normal 200 tool result — so we translate
+  // it back into a real OAuth challenge here, driven by the flag that
+  // authenticatedFetch set (see request-signals.ts), not by inspecting the body.
+  const authChallenge = getAuthChallenge();
+  if (authChallenge) {
+    log.warn('netlify api returned 401 during tool execution; issuing auth challenge');
+    return returnNeedsAuthResponse({
+      error: 'invalid_token',
+      errorDescription: authChallenge.errorDescription ?? 'The Netlify access token is no longer valid',
     });
-
-    if(returnData.includes(UNAUTHED_ERROR_PREFIX)){
-      log.error("Unauthorized error detected in response");
-      return returnNeedsAuthResponse({ error: 'invalid_token', errorDescription: 'The Netlify access token is no longer valid' });
-    }
-
-  } catch (error) {
-    log.error("Error parsing response JSON", { err: error });
   }
+
+  // Log response metadata only — never the body (tool result values).
+  log.debug('mcp response', {
+    status: response.status,
+    contentType: response.headers.get('content-type'),
+  });
 
   return addCORSHeadersToFetchResp(response);
 }
