@@ -140,6 +140,23 @@ export function paramsSummary(params: any): Record<string, unknown> {
   }
   if (params.arguments && typeof params.arguments === 'object') {
     summary.argKeys = Object.keys(params.arguments);
+
+    // The domain "services" tools multiplex many operations behind a single tool
+    // name; the specific action is the selector's discriminator at
+    // arguments.selectSchema.operation (a fixed enum literal, not user data), so
+    // argKeys alone is just ["selectSchema"] and hides which action ran. Surface
+    // the operation so logs distinguish e.g. a project read from a project delete.
+    // The nested selectSchema.params carries VALUES (secrets/PII) — log only its
+    // key names, never the params themselves.
+    const selectSchema = (params.arguments as Record<string, any>).selectSchema;
+    if (selectSchema && typeof selectSchema === 'object') {
+      if (typeof selectSchema.operation === 'string') {
+        summary.operation = selectSchema.operation;
+      }
+      if (selectSchema.params && typeof selectSchema.params === 'object') {
+        summary.operationArgKeys = Object.keys(selectSchema.params);
+      }
+    }
   } else {
     summary.paramKeys = Object.keys(params);
   }
