@@ -181,9 +181,9 @@ async function handleMCPPost(req: Request) {
   // Build the MCP server for THIS request. The factory closes over the request +
   // parsed body so tools read the token (getNetlifyAccessToken) and client
   // detection behave exactly as on v1. createMcpHandler serves whichever protocol
-  // era the client speaks (ctx.era: legacy=2025 | modern=2026-07-28).
+  // era the client speaks (legacy=2025 | modern=2026-07-28) from this one handler.
   const handler = createMcpHandler(
-    async (ctx) => {
+    async () => {
       const server = new McpServer({ name: "netlify", version: getPackageVersion() });
 
       const contextConsumer = await getContextConsumerConfig();
@@ -219,17 +219,13 @@ async function handleMCPPost(req: Request) {
       }
 
       // All Netlify domain tools. A failure here shouldn't sink the whole request
-      // (coding-context still works), so log and continue. Track whether
-      // registration actually completed so the telemetry below reflects reality.
-      let domainToolsRegistered = false;
+      // (coding-context still works), so log and continue.
       try {
         await bindTools(server, req, verboseMode);
-        domainToolsRegistered = true;
       } catch (error) {
         log.error('Failed to bind domain tools', { err: error });
       }
 
-      log.info('mcp server built', { era: ctx.era, verboseMode, domainToolsRegistered });
       return server;
     },
     { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
