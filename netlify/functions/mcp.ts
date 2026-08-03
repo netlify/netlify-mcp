@@ -51,7 +51,7 @@ export default async (req: Request, context: Context) => {
         if (req.method === "POST") {
           return await handleMCPPost(req);
         } else if (req.method === "GET") {
-          return handleMCPGet();
+          return await handleMCPGet(req);
         } else if (req.method === "DELETE") {
           return handleMCPDelete();
         } else if (req.method === "OPTIONS") {
@@ -271,8 +271,17 @@ function jsonRpcError(status: number, code: number, message: string) {
   );
 }
 
-// Stateless server: GET/DELETE (2025 session operations) aren't supported.
-function handleMCPGet() {
+// GET on the MCP endpoint. 2026-spec clients (e.g. Codex/rmcp, openai/codex#35720)
+// do "GET-first" OAuth discovery: an UNAUTHENTICATED GET expecting a 401 whose
+// WWW-Authenticate points at the protected-resource metadata (RFC 9728) — without
+// starting an MCP session. Answer that challenge so discovery works; a 405 here
+// (the old behavior) leaves those clients unable to find the auth server and they
+// fail to connect. We don't support server->client SSE streams, so an
+// authenticated GET has nothing to stream → 405.
+async function handleMCPGet(req: Request) {
+  if (!await userIsAuthenticated(req)) {
+    return returnNeedsAuthResponse();
+  }
   return jsonRpcError(405, -32002, "Method not allowed.");
 }
 
