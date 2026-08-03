@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 process.env.OAUTH_ISSUER = 'https://mcp.netlify.example.com';
 process.env.NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || 'test-ntl-client';
 
-const { handler }: any = await import('./oauth-server.ts');
+const { handler }: any = await import('../oauth-server.ts');
 
 // Importing oauth-server re-points the global logger at the system-log forwarder
 // and it writes warn/error to the console. This is a router test, not a logging
