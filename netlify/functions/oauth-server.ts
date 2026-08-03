@@ -283,6 +283,18 @@ const oAuthHandler: Handler = async (req, context) => {
     }
     oidcConfig.scopes_supported = SUPPORTED_SCOPES;
 
+    // Soft-compat with broken Codex builds (CLI 0.146.0 / desktop
+    // 0.146.0-alpha.9.2, rmcp 1.8.0): when the AS metadata advertises RFC 9207
+    // `authorization_response_iss_parameter_supported: true`, those clients
+    // REQUIRE `iss` on the OAuth callback but then drop it while parsing their
+    // own local callback, failing with "Authorization server response missing
+    // required issuer". We still EMIT `iss` on the authorization redirect (see
+    // auth-flow.ts) — this only stops *advertising* support so broken clients
+    // don't demand it. Mirrors getsentry/sentry-mcp#1223.
+    // TODO(2026-10-02): flip back to advertising support once broken Codex
+    // clients (< 0.146.0-alpha.15) have aged out.
+    oidcConfig.authorization_response_iss_parameter_supported = false;
+
     oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
     response.body = JSON.stringify(oidcConfig);
 
