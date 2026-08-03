@@ -1,4 +1,4 @@
-import { HandlerResponse } from "@netlify/functions";
+import type { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
@@ -438,9 +438,8 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   // Always infer rather than trust a client-supplied value: a client that
   // mislabels a custom-scheme or loopback redirect as `web` would otherwise be
-  // stored as an invalid `web` + non-web-redirect combination that
-  // oidc-provider's client validation rejects if the client ever hits an
-  // oidc-handled endpoint (e.g. revocation).
+  // stored as the invalid combination `web` + non-web redirect (a `web` client
+  // must use only https web URIs).
   const applicationType = inferApplicationType(redirectUris);
 
   const client: Omit<RegisteredClient, 'client_id'> = {

@@ -1,11 +1,8 @@
-import serverless from "serverless-http";
-import type { Handler, HandlerResponse, HandlerEvent, HandlerContext } from "@netlify/functions";
-import { Provider } from "oidc-provider";
-import type { Configuration, ClientMetadata } from "oidc-provider";
+import type { Handler, HandlerResponse } from "@netlify/functions";
 import { handleAuthStart, handleClientRegistration, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
-import { resolveClient } from "./mcp-server/client-registry.ts";
-import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
-import { getClientById, staticClients } from "./mcp-server/oauth-clients.ts";
+import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
+import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
+import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
@@ -14,324 +11,101 @@ import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 // function. Runs once at cold start; edge/CLI keep the default console forwarder.
 initLogger({ forward: systemLogForwarder });
 
-const authorizationEndpointPath = '/oauth-server/auth';
-const tokenEndpointPath = '/oauth-server/token';
-const clientRedirectPath = '/oauth-server/client-redirect';
-const serverRedirectPath = '/oauth-server/server-redirect';
-const registrationEndpointPath = '/oauth-server/reg';
+/**
+ * Plain OAuth 2.1 Authorization Server for MCP.
+ *
+ * This is a hand-built router — there is no OIDC library underneath. The server
+ * fronts Netlify's own OAuth: the human authenticates at app.netlify.com and we
+ * wrap the resulting token in a JWE. All real logic lives in the mcp-server/
+ * handlers (auth-flow.ts, client-registry.ts); this file only dispatches.
+ *
+ * We implement and advertise ONLY the MCP-required surface:
+ *   - RFC 9728 protected-resource metadata
+ *   - RFC 8414 authorization-server metadata
+ *   - RFC 7591 dynamic client registration
+ *   - OAuth 2.1 authorization + token endpoints (PKCE S256 required)
+ * There is deliberately no revocation / introspection / userinfo / jwks /
+ * device-flow / PAR endpoint; any other path returns a clean 404.
+ */
 
-// Scopes the Authorization Server supports. Dynamic client registration
-// requests are sanitized against this list (see oAuthHandler) so a client
-// asking for an unsupported scope doesn't get its whole registration rejected.
-//
-// `openid` is intentionally omitted: this is a plain OAuth 2.1 Authorization
-// Server (MCP auth), not an OIDC provider. The token endpoint issues no
-// id_token, so we don't advertise/grant `openid` and the registration
-// sanitizer strips it — otherwise OIDC clients expect an id_token and fail.
-const SUPPORTED_SCOPES = [
-  'offline_access',
-  'read',
-  'write',
-  'claudeai', // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
-];
-
-// Adapter to support both static and dynamic clients
-class ClientAdapter {
-  constructor(private name: string) {}
-
-  async upsert(_id: string, _payload: ClientMetadata, _expiresIn?: number) {
-    // no-op: dynamic clients are not persisted
-  }
-
-  async find(id: string) {
-    if (this.name === 'Client') {
-      const staticClient = getClientById(id);
-      if (staticClient) {
-        return staticClient;
-      }
-      // Stateless dynamic clients aren't persisted — recover them from the
-      // encrypted client_id so oidc-provider-handled endpoints recognize them.
-      const { client, source } = await resolveClient(id);
-      if (client && source === 'stateless') {
-        return {
-          client_id: client.client_id,
-          redirect_uris: client.redirect_uris,
-          grant_types: client.grant_types,
-          response_types: client.response_types,
-          token_endpoint_auth_method: client.token_endpoint_auth_method,
-          application_type: client.application_type,
-          ...(client.scope ? { scope: client.scope } : {}),
-        } as ClientMetadata;
-      }
-      return undefined;
-    }
-    return undefined;
-  }
-
-  async findByUserCode(_userCode: string) {
-    return undefined;
-  }
-
-  async findByUid(_uid: string) {
-    return undefined;
-  }
-
-  async destroy(_id: string) {
-    // no-op: dynamic clients are not persisted
-  }
-
-  async revokeByGrantId(grantId: string) {}
-
-  async consume(id: string) {}
+function jsonResponse(statusCode: number, body: unknown): HandlerResponse {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
 }
 
-// MCP-compliant OAuth2/OIDC server configuration
-// Minimal MCP-compliant OAuth2/OIDC server configuration
-const configuration: Configuration = {
-  adapter: ClientAdapter,
-
-  // Only allow Authorization Code flow
-  responseTypes: ['code'],
-  // oidc-provider's internal scope set keeps `openid` (it's an OIDC library and
-  // is happiest with it present), but we never advertise or grant it — the
-  // discovery handlers strip OIDC fields and the registration sanitizer removes
-  // `openid` using SUPPORTED_SCOPES, so externally this is a plain OAuth 2.1 AS.
-  scopes: ['openid', ...SUPPORTED_SCOPES],
-  // OIDC claims (minimal)
-  claims: {
-    openid: ['sub'],
-    // Add more claims if needed
-  },
-  // Token lifetimes
-  ttl: {
-    AuthorizationCode: 60,      // 1 minute
-    AccessToken: 300,           // 5 minutes
-    RefreshToken: 24 * 3600     // 24 hours
-  },
-
-  // Enforce PKCE for all clients
-  pkce: {
-    required: () => true,
-  },
-  
-  // Enable dynamic client registration, introspection, revocation
-  features: {
-    registration: { enabled: true },
-    registrationManagement: { enabled: true },
-    deviceFlow: { enabled: true },
-
-    introspection: { enabled: false }, // TODO: future Enable introspection endpoint
-    revocation: { enabled: true },
-    userinfo: { enabled: false }, // TODO: future Enable userinfo endpoint
-  },
-
-  // we don't use all of these but we prefix them to ensure our fn handles them
-  routes: {
-    authorization: authorizationEndpointPath,
-    backchannel_authentication: '/oauth-server/backchannel',
-    code_verification: '/oauth-server/device',
-    device_authorization: '/oauth-server/device/auth',
-    end_session: '/oauth-server/session/end',
-    introspection: '/oauth-server/token/introspection',
-    jwks: '/404-jwks', // 404 until we can setup properly '/oauth-server/jwks',
-    pushed_authorization_request: '/oauth-server/request',
-    registration: registrationEndpointPath,
-    revocation: '/oauth-server/token/revocation',
-    token: tokenEndpointPath,
-    userinfo: '/oauth-server/me'
-  },
-
-  // For a real deployment, add findAccount, adapter, and interaction config
-  renderError(ctx, out, error) {
-    log.error('OIDC provider error', { err: error });
-    ctx.body = {
-      error: 'server_error',
-      error_description: 'An internal server error occurred'
-    };
-    ctx.status = 500;
-  },
-};
-
-
-interface InvocationOverrides {
-  url?: string;
-}
-async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, overrides?: InvocationOverrides): Promise<HandlerResponse> {
-  const updatedReq = {...req};
-
-  if (overrides?.url) {
-    const oUrl = getParsedUrl(req, overrides.url); // Validate URL
-    updatedReq.rawUrl = oUrl.toString();
-    updatedReq.path = oUrl.pathname;
-    updatedReq.rawQuery = oUrl.search;
-    updatedReq.queryStringParameters = Object.fromEntries(oUrl.searchParams.entries());
-  }
-
-  const oidcProvider = new Provider(getOAuthIssuer(), configuration);
-
-  const wrappedAppInvoker = serverless(oidcProvider)
-  const response = await wrappedAppInvoker(updatedReq, context) as HandlerResponse;
-
-  const respHeaders = headersToHeadersObject(req.headers as Record<string, string>);
-  respHeaders.delete('content-length'); // Remove content-length to avoid issues with streaming responses
-
-  response.headers = Object.fromEntries(respHeaders.entries());
-
-  return response;
-}
-
-
-const oAuthHandler: Handler = async (req, context) => {
-
+const oAuthHandler: Handler = async (req) => {
   log.debug('oauth request', { url: req.rawUrl });
 
   // Handle CORS preflight requests
-  if(req.httpMethod === 'OPTIONS') {
+  if (req.httpMethod === 'OPTIONS') {
     return {
       statusCode: 204,
-      body: ''
+      body: '',
     };
   }
 
   const parsedUrl = getParsedUrl(req);
-  let reqObj = new Request(req.rawUrl, {
+  const pathname = parsedUrl.pathname;
+  const reqObj = new Request(req.rawUrl, {
     method: req.httpMethod,
     headers: headersToHeadersObject(req.headers as Record<string, string>),
-    body: req.body || null
+    body: req.body || null,
   });
-  const invocationOverrides: InvocationOverrides = {};
 
-  // RFC 9728: clients derive the PRM URL from the resource path, so for a
-  // resource at /mcp they request /.well-known/oauth-protected-resource/mcp.
-  // Match both that path-based form and the bare well-known path.
-  const getProtectedResource = parsedUrl.pathname.includes('/.well-known/oauth-protected-resource');
-  const getAuthorizationServer = parsedUrl.pathname.endsWith('/.well-known/oauth-authorization-server');
-  const isAuthPath = parsedUrl.pathname.endsWith(authorizationEndpointPath);
-  const isClientRedirectPath = parsedUrl.pathname.endsWith(clientRedirectPath);
-  const isServerRedirectPath = parsedUrl.pathname.endsWith(serverRedirectPath);
-  const isCodeExchangePath = parsedUrl.pathname.endsWith(tokenEndpointPath);
-  const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
-  // Some clients POST dynamic client registration to the conventional default
-  // /register path instead of the advertised registration_endpoint. Treat it as
-  // registration and rewrite the OIDC provider invocation to the real route.
-  const isRegisterAlias = parsedUrl.pathname.endsWith('/register');
-  if (isRegisterAlias) {
-    invocationOverrides.url = registrationEndpointPath;
+  // RFC 9728 Protected Resource Metadata. Clients derive the PRM URL from the
+  // resource path, so for a resource at /mcp they request
+  // /.well-known/oauth-protected-resource/mcp. Match both that path-based form
+  // and the bare well-known path.
+  if (pathname.includes('/.well-known/oauth-protected-resource')) {
+    return jsonResponse(200, buildProtectedResourceMetadata());
   }
 
+  // RFC 8414 Authorization Server Metadata. Also served at the OIDC
+  // openid-configuration path as a compatibility alias: some MCP clients probe
+  // that path first even though this is a plain OAuth 2.1 AS (it issues no
+  // id_token). Both return the same document.
+  if (
+    pathname.endsWith('/.well-known/oauth-authorization-server') ||
+    pathname.endsWith('/.well-known/openid-configuration')
+  ) {
+    return jsonResponse(200, buildAuthServerMetadata());
+  }
 
-  // Dynamic client registration (RFC 7591). Handled directly and statelessly:
-  // the returned client_id is a JWE of the client metadata (see auth-flow /
-  // client-registry), so nothing needs persisting. Scope sanitization and
-  // application_type inference happen inside the handler.
-  if ((isRegistrationPath || isRegisterAlias) && req.httpMethod === 'POST') {
+  // Dynamic Client Registration (RFC 7591), stateless: the returned client_id is
+  // a JWE of the client metadata (see auth-flow / client-registry), so nothing
+  // is persisted. Some clients POST to the conventional /register path instead
+  // of the advertised registration_endpoint; accept both.
+  const isRegistration = pathname.endsWith(OAUTH_ROUTES.registration) || pathname.endsWith('/register');
+  if (isRegistration && req.httpMethod === 'POST') {
     log.debug('registration request', { body: safeBodySummary(req.body) });
     return await handleClientRegistration(reqObj, SUPPORTED_SCOPES);
   }
 
-  // RFC 9728 Protected Resource Metadata. MCP clients read `authorization_servers`
-  // from this document to discover where to authenticate; without it they can't
-  // bootstrap the OAuth flow and just retry unauthenticated. We derive the issuer
-  // from the Authorization Server metadata so it matches exactly (including any
-  // trailing slash) and won't trip an issuer-mismatch check on the client.
-  if (getProtectedResource) {
-    const asResponse = await invokeOIDCProvider(req, context, { url: '/.well-known/openid-configuration' });
-    const asConfig = typeof asResponse.body === 'string' ? JSON.parse(asResponse.body) : asResponse.body;
-    const issuer = asConfig?.issuer || getOAuthIssuer();
-
-    const prm = urlsToHTTP({
-      resource: new URL('/mcp', getOAuthIssuer()).toString(),
-      authorization_servers: [issuer],
-      scopes_supported: SUPPORTED_SCOPES,
-      bearer_methods_supported: ['header'],
-    }, getOAuthIssuer());
-
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(prm),
-    };
-  }
-
-  // RFC 8414 Authorization Server metadata — delegate to the OIDC provider's
-  // openid-configuration document, then present it as a plain OAuth 2.1 AS.
-  if (getAuthorizationServer) {
-    invocationOverrides.url = '/.well-known/openid-configuration';
-    const response = await invokeOIDCProvider(req, context, invocationOverrides);
-
-    let oidcConfig = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
-
-    // Drop the OIDC id_token/JWKS/claims signals. This server issues no
-    // id_token (the token endpoint is custom and returns only access/refresh
-    // tokens), so advertising OIDC makes clients request `openid` and then fail
-    // when no id_token comes back. Strip those fields and `openid` from scopes.
-    const OIDC_ONLY_FIELDS = [
-      'id_token_signing_alg_values_supported',
-      'id_token_encryption_alg_values_supported',
-      'id_token_encryption_enc_values_supported',
-      'jwks_uri',
-      'claims_supported',
-      'claims_parameter_supported',
-      'claim_types_supported',
-      'subject_types_supported',
-      'userinfo_endpoint',
-      'userinfo_signing_alg_values_supported',
-      'request_object_signing_alg_values_supported',
-    ];
-    for (const field of OIDC_ONLY_FIELDS) {
-      delete oidcConfig[field];
-    }
-    oidcConfig.scopes_supported = SUPPORTED_SCOPES;
-
-    // Soft-compat with broken Codex builds (CLI 0.146.0 / desktop
-    // 0.146.0-alpha.9.2, rmcp 1.8.0): when the AS metadata advertises RFC 9207
-    // `authorization_response_iss_parameter_supported: true`, those clients
-    // REQUIRE `iss` on the OAuth callback but then drop it while parsing their
-    // own local callback, failing with "Authorization server response missing
-    // required issuer". We still EMIT `iss` on the authorization redirect (see
-    // auth-flow.ts) — this only stops *advertising* support so broken clients
-    // don't demand it. Mirrors getsentry/sentry-mcp#1223.
-    // TODO(2026-10-02): flip back to advertising support once broken Codex
-    // clients (< 0.146.0-alpha.15) have aged out.
-    oidcConfig.authorization_response_iss_parameter_supported = false;
-
-    oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
-    response.body = JSON.stringify(oidcConfig);
-
-    return response;
-  }
-
-  // where we expclicitly manage the auth flow, we handle the paths directly
-  if(isAuthPath) {
+  // The interactive authorization flow, handled directly.
+  if (pathname.endsWith(OAUTH_ROUTES.authorization)) {
     return await handleAuthStart(reqObj);
-  }else if(isClientRedirectPath) {
-    // Handle client redirect after authorization
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.clientRedirect)) {
     return await handleClientSideAuthExchange();
-  }else if(isServerRedirectPath) {
-    // Handle server redirect after authorization
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.serverRedirect)) {
     return await handleServerSideAuthRedirect(reqObj);
-  }else if(isCodeExchangePath){
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.token)) {
     return await handleCodeExchange(reqObj);
   }
 
-  // allow catch all for these paths to be handled by the OIDC provider
-  const resp = await invokeOIDCProvider(req, context, invocationOverrides);
-
-  if(resp.statusCode === 400){
-    log.error('Invalid request to OIDC provider', {
-      statusCode: resp.statusCode,
-      oidcPath: parsedUrl.pathname,
-      requestBody: safeBodySummary(req.body),
-      responseBody: resp.body,
-    })
-  }
-
-  if(resp.body && resp.body.includes('http')){
-    resp.body = urlsToHTTP(resp.body, getOAuthIssuer()) as string;
-  }
-
-  return resp;
-}
+  // No other OAuth endpoints exist on this server. Return a clean OAuth-style
+  // error rather than letting the request fall through to a generic 404 page.
+  log.warn('oauth: unknown endpoint', { pathname, method: req.httpMethod });
+  return jsonResponse(404, {
+    error: 'invalid_request',
+    error_description: `No such endpoint: ${pathname}`,
+  });
+};
 
 
 export const handler: Handler = async (req, context) => {
@@ -351,7 +125,7 @@ export const handler: Handler = async (req, context) => {
       return resp ? addCommonHeadersToHandlerResp(resp) : {
         statusCode: 500,
         body: JSON.stringify({ error: 'Internal Server Error' }),
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       };
     }
   );

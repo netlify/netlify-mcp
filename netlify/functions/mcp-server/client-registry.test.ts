@@ -28,7 +28,7 @@ test('inferApplicationType: a set of purely remote origins is web', () => {
 
 test('inferApplicationType: any native redirect makes the whole client native', () => {
   // Looser than exact spec text, but avoids ever storing web + a native
-  // redirect, which oidc-provider rejects.
+  // redirect (a `web` client must use only https web URIs).
   assert.equal(inferApplicationType(['http://localhost/cb', 'https://app.example.com/cb']), 'native');
   assert.equal(inferApplicationType(['cursor://cb', 'https://app.example.com/cb']), 'native');
 });
