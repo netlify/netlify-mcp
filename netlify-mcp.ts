@@ -8,6 +8,7 @@ import { getPackageVersion } from "./src/utils/version.ts";
 import { checkCompatibility } from "./src/utils/compatibility.ts";
 import { bindTools } from "./src/tools/index.ts";
 import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
+import { checkDeployStatus } from "./src/tools/deploy-tools/deploy-watch.ts";
 
 // check to see if it's ran as a command to zip and build
 const proxyPath = process.argv[process.argv.indexOf('--proxy-path') + 1] || undefined;
@@ -42,22 +43,30 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
     // states: new,pending_review,accepted,rejected,enqueued,building,uploading,uploaded,preparing,prepared,processing,ready,error,retrying
     // wait for the deploy to finish
     setInterval(async () => {
-      const deployLookup = await fetch(deployEndpoint);
-      if(deployLookup.ok) {
-        const deploy = await deployLookup.json();
-        if(deploy.state === 'ready') {
-          console.log('Deploy is ready!', JSON.stringify({ deployId, buildId, siteUrl: deploy.url }));
+      // checkDeployStatus never throws — a transient fetch/JSON failure here
+      // would otherwise become an unhandled rejection and kill the watcher
+      // mid-deploy. Poll errors are surfaced as { kind: 'poll-error' } so we
+      // log and keep polling.
+      const result = await checkDeployStatus(deployEndpoint);
+      switch (result.kind) {
+        case 'ready':
+          console.log('Deploy is ready!', JSON.stringify({ deployId, buildId, siteUrl: result.deploy.url }));
           process.exit(0);
-        }else if(deploy.state === 'error') {  
+        case 'error':
           console.error('Deploy failed!', JSON.stringify({ deployId, buildId, deployInfo: `https://app.netlify.com/sites/${siteId}/deploys/${deployId}` }));
           process.exit(1);
+        case 'unavailable':
+          console.error('Error fetching deploy status:', result.statusText);
+          process.exit(0);
+        case 'poll-error':
+          console.error('Error checking deploy status, will retry...', result.message);
+          break;
+        case 'pending': {
+          const sameAsLastState = lastState === result.state;
+          console.log(`This project deploy is ${sameAsLastState ? 'still' : 'now'} ${result.state}. Waiting for it to finish...`);
+          lastState = result.state;
+          break;
         }
-        const sameAsLastState = lastState === deploy.state;
-        console.log(`This project deploy is ${sameAsLastState ? 'still' : 'now'} ${deploy.state}. Waiting for it to finish...`);
-        lastState = deploy.state;
-      } else {
-        console.error('Error fetching deploy status:', deployLookup.statusText);
-        process.exit(0);
       }
     }, 5000);
 
