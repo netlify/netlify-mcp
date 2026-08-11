@@ -18,8 +18,10 @@ export const SUPPORTED_SCOPES = [
   'claudeai', // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
 ];
 
-// Grant types this AS issues. Registration requests are intersected with this
-// set (see auth-flow.ts SUPPORTED_GRANT_TYPES, which must stay in sync).
+// Grant types this AS issues. Single source of truth: the discovery metadata
+// advertises these, and handleClientRegistration (auth-flow.ts) intersects
+// registration requests against them so a client can't register for a flow we
+// don't run.
 export const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 
 // Token endpoint auth methods we accept: `none` for public PKCE clients (dynamic
