@@ -159,12 +159,13 @@ async function handleMCPPost(req: Request) {
   log.debug('mcp request auth passed');
 
   if (body?.method === 'tools/call') {
-    // Fold both the tool name and the selected operation (the discriminator that
-    // says which action a multiplexing "services" tool actually ran) into the
-    // context so every downstream line — including errors — is attributed to it.
-    const operation = body?.params?.arguments?.selectSchema?.operation;
+    // Standalone tools (coding-context, design import) have no selectSchema.operation;
+    // fall back to the tool name so every call has one `operation` dimension for tracking.
+    const toolName = body?.params?.name;
+    const selectedOperation = body?.params?.arguments?.selectSchema?.operation;
+    const operation = typeof selectedOperation === 'string' ? selectedOperation : toolName;
     addLogContext({
-      toolName: body?.params?.name,
+      toolName,
       ...(typeof operation === 'string' ? { operation } : {}),
     });
     log.info('tool call', paramsSummary(body?.params));

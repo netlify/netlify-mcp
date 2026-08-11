@@ -14,6 +14,7 @@ import {
 } from '../../utils/api-networking.js';
 import { zipAndBuild } from '../deploy-tools/deploy-site.js';
 import { appendErrorToLog } from '../../utils/logging.js';
+import { log } from '../../../netlify/functions/mcp-server/logger.js';
 import { deployIdFromJob, fallbackImportSiteName, importSiteName, matchTeam, projectMarker, type TeamRef } from './job-utils.js';
 
 
@@ -374,6 +375,9 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
         return { content: [{ type: 'text' as const, text }] };
       } catch (error: any) {
         appendErrorToLog(`${IMPORT_TOOL_NAME} failed: ${error}`);
+        if (!(error instanceof NetlifyUnauthError)) {
+          log.error('tool operation failed', { operation: IMPORT_TOOL_NAME, toolName: IMPORT_TOOL_NAME, err: error });
+        }
         return {
           content: [{ type: 'text' as const, text: `Failed to import design: ${error?.message || error}` }],
           isError: true,
@@ -398,6 +402,9 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
         const result = await getClaudeDesignImportStatus(job_id, remoteMCPRequest);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
       } catch (error: any) {
+        if (!(error instanceof NetlifyUnauthError)) {
+          log.error('tool operation failed', { operation: STATUS_TOOL_NAME, toolName: STATUS_TOOL_NAME, err: error });
+        }
         return {
           content: [{ type: 'text' as const, text: `Failed to get import status: ${error?.message || error}` }],
           isError: true,
