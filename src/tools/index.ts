@@ -31,6 +31,7 @@ import { extensionDomainTools } from './extension-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken, NetlifyUnauthError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
+import { log } from '../../netlify/functions/mcp-server/logger.js';
 import { categorizeToolsByReadWrite } from './tool-utils.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
@@ -125,7 +126,19 @@ const registerDomainTools = (
 
         appendToLog(`${toolName} operation: ${JSON.stringify(args)}`);
 
-        const result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+        let result;
+        try {
+          result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+        } catch (err) {
+          // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
+          // upstream as an OAuth challenge — not an operation failure, so don't
+          // record it as one. Everything else is a genuine failure: log it at
+          // error level so it's attributable to this domain/operation in tracking,
+          // then rethrow so the client still gets its error result.
+          if (err instanceof NetlifyUnauthError) throw err;
+          log.error('tool operation failed', { domain, operation: tool.operation, toolName, err });
+          throw err;
+        }
 
         appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
@@ -187,7 +200,19 @@ const registerDomainTools = (
         }
       }
 
-      const result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+      let result;
+      try {
+        result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
+      } catch (err) {
+        // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
+        // upstream as an OAuth challenge — not an operation failure, so don't
+        // record it as one. Everything else is a genuine failure: log it at
+        // error level so it's attributable to this domain/operation in tracking,
+        // then rethrow so the client still gets its error result.
+        if (err instanceof NetlifyUnauthError) throw err;
+        log.error('tool operation failed', { domain, operation, toolName, err });
+        throw err;
+      }
 
       appendToLog(`${domain} operation result: ${JSON.stringify(result)}`);
 
