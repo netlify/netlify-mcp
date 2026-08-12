@@ -16,6 +16,7 @@ import { zipAndBuild } from '../deploy-tools/deploy-site.js';
 import { appendErrorToLog } from '../../utils/logging.js';
 import { log } from '../../../netlify/functions/mcp-server/logger.js';
 import { deployIdFromJob, fallbackImportSiteName, importSiteName, matchTeam, projectMarker, type TeamRef } from './job-utils.js';
+import { isAllowedDesignHost } from './url-guard.js';
 
 
 // Claude Design discovers export destinations by this literal tool name.
@@ -133,6 +134,16 @@ async function fetchDesignHtml(url: string): Promise<string> {
   }
   if (target.protocol !== 'https:') {
     throw new Error('url must be an https URL');
+  }
+
+  // Only Claude Design's user-content host is a valid source; this confines the
+  // server-side fetch and prevents it from being pointed at any other host (SSRF).
+  // Log the rejected host (host only — the full signed URL carries a signature in
+  // its query) so monitoring alerts us if Claude Design starts serving exports
+  // from a new host and the allow-list needs updating.
+  if (!isAllowedDesignHost(target.hostname)) {
+    log.error('design import blocked: url host not on allow-list', { host: target.hostname });
+    throw new Error('url must be a Claude Design URL (*.claudeusercontent.com)');
   }
 
   const controller = new AbortController();
