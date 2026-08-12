@@ -219,7 +219,15 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
 
-    const data = await response.text();
+    // Reading the body can reject if the connection drops mid-download
+    // (UND_ERR_BODY_TIMEOUT / UND_ERR_SOCKET / UND_ERR_ABORTED). Surface a
+    // clear message instead of leaking the raw undici error.
+    let data: string;
+    try {
+      data = await response.text();
+    } catch (err) {
+      throw new Error(`Failed to read Netlify API response body: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (!data) {
       return '';
     }
@@ -259,7 +267,12 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       throw new Error(`Failed to fetch API: ${response.status}`);
     }
 
-    const resultRaw = await response.text();
+    let resultRaw: string;
+    try {
+      resultRaw = await response.text();
+    } catch (err) {
+      throw new Error(`Failed to read Netlify API response body: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     if (!resultRaw) {
       break;
