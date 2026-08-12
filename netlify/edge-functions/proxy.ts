@@ -58,6 +58,12 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   // substring (e.g. `.../builds/../../../accounts/TEAM/env`) slip past the check
   // and then normalize to an endpoint the token was never scoped to reach.
   const url = new URL(requestedPath as string, 'https://api.netlify.com');
+
+  if (!url.origin.endsWith('.netlify.com')) {
+    log.error('proxy blocked non-Netlify target host', { host: url.host });
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const normalizedPath = url.pathname;
 
   if (Array.isArray(decryptedToken.apisAllowed)) {
