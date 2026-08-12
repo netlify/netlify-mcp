@@ -1,4 +1,4 @@
-import { HandlerResponse } from "@netlify/functions";
+import type { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
@@ -11,10 +11,9 @@ import {
   resolveClient,
   type RegisteredClient,
 } from "./client-registry.ts";
-
-// Grant types this Authorization Server issues. Registration requests are
-// intersected with this set so a client can't register for a flow we don't run.
-const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'] as const;
+// Grant types this Authorization Server issues, shared with the discovery
+// metadata so registration validation and what we advertise can't drift apart.
+import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
 
 /**
  * When true, any request whose redirect_uri we can't match to a registration is
@@ -419,7 +418,7 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
   // Intersect requested grant types with what we support; default to
   // authorization_code when the client sends none.
   const requestedGrantTypes: string[] = Array.isArray(body.grant_types) ? body.grant_types : ['authorization_code'];
-  const grantTypes = requestedGrantTypes.filter((g) => (SUPPORTED_GRANT_TYPES as readonly string[]).includes(g));
+  const grantTypes = requestedGrantTypes.filter((g) => SUPPORTED_GRANT_TYPES.includes(g));
   const effectiveGrantTypes = grantTypes.length > 0 ? grantTypes : ['authorization_code'];
 
   // redirect_uris are required for the authorization_code flow (the only flow
@@ -438,9 +437,8 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   // Always infer rather than trust a client-supplied value: a client that
   // mislabels a custom-scheme or loopback redirect as `web` would otherwise be
-  // stored as an invalid `web` + non-web-redirect combination that
-  // oidc-provider's client validation rejects if the client ever hits an
-  // oidc-handled endpoint (e.g. revocation).
+  // stored as the invalid combination `web` + non-web redirect (a `web` client
+  // must use only https web URIs).
   const applicationType = inferApplicationType(redirectUris);
 
   const client: Omit<RegisteredClient, 'client_id'> = {

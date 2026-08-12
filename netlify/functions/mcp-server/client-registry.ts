@@ -76,9 +76,8 @@ function isNativeRedirect(uri: string): boolean {
  * toward `native`: if ANY redirect URI is a custom scheme or a loopback
  * address, the client is `native`; only a set of purely remote http(s) origins
  * is `web`. This keeps us from ever storing the invalid combination `web` +
- * custom-scheme redirect (which oidc-provider's client validation rejects with
- * "redirect_uris must only contain web uris"), and lets authorization servers
- * stop rejecting localhost redirects for desktop/CLI clients.
+ * custom-scheme redirect (a `web` client is spec-required to use only https web
+ * URIs), and lets desktop/CLI clients register localhost redirects.
  */
 export function inferApplicationType(redirectUris: string[]): 'web' | 'native' {
   return redirectUris.some(isNativeRedirect) ? 'native' : 'web';

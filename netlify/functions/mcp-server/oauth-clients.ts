@@ -1,7 +1,18 @@
-import type { ClientMetadata } from "oidc-provider";
+// Shape of a pre-provisioned ("static") OAuth client. These are the fields
+// resolveClient (client-registry.ts) reads; kept local so this module has no
+// dependency on any OAuth/OIDC library.
+export interface StaticClient {
+  client_id: string;
+  client_secret?: string;
+  redirect_uris: string[];
+  grant_types: string[];
+  response_types: string[];
+  token_endpoint_auth_method: string;
+  scope?: string;
+}
 
 // Static OAuth clients - add your pre-configured clients here
-export const staticClients: ClientMetadata[] = [
+export const staticClients: StaticClient[] = [
   // Azure AI Foundry wants to do authentication on customer behalf but does
   // not support dynamic client registration yet. They asked to have us provision a dedicated
   // client for them. Here are the details they provided.
@@ -32,7 +43,7 @@ export const staticClients: ClientMetadata[] = [
   },
 ];
 
-export function getClientById(id: string | null | undefined): ClientMetadata | undefined {
+export function getClientById(id: string | null | undefined): StaticClient | undefined {
   if (!id) {
     return undefined;
   }
