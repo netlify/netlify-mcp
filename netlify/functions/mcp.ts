@@ -16,11 +16,16 @@ import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
+import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import {Config, Context} from "@netlify/functions";
 
 // Route structured logs onto Netlify's system-log channel for this Node
 // function. Runs once at cold start; edge/CLI keep the default console forwarder.
 initLogger({ forward: systemLogForwarder });
+
+// Keep detached transient network errors (background keep-alive socket resets)
+// from crashing the function as opaque "Invoke Error"s. Runs once at cold start.
+installProcessGuards();
 
 // Netlify serverless function handler
 export default async (req: Request, context: Context) => {

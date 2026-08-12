@@ -77,7 +77,10 @@ export async function handleProxy(req: Request, token: string): Promise<Response
     });
 
     if (!isAllowed) {
-      log.error('Unauthorized access attempt to path', { normalizedPath, apisAllowed: decryptedToken.apisAllowed });
+      // Expected access-control enforcement (the token requested a path outside
+      // its scope), not a server error — warn so it stays a security signal
+      // without inflating error metrics.
+      log.warn('proxy denied out-of-scope path', { normalizedPath, apisAllowed: decryptedToken.apisAllowed });
       return new Response('Forbidden', { status: 403 });
     }
   }
