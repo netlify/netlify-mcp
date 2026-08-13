@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { handleProxy } from './proxy.ts';
-import { createJWE } from '../functions/mcp-server/utils.ts';
+import { handleProxy } from '../../edge-functions/proxy.ts';
+import { createJWE } from './utils.ts';
 
 // createJWE/decryptJWE round-trip on the localhost dev key when JWE_SECRET and
 // OAUTH_ISSUER are unset (the test environment), so no secret setup is needed.
