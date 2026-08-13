@@ -29,7 +29,7 @@ import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
-import { getNetlifyAccessToken, NetlifyUnauthError } from '../utils/api-networking.js';
+import { getNetlifyAccessToken, NetlifyUnauthError, NetlifyApiError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { log } from '../../netlify/functions/mcp-server/logger.js';
 import { categorizeToolsByReadWrite } from './tool-utils.js';
@@ -131,12 +131,16 @@ const registerDomainTools = (
           result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
         } catch (err) {
           // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-          // upstream as an OAuth challenge — not an operation failure, so don't
-          // record it as one. Everything else is a genuine failure: log it at
-          // error level so it's attributable to this domain/operation in tracking,
-          // then rethrow so the client still gets its error result.
+          // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
+          // validation) is an expected client outcome, so log it at warn; only
+          // genuine 5xx/unexpected failures are logged at error. Rethrow either way
+          // so the client still gets its error result.
           if (err instanceof NetlifyUnauthError) throw err;
-          log.error('tool operation failed', { domain, operation: tool.operation, toolName, err });
+          if (err instanceof NetlifyApiError && err.status < 500) {
+            log.warn('tool operation client error', { domain, operation: tool.operation, toolName, status: err.status });
+          } else {
+            log.error('tool operation failed', { domain, operation: tool.operation, toolName, err });
+          }
           throw err;
         }
 
@@ -205,12 +209,16 @@ const registerDomainTools = (
         result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
       } catch (err) {
         // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-        // upstream as an OAuth challenge — not an operation failure, so don't
-        // record it as one. Everything else is a genuine failure: log it at
-        // error level so it's attributable to this domain/operation in tracking,
-        // then rethrow so the client still gets its error result.
+        // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
+        // validation) is an expected client outcome, so log it at warn; only
+        // genuine 5xx/unexpected failures are logged at error. Rethrow either way
+        // so the client still gets its error result.
         if (err instanceof NetlifyUnauthError) throw err;
-        log.error('tool operation failed', { domain, operation, toolName, err });
+        if (err instanceof NetlifyApiError && err.status < 500) {
+          log.warn('tool operation client error', { domain, operation, toolName, status: err.status });
+        } else {
+          log.error('tool operation failed', { domain, operation, toolName, err });
+        }
         throw err;
       }
 

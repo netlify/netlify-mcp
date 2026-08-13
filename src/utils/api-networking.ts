@@ -29,6 +29,19 @@ export class NetlifyUnauthError extends Error {
   }
 }
 
+// Thrown when the Netlify API returns a non-OK status. Carries the status so
+// callers can tell an expected client outcome (4xx: not-found, validation) apart
+// from a genuine server/network failure (5xx), and log at the right severity.
+// The message is unchanged (`Failed to fetch API: <status>`) for compatibility.
+export class NetlifyApiError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Failed to fetch API: ${status}`);
+    this.name = 'NetlifyApiError';
+    this.status = status;
+  }
+}
+
 const readTokenFromEnv = async () => {
   try {
     // Netlify CLI uses envPaths(...) to build the file path for config.json.
@@ -216,7 +229,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       if(apiInteractionOptions.failureCallback){
         return apiInteractionOptions.failureCallback(response);
       }
-      throw new Error(`Failed to fetch API: ${response.status}`);
+      throw new NetlifyApiError(response.status);
     }
 
     // Reading the body can reject if the connection drops mid-download
@@ -264,7 +277,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       if (apiInteractionOptions.failureCallback) {
         return apiInteractionOptions.failureCallback(response);
       }
-      throw new Error(`Failed to fetch API: ${response.status}`);
+      throw new NetlifyApiError(response.status);
     }
 
     let resultRaw: string;

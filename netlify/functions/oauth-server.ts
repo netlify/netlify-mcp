@@ -6,10 +6,15 @@ import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } f
 import { safeBodySummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
+import { installProcessGuards } from "./mcp-server/process-guards.ts";
 
 // Route structured logs onto Netlify's system-log channel for this Node
 // function. Runs once at cold start; edge/CLI keep the default console forwarder.
 initLogger({ forward: systemLogForwarder });
+
+// Keep detached transient network errors (background keep-alive socket resets)
+// from crashing the function as opaque "Invoke Error"s. Runs once at cold start.
+installProcessGuards();
 
 /**
  * Plain OAuth 2.1 Authorization Server for MCP.
