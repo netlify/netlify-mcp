@@ -2,6 +2,10 @@
 // createMcpHandler serves BOTH 2026-07-28 (modern) and 2025-era (legacy) traffic
 // from one web-standard (Request)=>Response handler — replacing v1's
 // StreamableHTTPServerTransport + fetch-to-node bridge.
+
+// FIRST import on purpose: self-installs an outbound-http error guard before any
+// dependency that makes http calls loads (see mcp-server/http-guard.ts).
+import "./mcp-server/http-guard.ts";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { addCORSHeadersToFetchResp, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
