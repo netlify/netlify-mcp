@@ -1,4 +1,3 @@
-
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
