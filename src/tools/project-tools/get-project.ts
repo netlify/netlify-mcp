@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 
@@ -16,6 +17,6 @@ export const getProjectDomainTool: DomainTool<typeof getProjectParamsSchema> = {
     readOnlyHint: true,
   },
   cb: async ({ siteId }, {request}) => {
-    return JSON.stringify(getEnrichedSiteModelForLLM(await getAPIJSONResult(`/api/v1/sites/${siteId}`, {}, {}, request)));
+    return JSON.stringify(getEnrichedSiteModelForLLM(await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request)));
   }
 }

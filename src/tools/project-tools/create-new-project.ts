@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 import { createToolResponseWithFollowup } from '../tool-utils.js';
@@ -20,7 +21,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
   },
   cb: async ({ teamSlug, name }, {request}) => {
 
-    const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
+    const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
       method: 'POST',
       body: JSON.stringify({
         name

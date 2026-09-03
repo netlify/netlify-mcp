@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 
@@ -22,7 +23,7 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
       return 'You must provide a name for this site';
     }
 
-    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {
+    const site = await getAPIJSONResult<NetlifySiteResponse | string>(`/api/v1/sites/${siteId}`, {
       method: 'PUT',
       body: JSON.stringify({
         name
@@ -37,6 +38,12 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
         return `Failed to update project name: ${response.status}`;
       }
     }, request);
+
+    // The failureCallback above resolves to an explanatory message instead of a
+    // site, so surface it as-is rather than running it through the site enricher.
+    if (typeof site === 'string') {
+      return site;
+    }
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
   }
