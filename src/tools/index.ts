@@ -14,7 +14,7 @@
 //  [x] user-and-team
 //    [x] user
 //    [x] team
-//    [] team env vars
+//    [x] team env vars
 //  [] sites aggregate operations
 //  [x] extensions - install and link - not configuration
 //  [] database
