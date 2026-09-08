@@ -86,3 +86,16 @@ test('register: logged redirect_uris are bounded in count and length, but the re
   assert.equal(response.statusCode, 201);
   assert.equal(JSON.parse(response.body).redirect_uris.length, 15);
 });
+
+test('register: logged scope is truncated to 200 characters', async () => {
+  const repeatedScope = Array.from({ length: 500 }, () => SUPPORTED_SCOPES[0]).join(' ');
+  const { response, parsed } = await captureRegisterLog({
+    redirect_uris: ['http://127.0.0.1:1234/cb'],
+    scope: repeatedScope,
+  });
+
+  assert.ok(parsed);
+  assert.equal(parsed.scope.length, 200);
+
+  assert.equal(response.statusCode, 201);
+});

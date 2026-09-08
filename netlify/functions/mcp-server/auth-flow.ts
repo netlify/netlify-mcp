@@ -454,7 +454,7 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   const clientId = await createStatelessClientId(client);
 
-  // Untrusted client input; cap both fields so a hostile registration can't
+  // Untrusted client input; cap these fields so a hostile registration can't
   // bloat log lines.
   const MAX_LOGGED_FIELD_LENGTH = 200;
   const MAX_LOGGED_REDIRECT_URIS = 10;
@@ -463,11 +463,12 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
   const loggedRedirectUris = redirectUris
     .slice(0, MAX_LOGGED_REDIRECT_URIS)
     .map((uri) => uri.slice(0, MAX_LOGGED_FIELD_LENGTH));
+  const loggedScope = scope?.slice(0, MAX_LOGGED_FIELD_LENGTH);
 
   log.info('register: issued stateless client_id', {
     redirect_uris: loggedRedirectUris,
     application_type: applicationType,
-    scope,
+    scope: loggedScope,
     client_name: loggedClientName,
   });
 
