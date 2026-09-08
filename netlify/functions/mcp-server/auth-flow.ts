@@ -454,7 +454,17 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   const clientId = await createStatelessClientId(client);
 
-  log.debug('register: issued stateless client_id', { redirect_uris: redirectUris, application_type: applicationType, scope });
+  // Untrusted client input; cap so a hostile registration can't bloat log lines.
+  const MAX_LOGGED_CLIENT_NAME = 200;
+  const loggedClientName =
+    typeof body.client_name === 'string' ? body.client_name.slice(0, MAX_LOGGED_CLIENT_NAME) : undefined;
+
+  log.info('register: issued stateless client_id', {
+    redirect_uris: redirectUris,
+    application_type: applicationType,
+    scope,
+    client_name: loggedClientName,
+  });
 
   // RFC 7591 §3.2.1 success response. client_id_issued_at is informational; the
   // registration never expires (no client_secret_expires_at needed for a public
