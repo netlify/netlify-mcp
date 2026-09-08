@@ -69,3 +69,20 @@ test('register: omits client_name from the log line when the client sends none',
   assert.ok(parsed);
   assert.equal('client_name' in parsed, false);
 });
+
+test('register: logged redirect_uris are bounded in count and length, but the response is not', async () => {
+  const longRedirectUris = Array.from(
+    { length: 15 },
+    (_, i) => `http://127.0.0.1:1234/${'x'.repeat(200)}-${i}`,
+  );
+  const { response, parsed } = await captureRegisterLog({
+    redirect_uris: longRedirectUris,
+  });
+
+  assert.ok(parsed);
+  assert.equal(parsed.redirect_uris.length, 10);
+  assert.ok(parsed.redirect_uris.every((uri: string) => uri.length === 200));
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(JSON.parse(response.body).redirect_uris.length, 15);
+});
