@@ -5,6 +5,7 @@ import { maskToken } from "./logging.ts";
 import { log } from "./logger.ts";
 import { resolveIdentity, type TokenIdentity } from "./identity.ts";
 import {
+  classifyUnresolvedClientId,
   createStatelessClientId,
   inferApplicationType,
   isRedirectUriAllowed,
@@ -70,9 +71,17 @@ async function validateClientRedirect(
 
   // Log-only mode: surface unconditionally (not log.debug) so operators can see
   // this traffic in steady state and decide when it's safe to enforce.
+  //
+  // `reason` distinguishes WHY it wasn't validated, since `source: unknown` alone
+  // conflates several different situations that call for different fixes:
+  //  - 'redirect_mismatch': the client resolved fine (static or stateless) but
+  //    this redirect_uri isn't one it registered — the most attack-relevant case.
+  //  - 'jwe-like' / 'opaque' / 'empty': the client_id itself couldn't be
+  //    resolved at all — see classifyUnresolvedClientId for what each implies.
   log.warn('[oauth] redirect_uri not validated (allowed; set DCR_REJECT_UNKNOWN_CLIENTS=true to enforce)', {
     op,
     source,
+    reason: client ? 'redirect_mismatch' : classifyUnresolvedClientId(clientId),
     client_id: maskToken(clientId),
     redirect_host: redirectHostForLog(redirectUri),
   });
