@@ -11,6 +11,7 @@ import { staticClients } from './oauth-clients.ts';
 
 // These tests run against the localhost dev key (no OAUTH_ISSUER / JWE_SECRET
 // set), which is exactly the stateless round-trip we depend on in production.
+delete process.env.JWE_SECRET;
 
 test('inferApplicationType: loopback and custom-scheme redirects are native', () => {
   assert.equal(inferApplicationType(['http://localhost:8080/cb']), 'native');

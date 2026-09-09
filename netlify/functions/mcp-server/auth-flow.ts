@@ -33,7 +33,7 @@ function rejectUnknownClients(): boolean {
 /** Host of a redirect_uri for logging, without leaking the full URI. */
 function redirectHostForLog(redirectUri: string): string {
   try {
-    return new URL(redirectUri).host || 'unknown';
+    return truncateForLog(new URL(redirectUri).host) || 'unknown';
   } catch {
     return 'unparseable';
   }

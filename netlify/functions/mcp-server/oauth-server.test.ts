@@ -6,7 +6,7 @@ process.env.OAUTH_ISSUER = 'https://mcp.netlify.example.com';
 process.env.NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || 'test-ntl-client';
 // A non-localhost issuer requires a real JWE_SECRET (see utils.ts) for
 // registration to mint a stateless client_id.
-process.env.JWE_SECRET = process.env.JWE_SECRET || 'a'.repeat(32);
+process.env.JWE_SECRET = 'a'.repeat(32);
 
 const { handler }: any = await import('../oauth-server.ts');
 

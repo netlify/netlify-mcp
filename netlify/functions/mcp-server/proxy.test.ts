@@ -5,6 +5,8 @@ import { createJWE } from './utils.ts';
 
 // createJWE/decryptJWE round-trip on the localhost dev key when JWE_SECRET and
 // OAUTH_ISSUER are unset (the test environment), so no secret setup is needed.
+delete process.env.JWE_SECRET;
+
 async function tokenFor(apisAllowed: Array<{ path: string; method: string }>): Promise<string> {
   return createJWE({ accessToken: 'nfp_test_token', apisAllowed }, '1h');
 }

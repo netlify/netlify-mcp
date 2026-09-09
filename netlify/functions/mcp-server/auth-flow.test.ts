@@ -5,6 +5,10 @@ import { handleClientRegistration } from './auth-flow.ts';
 import { resolveClient } from './client-registry.ts';
 import { SUPPORTED_SCOPES } from './oauth-config.ts';
 
+// These tests round-trip createJWE/decryptJWE on the localhost dev key, which
+// requires JWE_SECRET to be unset regardless of what the ambient shell env has.
+delete process.env.JWE_SECRET;
+
 // register: issued stateless client_id is logged at info, which is not gated
 // by MCP_VERBOSE_LOGGING, so no env setup is needed to observe it.
 
@@ -82,21 +86,18 @@ test('register: omits client_name from the log line when the client sends none',
 });
 
 test('register: logged redirect_hosts are bounded and never leak uri secrets, but the response is not', async () => {
+  const loopbackUri = 'http://127.0.0.1:4321/cb';
   const taggedUris = Array.from(
     { length: 15 },
     (_, i) => `https://user:pw@example.com/cb?email=a@b.c&token=secret-marker#frag-${i}`,
   );
-  const loopbackUri = 'http://127.0.0.1:4321/cb';
-  const redirectUris = [...taggedUris, loopbackUri];
+  const redirectUris = [loopbackUri, ...taggedUris];
 
   const { response, parsed, rawLine } = await captureRegisterLog({ redirect_uris: redirectUris });
 
   assert.ok(parsed);
   assert.ok(rawLine);
-  assert.equal(parsed.redirect_hosts.length, 10);
-  assert.ok(
-    parsed.redirect_hosts.every((host: string) => host === 'example.com' || host === '127.0.0.1:4321'),
-  );
+  assert.deepEqual(parsed.redirect_hosts, ['127.0.0.1:4321', ...Array(9).fill('example.com')]);
   assert.ok(!rawLine.includes('secret-marker'));
   assert.ok(!rawLine.includes('user:pw'));
   assert.ok(!rawLine.includes('email='));
@@ -105,6 +106,16 @@ test('register: logged redirect_hosts are bounded and never leak uri secrets, bu
   const responseBody = JSON.parse(response.body);
   assert.equal(responseBody.redirect_uris.length, 16);
   assert.deepEqual(responseBody.redirect_uris, redirectUris);
+});
+
+test('register: logged redirect_hosts are length-bounded for a long host', async () => {
+  const longHostUri = `https://${'a'.repeat(5000)}.com/cb`;
+  const { response, parsed } = await captureRegisterLog({ redirect_uris: [longHostUri] });
+
+  assert.ok(parsed);
+  assert.equal(parsed.redirect_hosts[0].length, 200);
+
+  assert.equal(response.statusCode, 201);
 });
 
 test('register: logged scope is truncated to 200 characters', async () => {
