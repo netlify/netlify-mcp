@@ -1,0 +1,104 @@
+name: release-please
+
+# Automates releasing `@netlify/mcp` to npm.
+#
+# On every push to `main`, release-please maintains a "release PR" that bumps
+# the version in `package.json` and updates `CHANGELOG.md` from Conventional
+# Commit messages. Merging that PR creates the GitHub release and git tag, and
+# this workflow then publishes the new version to npm.
+#
+# Publishing uses npm Trusted Publishing (OIDC): the `id-token: write`
+# permission below lets `npm publish` exchange a short-lived GitHub Actions
+# OIDC token for an npm token at publish time, so there is no long-lived
+# `NPM_TOKEN`/`NODE_AUTH_TOKEN` secret anywhere in this workflow. It also means
+# npm generates a provenance attestation for the published tarball.
+#
+# NOTE: this requires a trusted publisher to be configured on the `@netlify/mcp`
+# package on npmjs.com, pointing at this repository and this workflow file.
+# See https://docs.npmjs.com/trusted-publishers.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to publish from'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      # Required for npm Trusted Publishing (OIDC).
+      id-token: write
+      # release-please pushes release commits/tags and opens the release PR.
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate GitHub App token
+        id: get-token
+        uses: navikt/github-app-token-generator@b96ff604b2300989cd1105e3fad09199fca56681 # v1.2.1
+        with:
+          private-key: ${{ secrets.TOKENS_PRIVATE_KEY }}
+          app-id: ${{ secrets.TOKENS_APP_ID }}
+
+      - name: Run release-please
+        id: release
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.get-token.outputs.token }}
+
+      - name: Checkout code
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Needed so the tag requested by a manual run is available locally.
+          fetch-depth: 0
+
+      - name: Checkout tag for manual publish
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: git checkout "refs/tags/${TAG}"
+
+      - name: Setup Node.js
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          check-latest: true
+          # Required so npm resolves the registry it should mint an OIDC token
+          # for. Deliberately no `NODE_AUTH_TOKEN`: auth comes from OIDC.
+          registry-url: 'https://registry.npmjs.org'
+
+      # Node 24 still bundles npm 11.x, but this package declares
+      # `engines.npm: ">=12.0.0"`, so install npm 12 explicitly. npm >= 11.5.1
+      # is also the minimum for Trusted Publishing.
+      - name: Install npm 12
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        run: npm install -g npm@12
+
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        run: npm ci
+
+      - name: Build
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        run: npm run build
+
+      - name: Publish to npm
+        if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
+        # A manual run is a recovery path for a release whose publish failed, so
+        # it tolerates the version already being on the registry.
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            npm publish --provenance --access=public || true
+          else
+            npm publish --provenance --access=public
+          fi
