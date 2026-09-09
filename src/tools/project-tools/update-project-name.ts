@@ -32,7 +32,7 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
       failureCallback: (response) => {
 
         if(response.status === 422){
-          return 'Project names have to be unique across Netlify and this project name is already taken, would you like to try a different version of that name?';
+          return `The project name "${name}" is already taken. Try a different name (e.g. append a number or short suffix, like "${name}-1") and retry.`;
         }
 
         return `Failed to update project name: ${response.status}`;
@@ -41,8 +41,8 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
 
     // The failureCallback above resolves to an explanatory message instead of a
     // site, so surface it as-is rather than running it through the site enricher.
-    if (typeof site === 'string') {
-      return site;
+    if (!site || typeof site === 'string') {
+      return site || 'Failed to update project name';
     }
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
