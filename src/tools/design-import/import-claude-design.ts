@@ -81,7 +81,7 @@ export async function runClaudeDesignImport(
   { url, title, account_slug, password, claude_design_project_id: projectId }: ImportInput,
   request?: Request,
 ): Promise<ImportResult> {
-  const html = await fetchDesignHtml(url);
+  const html = await fetchDesignHtml(url, projectId);
 
   const existingSite = projectId ? await findSiteForProject(projectId, request) : undefined;
 
@@ -125,7 +125,7 @@ export async function getClaudeDesignImportStatus(
   return { status, design_url: status === 'done' ? deploy?.ssl_url || deploy?.url : undefined, state };
 }
 
-async function fetchDesignHtml(url: string): Promise<string> {
+async function fetchDesignHtml(url: string, projectId?: string): Promise<string> {
   let target: URL;
   try {
     target = new URL(url);
@@ -138,13 +138,22 @@ async function fetchDesignHtml(url: string): Promise<string> {
 
   // Only Claude Design's user-content host is a valid source; this confines the
   // server-side fetch and prevents it from being pointed at any other host (SSRF).
-  // Log and surface the rejected origin (scheme + host [+ port] only — URL.origin
-  // excludes path/query/userinfo, so the signature on a real signed URL never
-  // leaks) so monitoring — and the caller — can see what it actually pointed at,
-  // in case Claude Design starts serving exports from a new host and the
-  // allow-list needs updating.
+  //
+  // Two different audiences get two different amounts of detail:
+  //  - The thrown message reaches the calling agent and may get echoed back into
+  //    a conversation, so it carries only the origin (scheme+host[+port]) — never
+  //    the full URL, since a real signed URL's signature lives in its query string.
+  //  - The log line is operator-only (Netlify function logs), so it's safe to
+  //    include the full URL plus the Claude Design project id (when this came
+  //    from a re-send with claude_design_project_id set) — enough to trace which
+  //    project on Anthropic's side triggered it, in case Claude Design starts
+  //    serving exports from a new host and the allow-list needs updating.
   if (!isAllowedDesignHost(target.hostname)) {
-    log.error('design import blocked: url host not on allow-list', { host: target.hostname });
+    log.error('design import blocked: url host not on allow-list', {
+      host: target.hostname,
+      url: target.href,
+      claudeDesignProjectId: projectId,
+    });
     throw new Error(`url must be a Claude Design URL (*.claudeusercontent.com); got ${target.origin}`);
   }
 
