@@ -11,6 +11,11 @@ const createNewProjectParamsSchema = z.object({
   name: z.string().regex(/^[a-z0-9-]+$/).optional().describe('Name must be hyphenated alphanumeric such as "my-site" or "my-site-2"')
 });
 
+// Site names collide often enough (short, common words) that failing outright
+// is bad UX. Retry a couple of times with a random suffix before giving up.
+const MAX_NAME_CONFLICT_RETRIES = 2;
+const randomNameSuffix = () => Math.random().toString(36).slice(2, 6);
+
 export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParamsSchema> = {
   domain: 'project',
   operation: 'create-new-project',
@@ -18,28 +23,59 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
   toolAnnotations: {
     readOnlyHint: false,
   },
-  cb: async ({ teamSlug, name }, {request}) => {
+  cb: async ({ teamSlug, name: requestedName }, {request}) => {
 
-    const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name
-      })
-    },{
-      failureCallback: (response) => {
+    let attemptName = requestedName;
+    let renamedDueToConflict = false;
 
-        if (response.status === 422) {
-          throw new Error('Project names have to be unique across Netlify and this project name is already taken, would you like to try a different version of that name?');
+    for (let attempt = 0; attempt <= MAX_NAME_CONFLICT_RETRIES; attempt++) {
+
+      let wasNameConflict = false;
+
+      const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: attemptName
+        })
+      },{
+        failureCallback: (response) => {
+
+          if (response.status === 422) {
+            // Signal the conflict to the retry loop below without returning a
+            // message yet — we only surface text once we know whether we can
+            // still retry.
+            wasNameConflict = true;
+            return;
+          }
+
+          return `Failed to create project: ${response.status}`;
+        }
+      }, request);
+
+      if (wasNameConflict) {
+        if (requestedName && attempt < MAX_NAME_CONFLICT_RETRIES) {
+          renamedDueToConflict = true;
+          attemptName = `${requestedName}-${randomNameSuffix()}`;
+          continue;
         }
 
-        throw `Failed to create project: ${response.status}`;
+        return requestedName
+          ? `The name "${requestedName}" was already taken, and a couple of auto-generated variations were too. Try a more distinctive name and retry.`
+          : `Netlify couldn't generate a unique project name. Retry, or provide a specific name.`;
       }
-    }, request);
 
-    if(!site){
-      return 'Failed to create project';
+      if (!site || typeof site === 'string') {
+        return site || 'Failed to create project';
+      }
+
+      const followup = renamedDueToConflict
+        ? `The requested name "${requestedName}" wasn't available, so the project was created as "${attemptName}" instead. Tell the user their requested name was taken and this name was used instead — they can rename it anytime by asking.`
+        : 'The site was created but the user must create a deploy to get a live url.';
+
+      return JSON.stringify(createToolResponseWithFollowup(getEnrichedSiteModelForLLM(site), followup));
     }
 
-    return JSON.stringify(createToolResponseWithFollowup(getEnrichedSiteModelForLLM(site), 'The site was created but the user must create a deploy to get a live url.'));
+    // Unreachable: the loop above always returns on its final iteration.
+    return 'Failed to create project';
   }
 }
