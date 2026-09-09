@@ -14,6 +14,10 @@ interface APIInteractionOptions {
   pageLimit?: number;
   pageOffset?: number;
   failureCallback?: (response: Response) => string | void;
+  // Statuses the caller is about to silently retry (e.g. a 422 name conflict)
+  // and so doesn't want logged as a failure — anything not listed here still
+  // logs as usual. Only honored on the non-paginated path.
+  quietStatuses?: number[];
 }
 
 const getAuthTokenMsg = `
@@ -173,7 +177,7 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 }
 
 
-export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request) => {
+export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request, quietStatuses?: number[]) => {
   const token = await getNetlifyAccessToken(incomingRequest);
   const url = new URL(urlOrPath, 'https://api.netlify.com')
   const method = (options.method || 'GET').toString().toUpperCase();
@@ -203,6 +207,8 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
         if (incomingRequest) {
           flagAuthChallenge('The Netlify access token is no longer valid');
         }
+      } else if (quietStatuses?.includes(response.status)) {
+        log.debug('netlify api call failed (expected, caller is handling it)', { method, apiPath: url.pathname, status: response.status });
       } else {
         log.warn('netlify api call failed', { method, apiPath: url.pathname, status: response.status });
       }
@@ -219,7 +225,7 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
 export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}, incomingRequest?: Request): Promise<any> => {
 
   if(!apiInteractionOptions.pagination){
-    const response = await authenticatedFetch(urlOrPath, options, incomingRequest);
+    const response = await authenticatedFetch(urlOrPath, options, incomingRequest, apiInteractionOptions.quietStatuses);
 
     if(response.status === 401 && incomingRequest) {
       throw new NetlifyUnauthError(`Unauthedenticated request to Netlify API. ${urlOrPath}`);

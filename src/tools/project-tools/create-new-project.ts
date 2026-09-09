@@ -4,7 +4,6 @@ import { getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 import { createToolResponseWithFollowup } from '../tool-utils.js';
-import { appendToLog } from '../../utils/logging.js';
 
 const createNewProjectParamsSchema = z.object({
   teamSlug: z.string().optional(),
@@ -31,6 +30,11 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
     for (let attempt = 0; attempt <= MAX_NAME_CONFLICT_RETRIES; attempt++) {
 
       let wasNameConflict = false;
+      // Only this attempt's outcome is retryable — the same condition the
+      // retry branch below checks. A 422 here is expected and about to be
+      // silently retried, so it shouldn't log as a failure; a 422 on the
+      // final attempt is a real, reported failure and should still log.
+      const conflictIsRetryable = !!requestedName && attempt < MAX_NAME_CONFLICT_RETRIES;
 
       const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
         method: 'POST',
@@ -38,6 +42,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
           name: attemptName
         })
       },{
+        quietStatuses: conflictIsRetryable ? [422] : undefined,
         failureCallback: (response) => {
 
           if (response.status === 422) {
