@@ -16,7 +16,7 @@ export const getTeamEnvVarsDomainTool: DomainTool<typeof getTeamEnvVarsParamsSch
     readOnlyHint: true,
   },
   cb: async ({ teamId, envVarKey }, {request}) => {
-    const envVars = await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/accounts/${teamId}/env`, {}, {}, request);
+    const envVars = await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/accounts/${encodeURIComponent(teamId)}/env`, {}, {}, request);
 
     if (envVarKey) {
       const matchingEnvVar = envVars.find((envVar) => envVar.key === envVarKey);
