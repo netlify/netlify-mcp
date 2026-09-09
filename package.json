@@ -28,6 +28,9 @@
   ],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "npm": ">=12.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/core": "2.0.0-beta.4",
     "@modelcontextprotocol/server": "2.0.0-beta.4",
