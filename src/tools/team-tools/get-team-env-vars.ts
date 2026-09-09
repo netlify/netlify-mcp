@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifyEnvVarResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 
 const getTeamEnvVarsParamsSchema = z.object({
@@ -15,10 +16,10 @@ export const getTeamEnvVarsDomainTool: DomainTool<typeof getTeamEnvVarsParamsSch
     readOnlyHint: true,
   },
   cb: async ({ teamId, envVarKey }, {request}) => {
-    const envVars = await getAPIJSONResult(`/api/v1/accounts/${teamId}/env`, {}, {}, request);
+    const envVars = await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/accounts/${teamId}/env`, {}, {}, request);
 
     if (envVarKey) {
-      const matchingEnvVar = envVars.find((envVar: any) => envVar.key === envVarKey);
+      const matchingEnvVar = envVars.find((envVar) => envVar.key === envVarKey);
 
       if (!matchingEnvVar) {
         return JSON.stringify({ error: `No env var found matching key: ${envVarKey}` });
