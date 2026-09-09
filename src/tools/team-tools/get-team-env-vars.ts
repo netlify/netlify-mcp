@@ -18,7 +18,13 @@ export const getTeamEnvVarsDomainTool: DomainTool<typeof getTeamEnvVarsParamsSch
     const envVars = await getAPIJSONResult(`/api/v1/accounts/${teamId}/env`, {}, {}, request);
 
     if (envVarKey) {
-      return JSON.stringify(envVars.find((envVar: any) => envVar.key === envVarKey));
+      const matchingEnvVar = envVars.find((envVar: any) => envVar.key === envVarKey);
+
+      if (!matchingEnvVar) {
+        return JSON.stringify({ error: `No env var found matching key: ${envVarKey}` });
+      }
+
+      return JSON.stringify(matchingEnvVar);
     }
 
     return JSON.stringify(envVars);
