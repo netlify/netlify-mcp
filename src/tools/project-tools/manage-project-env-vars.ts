@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
+import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api-types.js';
 import { appendToLog } from '../../utils/logging.js';
 
 const availableContexts = ['all', 'dev', 'branch-deploy', 'deploy-preview', 'production', 'branch'] as const;
@@ -27,7 +28,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
   },
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
-    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {}, {}, request);
+    const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request);
     const teamId = site?.account_id;
 
     if(!site || !teamId){
@@ -35,7 +36,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
     }
 
     if(deleteEnvVar){
-      await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, { method: 'DELETE' }, {}, request);
+      await getAPIJSONResult<string>(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, { method: 'DELETE' }, {}, request);
       return `Environment variable deleted: ${envVarKey}`;
     }
 
@@ -69,7 +70,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         }
 
         for(const context of contextsToUpdate){
-          await getAPIJSONResult(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {
+          await getAPIJSONResult<NetlifyEnvVarResponse>(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {
             method: 'PATCH',
             body: JSON.stringify({
               context,
@@ -91,10 +92,10 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
     if(getAllEnvVars){
       if (siteId) {
-        const envVars = await getAPIJSONResult(`/api/v1/sites/${siteId}/env`, {}, {}, request);
+        const envVars = await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/sites/${siteId}/env`, {}, {}, request);
 
         if (Array.isArray(envVarKey) && envVarKey.length > 0) {
-          return JSON.stringify(envVars.find((envVar: any) => envVarKey === envVar.key));
+          return JSON.stringify(envVars.find((envVar) => envVarKey === envVar.key));
         }
 
         return JSON.stringify(envVars);

@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 
@@ -26,7 +27,7 @@ export const updateFormsDomainTool: DomainTool<typeof getProjectParamsSchema> = 
       ignore_html_forms: forms === 'disabled'
     }
 
-    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {
+    const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {
       method: 'PUT',
       body: JSON.stringify({
         processing_settings: updatePayload

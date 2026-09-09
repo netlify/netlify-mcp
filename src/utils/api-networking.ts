@@ -222,7 +222,20 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
 }
 
 
-export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}, incomingRequest?: Request): Promise<any> => {
+/**
+ * Fetches a Netlify API endpoint and deserializes the JSON body.
+ *
+ * The type parameter is required: callers must name the canonical response type
+ * for the endpoint they are calling (see `./api-types.ts`), so responses arrive
+ * typed rather than as `any`. `T` describes the deserialized body — the casts
+ * below are the deserialization boundary itself, where an untyped `JSON.parse`
+ * result is given the shape the caller declared.
+ *
+ * Note that a `failureCallback` which returns instead of throwing, and a
+ * non-JSON or empty body, both yield a `string` at runtime. Call sites relying
+ * on that should include `string` in `T` and narrow.
+ */
+export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestInit = {}, apiInteractionOptions: APIInteractionOptions = {}, incomingRequest?: Request): Promise<T> => {
 
   if(!apiInteractionOptions.pagination){
     const response = await authenticatedFetch(urlOrPath, options, incomingRequest, apiInteractionOptions.quietStatuses);
@@ -233,7 +246,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
 
     if (!response.ok) {
       if(apiInteractionOptions.failureCallback){
-        return apiInteractionOptions.failureCallback(response);
+        return apiInteractionOptions.failureCallback(response) as T;
       }
       throw new NetlifyApiError(response.status);
     }
@@ -248,23 +261,23 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       throw new Error(`Failed to read Netlify API response body: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!data) {
-      return '';
+      return '' as T;
     }
 
     try{
-      return JSON.parse(data);
+      return JSON.parse(data) as T;
     } catch (e) {
       if (apiInteractionOptions.failureCallback) {
-        return apiInteractionOptions.failureCallback(response);
+        return apiInteractionOptions.failureCallback(response) as T;
       }
-      return data;
+      return data as T;
     }
   }
 
   const currentTime = Date.now();
   const maxDuration = 22000; // 22 seconds
 
-  let apiResults = [];
+  let apiResults: unknown[] = [];
   let page = 1 + (apiInteractionOptions.pageOffset || 0);
 
   // avoid unbounded requests
@@ -281,7 +294,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
 
     if (!response.ok) {
       if (apiInteractionOptions.failureCallback) {
-        return apiInteractionOptions.failureCallback(response);
+        return apiInteractionOptions.failureCallback(response) as T;
       }
       throw new NetlifyApiError(response.status);
     }
@@ -297,11 +310,11 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
       break;
     }
 
-    const result = JSON.parse(resultRaw);
+    const result: unknown = JSON.parse(resultRaw);
 
     const lastResultTime = Date.now();
     const duration = (lastResultTime - currentTime) / 1000;
-    appendToLog(`Fetched page ${page}, received ${result.length} sites, total ${apiResults.length}, duration: ${duration} seconds`);
+    appendToLog(`Fetched page ${page}, received ${Array.isArray(result) ? result.length : 0} sites, total ${apiResults.length}, duration: ${duration} seconds`);
 
     if (Array.isArray(result)) {
 
@@ -320,7 +333,7 @@ export const getAPIJSONResult = async (urlOrPath: string, options: RequestInit =
     }
   }
 
-  return apiResults;
+  return apiResults as T;
 }
 
 export type NetlifySite = {

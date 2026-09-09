@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 import { createToolResponseWithFollowup } from '../tool-utils.js';
@@ -36,7 +37,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
       // final attempt is a real, reported failure and should still log.
       const conflictIsRetryable = !!requestedName && attempt < MAX_NAME_CONFLICT_RETRIES;
 
-      const site = await getAPIJSONResult(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
+      const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites${teamSlug ? `?account_slug=${teamSlug}` : ''}`, {
         method: 'POST',
         body: JSON.stringify({
           name: attemptName
