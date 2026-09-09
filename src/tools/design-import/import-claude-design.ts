@@ -138,12 +138,14 @@ async function fetchDesignHtml(url: string): Promise<string> {
 
   // Only Claude Design's user-content host is a valid source; this confines the
   // server-side fetch and prevents it from being pointed at any other host (SSRF).
-  // Log the rejected host (host only — the full signed URL carries a signature in
-  // its query) so monitoring alerts us if Claude Design starts serving exports
-  // from a new host and the allow-list needs updating.
+  // Log and surface the rejected origin (scheme + host [+ port] only — URL.origin
+  // excludes path/query/userinfo, so the signature on a real signed URL never
+  // leaks) so monitoring — and the caller — can see what it actually pointed at,
+  // in case Claude Design starts serving exports from a new host and the
+  // allow-list needs updating.
   if (!isAllowedDesignHost(target.hostname)) {
     log.error('design import blocked: url host not on allow-list', { host: target.hostname });
-    throw new Error('url must be a Claude Design URL (*.claudeusercontent.com)');
+    throw new Error(`url must be a Claude Design URL (*.claudeusercontent.com); got ${target.origin}`);
   }
 
   const controller = new AbortController();
