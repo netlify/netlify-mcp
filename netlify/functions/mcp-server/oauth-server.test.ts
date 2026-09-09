@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 // Deployed-style issuer so absolute URLs and identity lookups have a stable base.
 process.env.OAUTH_ISSUER = 'https://mcp.netlify.example.com';
 process.env.NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || 'test-ntl-client';
+// A non-localhost issuer requires a real JWE_SECRET (see utils.ts) for
+// registration to mint a stateless client_id.
+process.env.JWE_SECRET = process.env.JWE_SECRET || 'a'.repeat(32);
 
 const { handler }: any = await import('../oauth-server.ts');
 
@@ -112,4 +115,40 @@ test('GET on the registration endpoint (management, unsupported) is 404', async 
   // Registration is POST-only; RFC 7592 management is not supported.
   const r = await call('GET', '/oauth-server/reg');
   assert.equal(r.status, 404);
+});
+
+test('register: request-context userAgent is bounded on the always-on log line', async () => {
+  const event = mkEvent(
+    'POST',
+    '/oauth-server/register',
+    JSON.stringify({ redirect_uris: ['http://127.0.0.1:1234/cb'], client_name: 'Claude Code' }),
+  );
+  event.headers['user-agent'] = 'x'.repeat(5000);
+
+  const lines: string[] = [];
+  const origLog = console.log;
+  console.log = (line: string) => {
+    lines.push(line);
+  };
+  let r: any;
+  try {
+    r = await handler(event, {} as any, () => {});
+  } finally {
+    console.log = origLog;
+  }
+
+  const parsed = lines
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return undefined;
+      }
+    })
+    .find((entry) => entry?.message === 'register: issued stateless client_id');
+
+  assert.equal(r.statusCode, 201);
+  assert.ok(parsed);
+  assert.equal(parsed.userAgent.length, 200);
+  assert.equal(parsed.client_name, 'Claude Code');
 });

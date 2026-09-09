@@ -2,7 +2,7 @@ import type { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
-import { log } from "./logger.ts";
+import { log, truncateForLog } from "./logger.ts";
 import { resolveIdentity, type TokenIdentity } from "./identity.ts";
 import {
   createStatelessClientId,
@@ -454,22 +454,17 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   const clientId = await createStatelessClientId(client);
 
-  // Untrusted client input; cap these fields so a hostile registration can't
-  // bloat log lines.
-  const MAX_LOGGED_FIELD_LENGTH = 200;
+  // client_name, redirect_uris, and scope are client-asserted: nothing verifies
+  // client_name, and a registration can send arbitrarily many/long redirect_uris.
+  // The bounded copies below are for this log line only — the stored client and
+  // the response below carry the full, untouched values.
   const MAX_LOGGED_REDIRECT_URIS = 10;
-  const loggedClientName =
-    typeof body.client_name === 'string' ? body.client_name.slice(0, MAX_LOGGED_FIELD_LENGTH) : undefined;
-  const loggedRedirectUris = redirectUris
-    .slice(0, MAX_LOGGED_REDIRECT_URIS)
-    .map((uri) => uri.slice(0, MAX_LOGGED_FIELD_LENGTH));
-  const loggedScope = scope?.slice(0, MAX_LOGGED_FIELD_LENGTH);
 
   log.info('register: issued stateless client_id', {
-    redirect_uris: loggedRedirectUris,
+    redirect_hosts: redirectUris.slice(0, MAX_LOGGED_REDIRECT_URIS).map(redirectHostForLog),
     application_type: applicationType,
-    scope: loggedScope,
-    client_name: loggedClientName,
+    scope: truncateForLog(scope),
+    client_name: truncateForLog(body.client_name),
   });
 
   // RFC 7591 §3.2.1 success response. client_id_issued_at is informational; the

@@ -2,10 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleClientRegistration } from './auth-flow.ts';
+import { resolveClient } from './client-registry.ts';
 import { SUPPORTED_SCOPES } from './oauth-config.ts';
 
-// These tests run against the localhost dev key (no OAUTH_ISSUER / JWE_SECRET
-// set), which is exactly the stateless round-trip we depend on in production.
 // register: issued stateless client_id is logged at info, which is not gated
 // by MCP_VERBOSE_LOGGING, so no env setup is needed to observe it.
 
@@ -31,11 +30,16 @@ async function captureRegisterLog(body: Record<string, unknown>) {
     console.log = origLog;
   }
 
-  const parsed = lines
-    .map((line) => JSON.parse(line))
-    .find((entry) => entry.message === REGISTER_LOG_MESSAGE);
+  const rawLine = lines.find((line) => {
+    try {
+      return JSON.parse(line).message === REGISTER_LOG_MESSAGE;
+    } catch {
+      return false;
+    }
+  });
+  const parsed = rawLine ? JSON.parse(rawLine) : undefined;
 
-  return { response, parsed };
+  return { response, parsed, rawLine };
 }
 
 test('register: logs client_name at info when the client sends one', async () => {
@@ -52,13 +56,20 @@ test('register: logs client_name at info when the client sends one', async () =>
 
 test('register: logged client_name is truncated to 200 characters', async () => {
   const longName = 'x'.repeat(300);
-  const { parsed } = await captureRegisterLog({
+  const { response, parsed } = await captureRegisterLog({
     redirect_uris: ['http://127.0.0.1:1234/cb'],
     client_name: longName,
   });
 
   assert.ok(parsed);
   assert.equal(parsed.client_name.length, 200);
+
+  const responseBody = JSON.parse(response.body);
+  assert.equal(responseBody.client_name, longName);
+
+  const { client } = await resolveClient(responseBody.client_id);
+  assert.ok(client);
+  assert.equal(client.client_name, longName);
 });
 
 test('register: omits client_name from the log line when the client sends none', async () => {
@@ -70,21 +81,30 @@ test('register: omits client_name from the log line when the client sends none',
   assert.equal('client_name' in parsed, false);
 });
 
-test('register: logged redirect_uris are bounded in count and length, but the response is not', async () => {
-  const longRedirectUris = Array.from(
+test('register: logged redirect_hosts are bounded and never leak uri secrets, but the response is not', async () => {
+  const taggedUris = Array.from(
     { length: 15 },
-    (_, i) => `http://127.0.0.1:1234/${'x'.repeat(200)}-${i}`,
+    (_, i) => `https://user:pw@example.com/cb?email=a@b.c&token=secret-marker#frag-${i}`,
   );
-  const { response, parsed } = await captureRegisterLog({
-    redirect_uris: longRedirectUris,
-  });
+  const loopbackUri = 'http://127.0.0.1:4321/cb';
+  const redirectUris = [...taggedUris, loopbackUri];
+
+  const { response, parsed, rawLine } = await captureRegisterLog({ redirect_uris: redirectUris });
 
   assert.ok(parsed);
-  assert.equal(parsed.redirect_uris.length, 10);
-  assert.ok(parsed.redirect_uris.every((uri: string) => uri.length === 200));
+  assert.ok(rawLine);
+  assert.equal(parsed.redirect_hosts.length, 10);
+  assert.ok(
+    parsed.redirect_hosts.every((host: string) => host === 'example.com' || host === '127.0.0.1:4321'),
+  );
+  assert.ok(!rawLine.includes('secret-marker'));
+  assert.ok(!rawLine.includes('user:pw'));
+  assert.ok(!rawLine.includes('email='));
 
   assert.equal(response.statusCode, 201);
-  assert.equal(JSON.parse(response.body).redirect_uris.length, 15);
+  const responseBody = JSON.parse(response.body);
+  assert.equal(responseBody.redirect_uris.length, 16);
+  assert.deepEqual(responseBody.redirect_uris, redirectUris);
 });
 
 test('register: logged scope is truncated to 200 characters', async () => {
@@ -98,4 +118,10 @@ test('register: logged scope is truncated to 200 characters', async () => {
   assert.equal(parsed.scope.length, 200);
 
   assert.equal(response.statusCode, 201);
+  const responseBody = JSON.parse(response.body);
+  assert.equal(responseBody.scope, repeatedScope);
+
+  const { client } = await resolveClient(responseBody.client_id);
+  assert.ok(client);
+  assert.equal(client.scope, repeatedScope);
 });

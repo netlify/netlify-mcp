@@ -4,7 +4,7 @@ import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-s
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
 import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { log, withLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 
@@ -123,7 +123,7 @@ export const handler: Handler = async (req, context) => {
       deployId: getDeployId(req.headers as Record<string, string | undefined>),
       httpMethod: req.httpMethod,
       path: req.path,
-      userAgent: (req.headers as Record<string, string | undefined>)['user-agent'],
+      userAgent: truncateForLog((req.headers as Record<string, string | undefined>)['user-agent']),
     },
     async () => {
       const resp = await oAuthHandler(req, context);
