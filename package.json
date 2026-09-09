@@ -43,6 +43,7 @@
   "devDependencies": {
     "@netlify/open-api": "^2.57.1",
     "@types/node": "^22.15.32",
+    "pkg-pr-new": "^0.0.88",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3"
   }
