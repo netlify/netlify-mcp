@@ -1,0 +1,41 @@
+name: Publish preview package
+
+# Publishes a continuous-release preview build of this package via pkg.pr.new
+# on every push and pull request. pkg.pr.new packs the build output and
+# uploads it to its own CDN (nothing is published to npm), then the pkg.pr.new
+# GitHub App comments on the pull request with the exact install command,
+# e.g. `npm i https://pkg.pr.new/netlify/netlify-mcp@<pr-number>`.
+# See https://github.com/stackblitz-labs/pkg.pr.new
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# pkg.pr.new needs no GITHUB_TOKEN permissions: publishing is anonymous and
+# the PR comment is posted by the pkg.pr.new GitHub App's own installation
+# token, not this workflow's token.
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish preview package
+        run: npm exec pkg-pr-new publish
