@@ -371,7 +371,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    log.info('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope, hasIdentity: !!identity });
+    log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
 
     const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
