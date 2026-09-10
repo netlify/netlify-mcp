@@ -40,7 +40,7 @@ export default async (request: Request, context: Context) => {
       requestId: getRequestId(request.headers),
       deployId: getDeployId(request.headers),
       httpMethod: request.method,
-      path,
+      path: truncateForLog(path),
       userAgent: truncateForLog(request.headers.get('user-agent')),
     },
     async () => {

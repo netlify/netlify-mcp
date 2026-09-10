@@ -105,7 +105,7 @@ const oAuthHandler: Handler = async (req) => {
 
   // No other OAuth endpoints exist on this server. Return a clean OAuth-style
   // error rather than letting the request fall through to a generic 404 page.
-  log.warn('oauth: unknown endpoint', { pathname, method: req.httpMethod });
+  log.warn('oauth: unknown endpoint', { pathname: truncateForLog(pathname), method: req.httpMethod });
   return jsonResponse(404, {
     error: 'invalid_request',
     error_description: `No such endpoint: ${pathname}`,
@@ -122,7 +122,7 @@ export const handler: Handler = async (req, context) => {
       requestId: getRequestId(req.headers as Record<string, string | undefined>),
       deployId: getDeployId(req.headers as Record<string, string | undefined>),
       httpMethod: req.httpMethod,
-      path: req.path,
+      path: truncateForLog(req.path),
       userAgent: truncateForLog((req.headers as Record<string, string | undefined>)['user-agent']),
     },
     async () => {

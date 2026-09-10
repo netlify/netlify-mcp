@@ -41,7 +41,7 @@ export default async (req: Request, context: Context) => {
       requestId: getRequestId(req.headers),
       deployId: getDeployId(context),
       httpMethod: req.method,
-      path: url.pathname,
+      path: truncateForLog(url.pathname),
       userAgent: truncateForLog(req.headers.get('user-agent')),
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },

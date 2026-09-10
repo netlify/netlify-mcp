@@ -117,14 +117,7 @@ test('GET on the registration endpoint (management, unsupported) is 404', async 
   assert.equal(r.status, 404);
 });
 
-test('register: request-context userAgent is bounded on the always-on log line', async () => {
-  const event = mkEvent(
-    'POST',
-    '/oauth-server/register',
-    JSON.stringify({ redirect_uris: ['http://127.0.0.1:1234/cb'], client_name: 'Claude Code' }),
-  );
-  event.headers['user-agent'] = 'x'.repeat(5000);
-
+async function callCapturingRegisterLog(event: any): Promise<{ r: any; parsed: any }> {
   const lines: string[] = [];
   const origLog = console.log;
   console.log = (line: string) => {
@@ -147,8 +140,35 @@ test('register: request-context userAgent is bounded on the always-on log line',
     })
     .find((entry) => entry?.message === 'register: issued stateless client_id');
 
+  return { r, parsed };
+}
+
+test('register: request-context userAgent is bounded on the always-on log line', async () => {
+  const event = mkEvent(
+    'POST',
+    '/oauth-server/register',
+    JSON.stringify({ redirect_uris: ['http://127.0.0.1:1234/cb'], client_name: 'Claude Code' }),
+  );
+  event.headers['user-agent'] = 'x'.repeat(5000);
+
+  const { r, parsed } = await callCapturingRegisterLog(event);
+
   assert.equal(r.statusCode, 201);
   assert.ok(parsed);
   assert.equal(parsed.userAgent.length, 200);
   assert.equal(parsed.client_name, 'Claude Code');
+});
+
+test('register: request-context path is bounded on the always-on log line', async () => {
+  const event = mkEvent(
+    'POST',
+    '/oauth-server/' + 'x'.repeat(5000) + '/register',
+    JSON.stringify({ redirect_uris: ['http://127.0.0.1:1234/cb'], client_name: 'Claude Code' }),
+  );
+
+  const { r, parsed } = await callCapturingRegisterLog(event);
+
+  assert.equal(r.statusCode, 201);
+  assert.ok(parsed);
+  assert.equal(parsed.path.length, 200);
 });

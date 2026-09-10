@@ -5,8 +5,9 @@ import { handleClientRegistration } from './auth-flow.ts';
 import { resolveClient } from './client-registry.ts';
 import { SUPPORTED_SCOPES } from './oauth-config.ts';
 
-// These tests round-trip createJWE/decryptJWE on the localhost dev key, which
-// requires JWE_SECRET to be unset regardless of what the ambient shell env has.
+// Pin the dev-key path regardless of ambient env: a localhost issuer with no
+// JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
+process.env.OAUTH_ISSUER = 'http://localhost:8888';
 delete process.env.JWE_SECRET;
 
 // register: issued stateless client_id is logged at info, which is not gated
