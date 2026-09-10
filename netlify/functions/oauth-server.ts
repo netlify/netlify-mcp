@@ -4,7 +4,7 @@ import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-s
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
 import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { log, withLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 
@@ -105,7 +105,7 @@ const oAuthHandler: Handler = async (req) => {
 
   // No other OAuth endpoints exist on this server. Return a clean OAuth-style
   // error rather than letting the request fall through to a generic 404 page.
-  log.warn('oauth: unknown endpoint', { pathname, method: req.httpMethod });
+  log.warn('oauth: unknown endpoint');
   return jsonResponse(404, {
     error: 'invalid_request',
     error_description: `No such endpoint: ${pathname}`,
@@ -122,8 +122,8 @@ export const handler: Handler = async (req, context) => {
       requestId: getRequestId(req.headers as Record<string, string | undefined>),
       deployId: getDeployId(req.headers as Record<string, string | undefined>),
       httpMethod: req.httpMethod,
-      path: req.path,
-      userAgent: (req.headers as Record<string, string | undefined>)['user-agent'],
+      path: truncateForLog(req.path),
+      userAgent: truncateForLog((req.headers as Record<string, string | undefined>)['user-agent']),
     },
     async () => {
       const resp = await oAuthHandler(req, context);

@@ -137,6 +137,13 @@ export function getRequestId(
   }
 }
 
+const MAX_LOGGED_FIELD_LENGTH = 200;
+
+/** Bound a client-supplied string before it lands on a log line. */
+export function truncateForLog(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.slice(0, MAX_LOGGED_FIELD_LENGTH) : undefined;
+}
+
 function serializeError(err: unknown): unknown {
   if (err instanceof Error) {
     return { name: err.name, message: err.message, stack: err.stack };
