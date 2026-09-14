@@ -26,13 +26,20 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          # setup-node v7 auto-detects the package manager and enables its
+          # own caching (`package-manager-cache`) by default, which runs
+          # `npm config get cache` using the npm bundled with Node 24
+          # (11.x) before we get a chance to install npm 12 below. This
+          # package declares `devEngines.packageManager.npm: ">=12.0.0"`
+          # with `onFail: "error"`, so that mismatched invocation now hard
+          # -fails instead of silently proceeding as it did under the old
+          # `engines` field. Disable setup-node's caching to avoid running
+          # any npm command ahead of the explicit npm 12 install.
+          package-manager-cache: false
 
       # Node 24 still bundles npm 11.x, but this package declares
       # `devEngines.packageManager.npm: ">=12.0.0"` with `onFail: "error"`,
-      # so install npm 12 explicitly. (No built-in `cache: npm` above: that
-      # option runs an `npm config get cache` check via setup-node before
-      # this step, using the bundled npm 11.x, which devEngines' `onFail:
-      # "error"` would reject.)
+      # so install npm 12 explicitly.
       - name: Install npm 12
         run: npm install -g npm@12
 
