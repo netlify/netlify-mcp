@@ -15,7 +15,6 @@ name: release-please
 #
 # NOTE: this requires a trusted publisher to be configured on the `@netlify/mcp`
 # package on npmjs.com, pointing at this repository and this workflow file.
-# See https://docs.npmjs.com/trusted-publishers.
 on:
   push:
     branches: [main]
