@@ -1,4 +1,12 @@
 
+[build.environment]
+  # This package declares `devEngines.packageManager.npm: ">=12.0.0"` with
+  # `onFail: "error"` (see package.json), but no Node release bundles npm 12
+  # yet. Netlify's build image otherwise installs whatever npm ships with the
+  # selected Node version, so pin npm here the same way our GitHub Actions
+  # workflows do with an explicit `npm install -g npm@12` step.
+  NPM_VERSION = "12"
+
 # Catch-all request/response body logger. Declared here (not inline) so it runs
 # before the file-based `proxy` edge function and wraps every interaction.
 # Active only when MCP_VERBOSE_LOGGING is set.
