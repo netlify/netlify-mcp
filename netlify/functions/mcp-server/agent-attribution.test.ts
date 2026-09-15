@@ -16,13 +16,20 @@ const CANONICAL_AGENT_CASES: Array<[string, string]> = [
   ['Cursor', 'cursor'],
   ['ChatGPT', 'chatgpt'],
   ['OpenAI', 'chatgpt'],
-  ['Windsurf', 'windsurf'],
-  ['Codeium', 'windsurf'],
   ['Visual Studio Code', 'copilot'],
   ['VS Code', 'copilot'],
   ['GitHub Copilot', 'copilot'],
+  ['Copilot', 'copilot'],
   ['Gemini CLI', 'gemini'],
+  ['Gemini', 'gemini'],
   ['Codex', 'codex'],
+  ['OpenCode', 'opencode'],
+  ['Kiro', 'kiro'],
+  ['Kiro CLI', 'kiro'],
+  ['Cline', 'cline'],
+  ['Amp', 'amp'],
+  ['Warp', 'warp'],
+  ['Warp Oz', 'warp'],
 ];
 
 for (const [input, expected] of CANONICAL_AGENT_CASES) {
@@ -43,6 +50,14 @@ test('canonicalAgent: inherited Object property name falls back to other', () =>
   assert.equal(canonicalAgent('Constructor'), 'other');
 });
 
+test('canonicalAgent: Windsurf falls back to other (not in CLI vocabulary)', () => {
+  assert.equal(canonicalAgent('Windsurf'), 'other');
+});
+
+test('canonicalAgent: Codeium falls back to other (not in CLI vocabulary)', () => {
+  assert.equal(canonicalAgent('Codeium'), 'other');
+});
+
 test('attributionParams: inherited Object property name falls back to other', () => {
   assert.equal(attributionParams('Constructor'), '&utm_content=other&utm_term=client_name:Constructor');
 });
@@ -55,11 +70,12 @@ test('cleanClientName: keeps every allowed character', () => {
   assert.equal(cleanClientName('my_agent.v2:beta-1'), 'my_agent.v2:beta-1');
 });
 
-test('cleanClientName: caps a 100-char name at exactly 64', () => {
+test('attributionParams: caps the full utm_term value at exactly 64 for a 100-char name', () => {
   const longName = 'a'.repeat(100);
-  const cleaned = cleanClientName(longName);
-  assert.equal(cleaned.length, 64);
-  assert.equal(cleaned, 'a'.repeat(64));
+  const params = attributionParams(longName);
+  const utmTermValue = params.split('utm_term=')[1];
+  assert.equal(utmTermValue.length, 64);
+  assert.ok(utmTermValue.startsWith('client_name:'));
 });
 
 test('attributionParams: undefined client_name returns empty string', () => {
