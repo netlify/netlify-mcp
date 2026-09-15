@@ -15,8 +15,9 @@ import {
 import { zipAndBuild } from '../deploy-tools/deploy-site.js';
 import { appendErrorToLog } from '../../utils/logging.js';
 import { log } from '../../../netlify/functions/mcp-server/logger.js';
-import { deployIdFromJob, fallbackImportSiteName, importSiteName, matchTeam, projectMarker, type TeamRef } from './job-utils.js';
+import { deployIdFromJob, fallbackImportSiteName, importSiteName, matchTeam, projectMarker } from './job-utils.js';
 import { isAllowedDesignHost } from './url-guard.js';
+import type { NetlifyAccountResponse, NetlifyDeployResponse } from '../../utils/api-types.js';
 
 
 // Claude Design discovers export destinations by this literal tool name.
@@ -81,7 +82,7 @@ export async function runClaudeDesignImport(
   { url, title, account_slug, password, claude_design_project_id: projectId }: ImportInput,
   request?: Request,
 ): Promise<ImportResult> {
-  const html = await fetchDesignHtml(url);
+  const html = await fetchDesignHtml(url, projectId);
 
   const existingSite = projectId ? await findSiteForProject(projectId, request) : undefined;
 
@@ -118,14 +119,14 @@ export async function getClaudeDesignImportStatus(
   request?: Request,
 ): Promise<StatusResult> {
   const deployId = deployIdFromJob(jobId);
-  const deploy = await getAPIJSONResult(`/api/v1/deploys/${deployId}`, {}, {}, request);
+  const deploy = await getAPIJSONResult<NetlifyDeployResponse>(`/api/v1/deploys/${deployId}`, {}, {}, request);
   const state: string = deploy?.state || 'unknown';
   const status =
     state === 'ready' ? 'done' : state === 'error' || state === 'rejected' ? 'failed' : 'processing';
   return { status, design_url: status === 'done' ? deploy?.ssl_url || deploy?.url : undefined, state };
 }
 
-async function fetchDesignHtml(url: string): Promise<string> {
+async function fetchDesignHtml(url: string, projectId?: string): Promise<string> {
   let target: URL;
   try {
     target = new URL(url);
@@ -138,12 +139,23 @@ async function fetchDesignHtml(url: string): Promise<string> {
 
   // Only Claude Design's user-content host is a valid source; this confines the
   // server-side fetch and prevents it from being pointed at any other host (SSRF).
-  // Log the rejected host (host only — the full signed URL carries a signature in
-  // its query) so monitoring alerts us if Claude Design starts serving exports
-  // from a new host and the allow-list needs updating.
+  //
+  // Two different audiences get two different amounts of detail:
+  //  - The thrown message reaches the calling agent and may get echoed back into
+  //    a conversation, so it carries only the origin (scheme+host[+port]) — never
+  //    the full URL, since a real signed URL's signature lives in its query string.
+  //  - The log line is operator-only (Netlify function logs), so it's safe to
+  //    include the full URL plus the Claude Design project id (when this came
+  //    from a re-send with claude_design_project_id set) — enough to trace which
+  //    project on Anthropic's side triggered it, in case Claude Design starts
+  //    serving exports from a new host and the allow-list needs updating.
   if (!isAllowedDesignHost(target.hostname)) {
-    log.error('design import blocked: url host not on allow-list', { host: target.hostname });
-    throw new Error('url must be a Claude Design URL (*.claudeusercontent.com)');
+    log.error('design import blocked: url host not on allow-list', {
+      host: target.hostname,
+      url: target.href,
+      claudeDesignProjectId: projectId,
+    });
+    throw new Error(`url must be a Claude Design URL (*.claudeusercontent.com); got ${target.origin}`);
   }
 
   const controller = new AbortController();
@@ -225,9 +237,9 @@ async function resolveTeamSlug(
   requested: string,
   request?: Request,
 ): Promise<{ slug?: string; note?: string }> {
-  let teams: TeamRef[];
+  let teams: NetlifyAccountResponse[];
   try {
-    teams = (await getAPIJSONResult('/api/v1/accounts', {}, {}, request)) as TeamRef[];
+    teams = await getAPIJSONResult<NetlifyAccountResponse[]>('/api/v1/accounts', {}, {}, request);
   } catch {
     // Can't list teams — pass the hint through; the create-time fallback catches
     // an unusable team.

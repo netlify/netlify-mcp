@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifyDeployResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 
 const getDeployByIdParamsSchema = z.object({
@@ -15,6 +16,6 @@ export const getDeployByIdDomainTool: DomainTool<typeof getDeployByIdParamsSchem
   },
   cb: async (params, {request}) => {
     const { deployId } = params;
-    return JSON.stringify(await getAPIJSONResult(`/api/v1/deploys/${deployId}`, {}, {}, request));
+    return JSON.stringify(await getAPIJSONResult<NetlifyDeployResponse>(`/api/v1/deploys/${deployId}`, {}, {}, request));
   }
 }

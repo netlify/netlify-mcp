@@ -7,9 +7,18 @@
   "bin": {
     "netlify-mcp": "./dist/netlify-mcp.js"
   },
+  "homepage": "https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netlify/netlify-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/netlify/netlify-mcp/issues"
+  },
   "scripts": {
     "build": "tsup ./netlify-mcp.ts --format esm",
-    "test": "node --test \"src/**/*.test.ts\" \"netlify/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ./scripts/register-ts-js-loader.mjs --test \"src/**/*.test.ts\" \"netlify/**/*.test.ts\"",
     "start": "node ./dist/netlify-mcp.js",
     "build:publish": "rm -rf ./dist && npm run build && npm publish"
   },
@@ -32,7 +41,9 @@
     "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
+    "@netlify/open-api": "^2.57.1",
     "@types/node": "^22.15.32",
+    "pkg-pr-new": "^0.0.88",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3"
   }

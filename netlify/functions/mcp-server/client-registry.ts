@@ -40,6 +40,31 @@ export interface ResolvedClient {
   source: ClientSource;
 }
 
+export type UnresolvedClientIdShape = 'empty' | 'jwe-like' | 'opaque';
+
+/**
+ * Cheap, non-cryptographic classification of a `client_id` that failed to
+ * resolve — purely to make an "unknown client" log line actionable without
+ * decrypting anything:
+ *
+ * - `jwe-like`: has the 4-dot compact-JWE shape `header..iv.ciphertext.tag`
+ *   that `createStatelessClientId` mints (empty encrypted-key segment for our
+ *   'dir' algorithm). It looks like one of ours but didn't decrypt — most
+ *   likely JWE_SECRET was rotated since it was issued (which invalidates every
+ *   stateless registration at once) or it's from a different deployment. The
+ *   client's own DCR retry (on the resulting `invalid_client`) is the fix —
+ *   there's nothing to hand-provision.
+ * - `opaque`: no dots — the same shape as a pre-provisioned static client_id
+ *   (see oauth-clients.ts) or a legacy id from before this server's stateless
+ *   redesign (see the module comment above). If this is a real, recurring
+ *   integration, it likely needs a `staticClients` entry.
+ * - `empty`: no client_id was sent at all.
+ */
+export function classifyUnresolvedClientId(clientId: string | null | undefined): UnresolvedClientIdShape {
+  if (!clientId) return 'empty';
+  return (clientId.match(/\./g)?.length ?? 0) === 4 ? 'jwe-like' : 'opaque';
+}
+
 /**
  * Loopback hosts per RFC 8252 §7.3 (plus `localhost` and `0.0.0.0`, which
  * clients use in practice). Matches the whole `127.0.0.0/8` range, not just

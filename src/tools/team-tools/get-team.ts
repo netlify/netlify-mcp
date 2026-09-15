@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifyAccountResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedTeamModelForLLM } from './team-utils.js';
 
@@ -16,6 +17,6 @@ export const getTeamDomainTool: DomainTool<typeof getTeamParamsSchema> = {
     readOnlyHint: true,
   },
   cb: async ({ teamId }, {request}) => {
-    return JSON.stringify(getEnrichedTeamModelForLLM(await getAPIJSONResult(`/api/v1/accounts/${teamId}`, {}, {}, request)));
+    return JSON.stringify(getEnrichedTeamModelForLLM(await getAPIJSONResult<NetlifyAccountResponse>(`/api/v1/accounts/${teamId}`, {}, {}, request)));
   }
 }

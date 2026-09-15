@@ -1,14 +1,19 @@
-export function getEnrichedSiteModelForLLM(sites: any[] | any) {
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
+
+export function getEnrichedSiteModelForLLM(sites: NetlifySiteResponse[] | NetlifySiteResponse | null | undefined) {
   if (!sites) {
     return [];
   }
 
-  return (Array.isArray(sites) ? sites : [sites]).map((site: any) => {
+  return (Array.isArray(sites) ? sites : [sites]).map((site) => {
 
-    const fieldsToMap = ['id', 'site_id', 'plan', 'claimed', 'name'];
+    const { id, plan, claimed, name } = site;
 
     return ({
-      ...Object.fromEntries(Object.entries(site).filter(([key]) => fieldsToMap.includes(key))),
+      id,
+      plan,
+      claimed,
+      name,
       _enrichedFields: {
 
         teamId: site.account_id,
