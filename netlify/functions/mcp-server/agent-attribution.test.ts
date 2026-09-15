@@ -39,6 +39,14 @@ test('canonicalAgent: empty string falls back to other', () => {
   assert.equal(canonicalAgent(''), 'other');
 });
 
+test('canonicalAgent: inherited Object property name falls back to other', () => {
+  assert.equal(canonicalAgent('Constructor'), 'other');
+});
+
+test('attributionParams: inherited Object property name falls back to other', () => {
+  assert.equal(attributionParams('Constructor'), '&utm_content=other&utm_term=client_name:Constructor');
+});
+
 test('cleanClientName: strips disallowed characters', () => {
   assert.equal(cleanClientName('Claude Code (v1.2)'), 'ClaudeCodev1.2');
 });

@@ -19,10 +19,11 @@ const MAX_UTM_TERM_NAME_LENGTH = 64;
 /** Exact match on the normalized name; anything else is 'other'. */
 export function canonicalAgent(clientName: string): string {
   const normalized = clientName.toLowerCase().replace(/[^a-z]/g, '');
-  return AGENT_BY_NORMALIZED_NAME[normalized] ?? UNKNOWN_AGENT;
+  return Object.hasOwn(AGENT_BY_NORMALIZED_NAME, normalized)
+    ? AGENT_BY_NORMALIZED_NAME[normalized]
+    : UNKNOWN_AGENT;
 }
 
-/** Keep only [A-Za-z0-9_.:-], then cap at 64 characters. */
 export function cleanClientName(clientName: string): string {
   return clientName.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, MAX_UTM_TERM_NAME_LENGTH);
 }
