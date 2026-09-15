@@ -71,11 +71,10 @@ test('cleanClientName: keeps every allowed character', () => {
 });
 
 test('attributionParams: caps the full utm_term value at exactly 64 for a 100-char name', () => {
-  const longName = 'a'.repeat(100);
-  const params = attributionParams(longName);
-  const utmTermValue = params.split('utm_term=')[1];
-  assert.equal(utmTermValue.length, 64);
-  assert.ok(utmTermValue.startsWith('client_name:'));
+  assert.equal(
+    attributionParams('a'.repeat(100)),
+    `&utm_content=other&utm_term=client_name:${'a'.repeat(52)}`,
+  );
 });
 
 test('attributionParams: undefined client_name returns empty string', () => {
