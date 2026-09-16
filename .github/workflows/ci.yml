@@ -22,19 +22,19 @@ jobs:
           # setup-node v7 auto-detects the package manager and enables its
           # own caching (`package-manager-cache`) by default, which runs
           # `npm config get cache` using the npm bundled with Node 24
-          # (11.x) before we get a chance to install npm 12 below. This
-          # package declares `devEngines.packageManager.npm: ">=12.0.0"`
-          # with `onFail: "error"`, so that mismatched invocation now hard
-          # -fails instead of silently proceeding as it did under the old
-          # `engines` field. Disable setup-node's caching to avoid running
-          # any npm command ahead of the explicit npm 12 install.
+          # before we get a chance to install the pinned npm below. This
+          # package declares `devEngines.packageManager.npm: ">=11.19.1"`
+          # with `onFail: "warn"`, but we still want CI to run against the
+          # exact pinned version rather than whatever Node 24 happens to
+          # bundle. Disable setup-node's caching to avoid running any npm
+          # command ahead of the explicit npm install below.
           package-manager-cache: false
 
-      # Node 24 still bundles npm 11.x, but this package declares
-      # `devEngines.packageManager.npm: ">=12.0.0"` with `onFail: "error"`,
-      # so install npm 12 explicitly.
-      - name: Install npm 12
-        run: npm install -g npm@12
+      # Node 24 bundles an older npm 11.x, but this package declares
+      # `devEngines.packageManager.npm: ">=11.19.1"`, so install the latest
+      # npm 11.x explicitly.
+      - name: Install npm 11
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
