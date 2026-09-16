@@ -2,7 +2,7 @@ import type { HandlerResponse } from "@netlify/functions";
 import { createHash } from "crypto";
 import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
-import { log } from "./logger.ts";
+import { log, truncateForLog } from "./logger.ts";
 import { resolveIdentity, type TokenIdentity } from "./identity.ts";
 import {
   classifyUnresolvedClientId,
@@ -34,7 +34,7 @@ function rejectUnknownClients(): boolean {
 /** Host of a redirect_uri for logging, without leaking the full URI. */
 function redirectHostForLog(redirectUri: string): string {
   try {
-    return new URL(redirectUri).host || 'unknown';
+    return truncateForLog(new URL(redirectUri).host) || 'unknown';
   } catch {
     return 'unparseable';
   }
@@ -380,7 +380,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    log.info('server redirect: issuing authorization code', { client_id: validatedState.client_id, redirect_uri: validatedState.redirect_uri, scope: validatedState.scope, hasIdentity: !!identity });
+    log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
 
     const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
@@ -463,7 +463,18 @@ export async function handleClientRegistration(req: Request, supportedScopes: st
 
   const clientId = await createStatelessClientId(client);
 
-  log.debug('register: issued stateless client_id', { redirect_uris: redirectUris, application_type: applicationType, scope });
+  // client_name, redirect_uris, and scope are client-asserted: nothing verifies
+  // client_name, and a registration can send arbitrarily many/long redirect_uris.
+  // The bounded copies below are for this log line only — the stored client and
+  // the response below carry the full, untouched values.
+  const MAX_LOGGED_REDIRECT_URIS = 10;
+
+  log.info('register: issued stateless client_id', {
+    redirect_hosts: redirectUris.slice(0, MAX_LOGGED_REDIRECT_URIS).map(redirectHostForLog),
+    application_type: applicationType,
+    scope: truncateForLog(scope),
+    client_name: truncateForLog(body.client_name),
+  });
 
   // RFC 7591 §3.2.1 success response. client_id_issued_at is informational; the
   // registration never expires (no client_secret_expires_at needed for a public

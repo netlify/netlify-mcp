@@ -13,7 +13,7 @@ import { registerClaudeDesignImportTool } from "../../src/tools/design-import/im
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
-import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId } from "./mcp-server/logger.ts";
+import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
@@ -41,8 +41,8 @@ export default async (req: Request, context: Context) => {
       requestId: getRequestId(req.headers),
       deployId: getDeployId(context),
       httpMethod: req.method,
-      path: url.pathname,
-      userAgent: req.headers.get('user-agent') ?? undefined,
+      path: truncateForLog(url.pathname),
+      userAgent: truncateForLog(req.headers.get('user-agent')),
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
     // Open a request-signals scope around the whole request so tool/API code can

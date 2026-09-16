@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { handleProxy } from '../../edge-functions/proxy.ts';
 import { createJWE } from './utils.ts';
 
-// createJWE/decryptJWE round-trip on the localhost dev key when JWE_SECRET and
-// OAUTH_ISSUER are unset (the test environment), so no secret setup is needed.
+// Pin the dev-key path regardless of ambient env: a localhost issuer with no
+// JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
+process.env.OAUTH_ISSUER = 'http://localhost:8888';
+delete process.env.JWE_SECRET;
+
 async function tokenFor(apisAllowed: Array<{ path: string; method: string }>): Promise<string> {
   return createJWE({ accessToken: 'nfp_test_token', apisAllowed }, '1h');
 }
