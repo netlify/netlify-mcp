@@ -1,14 +1,5 @@
 
 [build.environment]
-  # This package declares `devEngines.packageManager.npm: ">=11.19.1"` (see
-  # package.json), i.e. the latest npm 11.x. Netlify's build image otherwise
-  # installs whatever npm ships with the selected Node version, which may be
-  # an older npm 11.x, so pin npm here the same way our GitHub Actions
-  # workflows do with an explicit `npm install -g npm@11` step. (devEngines'
-  # `onFail` is set to "warn" rather than "error" precisely because we can't
-  # fully guarantee this variable takes effect in every Netlify build
-  # context, so a mismatch here degrades to a warning instead of blocking
-  # the deploy.)
   NPM_VERSION = "11"
 
 # Catch-all request/response body logger. Declared here (not inline) so it runs
