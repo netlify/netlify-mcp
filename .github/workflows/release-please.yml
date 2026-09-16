@@ -76,10 +76,6 @@ jobs:
           # for. Deliberately no `NODE_AUTH_TOKEN`: auth comes from OIDC.
           registry-url: 'https://registry.npmjs.org'
 
-      # Node 24 bundles an older npm 11.x, but this package declares
-      # `devEngines.packageManager.npm: ">=11.19.1"`, so install the latest
-      # npm 11.x explicitly. npm >= 11.5.1 is also the minimum for Trusted
-      # Publishing, so 11.19.1 clears that floor comfortably.
       - name: Install npm 11
         if: ${{ steps.release.outputs.releases_created || github.event_name == 'workflow_dispatch' }}
         run: npm install -g npm@11
