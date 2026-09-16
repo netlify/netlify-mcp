@@ -9,6 +9,7 @@ import { checkCompatibility } from "./src/utils/compatibility.ts";
 import { bindTools } from "./src/tools/index.ts";
 import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
 import { checkDeployStatus } from "./src/tools/deploy-tools/deploy-watch.ts";
+import { setMcpClientNameSource } from "./src/utils/login-attribution.ts";
 
 // check to see if it's ran as a command to zip and build
 const proxyPath = process.argv[process.argv.indexOf('--proxy-path') + 1] || undefined;
@@ -83,6 +84,7 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
       name: "netlify-mcp",
       version: getPackageVersion()
     });
+    setMcpClientNameSource(() => server.server.getClientVersion()?.name);
 
     // load the consumer configuration for the MCP so
     // we can share all of the available context for the

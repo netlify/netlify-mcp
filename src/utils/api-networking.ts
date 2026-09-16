@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import envPaths from 'env-paths';
 import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
+import { loginSpawnEnv } from './login-attribution.ts';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
 import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
@@ -107,6 +108,11 @@ export const getTokenIdentity = async (request?: Request): Promise<TokenIdentity
   }
 };
 
+// The CLI opens the browser and then polls for the ticket for up to five
+// minutes, so this must outlast that poll or the CLI is killed before it
+// writes the token.
+const LOGIN_TIMEOUT_MS = 6 * 60 * 1000;
+
 export const getNetlifyAccessToken = async (request?: Request): Promise<string> => {
 
   if (request) {
@@ -149,7 +155,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
 
   if (!token) {
 
-    const result = await runCommand('netlify login', { env: process.env });
+    const result = await runCommand('netlify login', { env: loginSpawnEnv(), timeout: LOGIN_TIMEOUT_MS });
 
     appendToLog(["Netlify login exit code and output", JSON.stringify(result)]);
 
