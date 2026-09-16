@@ -12,6 +12,7 @@ import {
   resolveClient,
   type RegisteredClient,
 } from "./client-registry.ts";
+import { attributionParams } from "./agent-attribution.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
 import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
@@ -41,8 +42,11 @@ function redirectHostForLog(redirectUri: string): string {
 }
 
 /**
- * Redirect_uri validation gate. Returns an OAuth error response when the
- * request must be rejected, or null when it may proceed.
+ * Redirect_uri validation gate. `error` is an OAuth error response when the
+ * request must be rejected, or null when it may proceed. `client` is the
+ * client resolved for this client_id (null when unresolved), handed back so a
+ * caller that needs it (e.g. for its `client_name`) doesn't have to resolve
+ * it again.
  *
  * Log-only by default: a request that matches a registration proceeds quietly;
  * anything else (a stateless/static client whose redirect doesn't match, or an
@@ -54,19 +58,19 @@ async function validateClientRedirect(
   clientId: string,
   redirectUri: string,
   op: string,
-): Promise<HandlerResponse | null> {
+): Promise<{ error: HandlerResponse | null; client: RegisteredClient | null }> {
   const { client, source } = await resolveClient(clientId);
 
   if (client && isRedirectUriAllowed(client, redirectUri)) {
     log.debug(`${op}: redirect_uri validated`, { client_id: clientId, source });
-    return null;
+    return { error: null, client };
   }
 
   if (rejectUnknownClients()) {
     const [error, description] = client
       ? ['invalid_request', 'redirect_uri does not match a registered redirect URI for this client']
       : ['invalid_client', 'Unregistered client_id or redirect_uri'];
-    return oauthError(400, error, description, op, { client_id: clientId, source, redirect_uri: redirectUri });
+    return { error: oauthError(400, error, description, op, { client_id: clientId, source, redirect_uri: redirectUri }), client };
   }
 
   // Log-only mode: surface unconditionally (not log.debug) so operators can see
@@ -85,7 +89,7 @@ async function validateClientRedirect(
     client_id: maskToken(clientId),
     redirect_host: redirectHostForLog(redirectUri),
   });
-  return null;
+  return { error: null, client };
 }
 
 
@@ -218,7 +222,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   // the round-tripped state. This is the primary defense against an open redirect:
   // an unregistered redirect_uri never makes it into the authorization code, so
   // handleServerSideAuthRedirect can only ever 302 to a URI the client registered.
-  const redirectError = await validateClientRedirect(clientId, redirectUri, 'authorize');
+  const { error: redirectError, client } = await validateClientRedirect(clientId, redirectUri, 'authorize');
   if (redirectError) {
     return redirectError;
   }
@@ -245,7 +249,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   return {
     statusCode: 302,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations`
+      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
     },
     body: ''
   };
@@ -359,7 +363,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     // Defense in depth: init-state round-trips through the browser, so re-check
     // the redirect_uri against the client's registration before we 302 to it.
-    const redirectError = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
+    const { error: redirectError } = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
     if (redirectError) {
       return redirectError;
     }
