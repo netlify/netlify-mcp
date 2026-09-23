@@ -28,6 +28,13 @@
   ],
   "author": "",
   "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.19.1",
+      "onFail": "warn"
+    }
+  },
   "dependencies": {
     "@modelcontextprotocol/core": "2.0.0-beta.4",
     "@modelcontextprotocol/server": "2.0.0-beta.4",
