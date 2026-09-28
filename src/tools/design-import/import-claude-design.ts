@@ -16,7 +16,7 @@ import { zipAndBuild } from '../deploy-tools/deploy-site.js';
 import { appendErrorToLog } from '../../utils/logging.js';
 import { log } from '../../../netlify/functions/mcp-server/logger.js';
 import { deployIdFromJob, fallbackImportSiteName, importSiteName, matchTeam, projectMarker } from './job-utils.js';
-import { isAllowedDesignHost } from './url-guard.js';
+import { ALLOWED_DESIGN_HOSTS_DESCRIPTION, isAllowedDesignHost } from './url-guard.js';
 import type { NetlifyAccountResponse, NetlifyDeployResponse } from '../../utils/api-types.js';
 
 
@@ -137,7 +137,7 @@ async function fetchDesignHtml(url: string, projectId?: string): Promise<string>
     throw new Error('url must be an https URL');
   }
 
-  // Only Claude Design's user-content host is a valid source; this confines the
+  // Only Claude Design's own hosts are valid sources; this confines the
   // server-side fetch and prevents it from being pointed at any other host (SSRF).
   //
   // Two different audiences get two different amounts of detail:
@@ -155,7 +155,7 @@ async function fetchDesignHtml(url: string, projectId?: string): Promise<string>
       url: target.href,
       claudeDesignProjectId: projectId,
     });
-    throw new Error(`url must be a Claude Design URL (*.claudeusercontent.com); got ${target.origin}`);
+    throw new Error(`url must be a Claude Design URL (${ALLOWED_DESIGN_HOSTS_DESCRIPTION}); got ${target.origin}`);
   }
 
   const controller = new AbortController();
