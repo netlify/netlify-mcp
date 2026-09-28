@@ -29,7 +29,7 @@ test('a url on a disallowed host is rejected with the offending origin in the me
   await assert.rejects(
     () => runClaudeDesignImport({ url: 'https://attacker.example:8443/evil?sig=should-not-leak' }, undefined),
     (error: Error) => {
-      assert.match(error.message, /Claude Design URL \(\*\.claudeusercontent\.com\)/);
+      assert.match(error.message, /Claude Design URL \(claude\.ai, claudeusercontent\.com and their subdomains\)/);
       assert.match(error.message, /https:\/\/attacker\.example:8443/);
       // origin never includes the path/query — a real signed URL's signature must not leak into the message
       assert.doesNotMatch(error.message, /evil|sig=/);
