@@ -1,5 +1,6 @@
 import type { HandlerResponse } from '@netlify/functions';
 import { createJWE } from './utils.ts';
+import { log } from './logger.ts';
 
 interface ForwardingOptions {
   readonly endpoint: string;
@@ -17,10 +18,11 @@ export async function forwardEnterpriseGrant(req: Request, body: string, { endpo
   let url: URL;
   try {
     url = new URL(endpoint);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+      throw new Error('Invalid endpoint');
+    }
   } catch {
-    return response(503, { error: 'temporarily_unavailable' });
-  }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    log.error('Invalid EMA_BACKEND_TOKEN_ENDPOINT configuration');
     return response(503, { error: 'temporarily_unavailable' });
   }
   if (req.method !== 'POST') return response(405, { error: 'invalid_request' });

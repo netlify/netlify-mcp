@@ -71,13 +71,21 @@ test('network delay consumes lifetime rather than extending the wrapper', async 
   }
 });
 
-test('rejects unsafe endpoint configuration without sending credentials', async () => {
+test('rejects unsafe endpoint configuration without sending credentials', async (t) => {
+  const errors = t.mock.method(console, 'error', () => {});
   const fetchToken: typeof fetch = async () => { assert.fail('must not fetch'); };
   for (const target of ['http://api.example.test/token', 'https://user:password@api.example.test/token', 'https://api.example.test/token?redirect=other', 'https://api.example.test/token#fragment', 'invalid']) {
     const response = await forwardEnterpriseGrant(request(), body, { endpoint: target, resource, fetchToken });
     assert.equal(response.statusCode, 503);
     assert.ok(!response.body!.includes('password'));
+    const entry = errors.mock.calls.at(-1);
+    assert.ok(entry, 'invalid endpoint configuration must emit an operator log');
+    const record = JSON.parse(entry.arguments[0]);
+    assert.equal(record.level, 'error');
+    assert.equal(record.message, 'Invalid EMA_BACKEND_TOKEN_ENDPOINT configuration');
+    assert.deepEqual(Object.keys(record).sort(), ['level', 'message', 'timestamp']);
   }
+  assert.equal(errors.mock.callCount(), 5);
 });
 
 test('returns the OAuth error code without echoing upstream secret material', async () => {
