@@ -4,6 +4,7 @@ import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
 import { maskToken } from "./logging.ts";
 import { log, truncateForLog } from "./logger.ts";
 import { resolveIdentity, type TokenIdentity } from "./identity.ts";
+import { forwardEnterpriseGrant } from "./enterprise-forwarding.ts";
 import {
   classifyUnresolvedClientId,
   createStatelessClientId,
@@ -15,7 +16,7 @@ import {
 import { attributionParams } from "./agent-attribution.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
-import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
+import { SUPPORTED_GRANT_TYPES, RESOURCE_PATH } from "./oauth-config.ts";
 
 /**
  * When true, any request whose redirect_uri we can't match to a registration is
@@ -514,11 +515,22 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   const bodyParams = new URLSearchParams(body);
   const grantType = bodyParams.get('grant_type') || 'authorization_code';
 
+  if (grantType === 'urn:ietf:params:oauth:grant-type:jwt-bearer') {
+    const endpoint = process.env.EMA_BITBALLOON_TOKEN_ENDPOINT;
+    return endpoint
+      ? forwardEnterpriseGrant(req, body, { endpoint, resource: new URL(RESOURCE_PATH, getOAuthIssuer()).toString() })
+      : oauthError(400, 'unsupported_grant_type', 'Unsupported grant type', 'token');
+  }
+
   log.debug('token exchange', { grantType, client_id: bodyParams.get('client_id'), hasAuthHeader: !!req.headers.get('authorization') });
 
   // Handle refresh_token grant type
   if (grantType === 'refresh_token') {
     return handleRefreshTokenGrant(bodyParams);
+  }
+
+  if (grantType !== 'authorization_code') {
+    return oauthError(400, 'unsupported_grant_type', 'Unsupported grant type', 'token');
   }
 
   // Handle authorization_code grant type. client_id may arrive in the body

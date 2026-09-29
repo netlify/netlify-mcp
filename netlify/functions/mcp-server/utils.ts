@@ -187,12 +187,12 @@ export function returnNeedsAuthResponse(opts?: { error?: string; errorDescriptio
 
 /**
  * Encrypt a payload as a JWE. `expiresIn` accepts any `jose` duration string
- * (e.g. '1h', '7d'); pass `null` to mint a token with NO expiry — used for the
+ * (e.g. '1h', '7d') or an absolute NumericDate; pass `null` to mint a token with NO expiry — used for the
  * stateless dynamic-client-registration `client_id`, which encodes the client's
  * metadata and must remain valid for the life of the registration (revocation is
  * via JWE_SECRET rotation, which invalidates all registrations at once).
  */
-export async function createJWE(payload: Record<string, any>, expiresIn: string | null = '1h'): Promise<string> {
+export async function createJWE(payload: Record<string, any>, expiresIn: string | number | null = '1h'): Promise<string> {
   const secret = getSecretKey()
 
   const builder = new EncryptJWT(payload)
@@ -261,4 +261,3 @@ export async function decryptJWE(jwe: string) {
     throw new Error('Invalid JWE token. Please reauthenticate or reconnect to the Netlify MCP server.')
   }
 }
-
