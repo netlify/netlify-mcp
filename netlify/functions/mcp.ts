@@ -17,6 +17,7 @@ import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeploy
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
+import { registerEventMethods } from "./mcp-server/events/methods.ts";
 import {Config, Context} from "@netlify/functions";
 
 // Route structured logs onto Netlify's system-log channel for this Node
@@ -176,6 +177,17 @@ async function handleMCPPost(req: Request) {
     log.info('tool call', paramsSummary(body?.params));
   } else if (body?.method === 'tools/list') {
     log.info('tools list requested');
+  } else if (typeof body?.method === 'string' && body.method.startsWith('events/')) {
+    // Event names and the site argument are safe shape; the callback URL and
+    // signing secret in delivery are NOT and are never logged.
+    addLogContext({ eventName: body?.params?.name });
+    log.info('events request', {
+      method: body.method,
+      deliveryMode: body?.params?.delivery?.mode,
+      argumentNames: body?.params?.arguments && typeof body.params.arguments === 'object'
+        ? Object.keys(body.params.arguments)
+        : undefined,
+    });
   }
 
   const verboseMode = new URL(req.url).searchParams.get('verbose') === 'true';
@@ -226,6 +238,16 @@ async function handleMCPPost(req: Request) {
       // Claude-only top-level design-import tool (detected from the request/body).
       if (isClaudeMCPClient(req, body)) {
         registerClaudeDesignImportTool(server, req);
+      }
+
+      // The events extension (events/list | subscribe | unsubscribe). Not MCP
+      // spec — see events/methods.ts. Registered for every client: clients that
+      // don't know the vocabulary simply never call it, and the advertised
+      // `events` capability is inert to them.
+      try {
+        registerEventMethods(server, req);
+      } catch (error) {
+        log.error('Failed to register event methods', { err: error });
       }
 
       // All Netlify domain tools. A failure here shouldn't sink the whole request
