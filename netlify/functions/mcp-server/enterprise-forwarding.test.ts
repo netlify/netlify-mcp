@@ -8,7 +8,7 @@ const endpoint = 'https://api.example.test/oauth/ema/token';
 const resource = 'https://mcp.example.test/mcp';
 const body = 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=original%2Bproof&scope=site%3Aread&resource=https%3A%2F%2Fmcp.example.test%2Fmcp&client_assertion=client-proof';
 const authorization = 'Basic Y2xpZW50OnNlY3JldA==';
-const tokenResponse = { access_token: 'bounded-bitballoon-token', token_type: 'Bearer', expires_in: 120, scope: 'site:read', resource };
+const tokenResponse = { access_token: 'bounded-backend-token', token_type: 'Bearer', expires_in: 120, scope: 'site:read', resource };
 
 function request() {
   return new Request('https://mcp.example.test/oauth-server/token', {
@@ -16,7 +16,7 @@ function request() {
   });
 }
 
-test('forwards the original request and bounds the JWE to BitBalloon expiry', async (t) => {
+test('forwards the original request and bounds the JWE to backend expiry', async (t) => {
   const started = Math.floor(Date.now() / 1000);
   t.mock.method(Date, 'now', () => started * 1000);
   const fetchToken: typeof fetch = async (url, init) => {

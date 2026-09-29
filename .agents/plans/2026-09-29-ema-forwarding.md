@@ -1,25 +1,26 @@
 ---
 name: 2026-09-29-ema-forwarding
 created: 2026-09-29T15:42Z  by gpt-6-astra
-updated: 2026-09-29T15:42Z  by gpt-6-astra
-git_sha: 7bbb718
+updated: 2026-09-29T16:02Z  by gpt-6-astra
+git_sha: 94a5834
 audit:
   - 2026-09-29T15:42Z gpt-6-astra write (created)
+  - 2026-09-29T16:02Z gpt-6-astra edit  (native patch; line delta unavailable)
 ---
 
 # EMA forwarding draft
 
-Implement MCP's side of the BitBalloon-owned exchange. The BitBalloon token endpoint remains unfinished, so this is an opt-in POC transport with no JWT-bearer discovery advertisement.
+Implement MCP's side of a backend-owned exchange. The backend token endpoint remains unfinished, so this is an opt-in POC transport with no JWT-bearer discovery advertisement.
 
 ## Design position
 
 1. A docs-only PR cannot verify byte-preserving forwarding or wrapper expiry. Add one transport function and a JWT-bearer dispatch branch.
-2. BitBalloon's ownership is settled. Its endpoint and client authentication are pending; use a trusted server-configured endpoint, disabled when absent. Do not invent an IdP verifier or issuer registry in MCP.
+2. The backend owns client authentication and proof verification. Its endpoint is pending; use a trusted server-configured endpoint, disabled when absent. Do not invent an IdP verifier or issuer registry in MCP.
 3. This touches the OAuth token handler and JWE helper. Existing authorization-code and refresh behavior must keep passing. No provisioning or billing calls are added.
 4. A single forwarding module can be deleted when a common proxy replaces it. It shares only the standard token response and the existing accessToken wrapper field.
 5. The likely next change is the backend endpoint/authentication contract. Preserve the original form and client Authorization header; document that enabling requires a backend which actually authenticates Claude and binds the public audience.
 6. Discovery stays unchanged even when the POC endpoint is configured. This is intentional until the real exchange passes. EMA access wrappers never mint refresh tokens.
-7. Inject fetch into the transport for network tests. Validate the response at the boundary and pass an absolute expiry to the existing JWE function; policy and identity remain in BitBalloon.
+7. Inject fetch into the transport for network tests. Validate the response at the boundary and pass an absolute expiry to the existing JWE function; policy and identity remain in the backend.
 
 ## Verification
 

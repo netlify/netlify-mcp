@@ -11,7 +11,7 @@ function response(statusCode: number, body: Record<string, unknown>, headers: Re
   return { statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Pragma': 'no-cache', ...headers }, body: JSON.stringify(body) };
 }
 
-// BitBalloon authenticates Claude and verifies the original assertion. This
+// The backend authenticates Claude and verifies the original assertion. This
 // endpoint is trusted deployment configuration, never a request parameter.
 export async function forwardEnterpriseGrant(req: Request, body: string, { endpoint, resource, fetchToken = fetch }: ForwardingOptions): Promise<HandlerResponse> {
   let url: URL;
@@ -30,7 +30,7 @@ export async function forwardEnterpriseGrant(req: Request, body: string, { endpo
   if (authorization) headers.set('Authorization', authorization);
 
   // Starting the clock before the network call conservatively bounds the
-  // wrapper even when BitBalloon's response takes time to arrive.
+  // wrapper even when the backend's response takes time to arrive.
   const startedAt = Math.floor(Date.now() / 1000);
   try {
     const upstream = await fetchToken(url, { method: 'POST', body, headers, redirect: 'error', signal: AbortSignal.timeout(10_000) });

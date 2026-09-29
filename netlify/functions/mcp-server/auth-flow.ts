@@ -516,7 +516,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   const grantType = bodyParams.get('grant_type') || 'authorization_code';
 
   if (grantType === 'urn:ietf:params:oauth:grant-type:jwt-bearer') {
-    const endpoint = process.env.EMA_BITBALLOON_TOKEN_ENDPOINT;
+    const endpoint = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
     return endpoint
       ? forwardEnterpriseGrant(req, body, { endpoint, resource: new URL(RESOURCE_PATH, getOAuthIssuer()).toString() })
       : oauthError(400, 'unsupported_grant_type', 'Unsupported grant type', 'token');

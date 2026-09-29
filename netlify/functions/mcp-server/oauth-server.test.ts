@@ -186,12 +186,12 @@ test('unimplemented grants fail before authorization-code processing', async () 
   }
 });
 
-test('configured EMA forwards to BitBalloon while discovery remains off', async () => {
-  const previous = process.env.EMA_BITBALLOON_TOKEN_ENDPOINT;
-  process.env.EMA_BITBALLOON_TOKEN_ENDPOINT = 'https://api.example.test/oauth/ema/token';
+test('configured EMA forwards to the backend while discovery remains off', async () => {
+  const previous = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  process.env.EMA_BACKEND_TOKEN_ENDPOINT = 'https://api.example.test/oauth/ema/token';
   const body = 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=original-proof&client_id=claude';
   const fetchMock = mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
-    assert.equal(String(url), process.env.EMA_BITBALLOON_TOKEN_ENDPOINT);
+    assert.equal(String(url), process.env.EMA_BACKEND_TOKEN_ENDPOINT);
     assert.equal(init?.body, body);
     return Response.json({ error: 'invalid_grant' }, { status: 400 });
   });
@@ -203,7 +203,7 @@ test('configured EMA forwards to BitBalloon while discovery remains off', async 
     assert.ok(!metadata.json.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:jwt-bearer'));
   } finally {
     fetchMock.mock.restore();
-    if (previous === undefined) delete process.env.EMA_BITBALLOON_TOKEN_ENDPOINT;
-    else process.env.EMA_BITBALLOON_TOKEN_ENDPOINT = previous;
+    if (previous === undefined) delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+    else process.env.EMA_BACKEND_TOKEN_ENDPOINT = previous;
   }
 });
