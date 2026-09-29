@@ -175,14 +175,21 @@ test('register: request-context path is bounded on the always-on log line', asyn
 });
 
 test('unimplemented grants fail before authorization-code processing', async () => {
-  for (const grant of ['urn:ietf:params:oauth:grant-type:jwt-bearer', 'client_credentials']) {
-    const r = await call('POST', '/oauth-server/token', new URLSearchParams({
-      grant_type: grant,
-      assertion: 'untrusted-assertion',
-      client_id: 'some-client',
-    }).toString());
-    assert.equal(r.status, 400);
-    assert.equal(r.json.error, 'unsupported_grant_type');
+  const previous = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  try {
+    for (const grant of ['urn:ietf:params:oauth:grant-type:jwt-bearer', 'client_credentials']) {
+      const r = await call('POST', '/oauth-server/token', new URLSearchParams({
+        grant_type: grant,
+        assertion: 'untrusted-assertion',
+        client_id: 'some-client',
+      }).toString());
+      assert.equal(r.status, 400);
+      assert.equal(r.json.error, 'unsupported_grant_type');
+    }
+  } finally {
+    if (previous === undefined) delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+    else process.env.EMA_BACKEND_TOKEN_ENDPOINT = previous;
   }
 });
 
