@@ -197,14 +197,18 @@ test('configured EMA forwards to the backend while discovery remains off', async
   const previous = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
   process.env.EMA_BACKEND_TOKEN_ENDPOINT = 'https://api.example.test/oauth/ema/token';
   const body = 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=original-proof&client_id=claude';
+  const authorization = 'Basic Y2xpZW50OnNlY3JldA==';
   const fetchMock = mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
     assert.equal(String(url), process.env.EMA_BACKEND_TOKEN_ENDPOINT);
     assert.equal(init?.body, body);
+    assert.equal(new Headers(init?.headers).get('authorization'), authorization);
     return Response.json({ error: 'invalid_grant' }, { status: 400 });
   });
   try {
-    const result = await call('POST', '/oauth-server/token', body);
-    assert.equal(result.json.error, 'invalid_grant');
+    const event = mkEvent('POST', '/oauth-server/token', body);
+    event.headers.authorization = authorization;
+    const result = await handler(event, {} as any, () => {});
+    assert.equal(JSON.parse(result.body).error, 'invalid_grant');
     assert.equal(fetchMock.mock.callCount(), 1);
     const metadata = await call('GET', '/.well-known/oauth-authorization-server');
     assert.ok(!metadata.json.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:jwt-bearer'));
