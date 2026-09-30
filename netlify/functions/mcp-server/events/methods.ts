@@ -31,9 +31,9 @@ import {
   getSiteHookTypes,
   listSiteHooks,
   resolveSite,
+  resolveSubscriberUserId,
   updateSiteHook,
 } from './hooks-api.ts';
-import { getTokenIdentity } from '../../../../src/utils/api-networking.ts';
 import { getServerBaseUrl } from './base-url.ts';
 import { MissingJWEKeyError } from '../utils.ts';
 
@@ -111,8 +111,11 @@ async function resolveSubscriptionTarget(
 ) {
   const { def, siteArg } = validateSubscriptionParams(params);
 
-  const identity = await getTokenIdentity(req);
-  if (!identity?.userId) {
+  // Must work for BOTH bearer shapes: an OAuth-minted JWE and a raw personal
+  // access token. Using the JWE-embedded identity alone made events/subscribe
+  // fail outright for every PAT user.
+  const userId = await resolveSubscriberUserId(req);
+  if (!userId) {
     throw new EventsError('Could not identify the authenticated Netlify user.', -32603);
   }
 
@@ -123,7 +126,7 @@ async function resolveSubscriptionTarget(
     );
   }
 
-  return { def, userId: identity.userId, site };
+  return { def, userId, site };
 }
 
 /**

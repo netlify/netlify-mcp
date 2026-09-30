@@ -18,7 +18,11 @@ import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signa
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
-import {Config, Context} from "@netlify/functions";
+// `import type`, not a value import: these are type-only exports, so a value
+// import survives type-stripping and fails to resolve at load time. Netlify's
+// bundler erases it in a real deploy, which is why this was invisible — but it
+// made this module impossible to import from a test.
+import type { Config, Context } from "@netlify/functions";
 
 // Route structured logs onto Netlify's system-log channel for this Node
 // function. Runs once at cold start; edge/CLI keep the default console forwarder.

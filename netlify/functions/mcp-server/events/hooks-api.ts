@@ -4,7 +4,7 @@
 // `GET /hooks` is the subscription lookup, `POST`/`PUT` create and refresh, and
 // `DELETE` unsubscribes. There is no local store.
 
-import { authenticatedFetch, getAPIJSONResult, NetlifyApiError } from '../../../../src/utils/api-networking.ts';
+import { authenticatedFetch, getAPIJSONResult, getTokenIdentity, NetlifyApiError } from '../../../../src/utils/api-networking.ts';
 import { log } from '../logger.ts';
 
 /**
@@ -39,6 +39,40 @@ export interface NetlifyHookTypeInfo {
   events: string[];
   restricted_events?: string[];
   fields?: unknown[];
+}
+
+/**
+ * The Netlify user id of the caller, used as part of the subscription identity.
+ *
+ * `getTokenIdentity()` is only a fast path: it reads the id embedded in a JWE
+ * bearer at token-issue time, and is documented to return null for a raw
+ * personal access token (nfp/nfu/nfo) — it exists for log attribution, not as
+ * an authoritative source. It can also come back null for a JWE, because the
+ * identity lookup that populates it is best-effort and may have timed out when
+ * the token was minted.
+ *
+ * So `/api/v1/user` is the authority. The two agree by construction — the JWE's
+ * `identity.userId` is `String(user.id)` from this same endpoint (see
+ * identity.ts) — which matters because the id feeds the deterministic
+ * subscription id: if it differed by token type, the same user's subscribe and
+ * unsubscribe would not resolve to the same hook.
+ */
+export async function resolveSubscriberUserId(incomingRequest: Request): Promise<string | null> {
+  const embedded = await getTokenIdentity(incomingRequest);
+  if (embedded?.userId) {
+    return embedded.userId;
+  }
+
+  const user = await getAPIJSONResult<{ id?: string | number } | string>(
+    '/api/v1/user',
+    {},
+    {},
+    incomingRequest,
+  );
+  if (user && typeof user === 'object' && user.id !== undefined && user.id !== null) {
+    return String(user.id);
+  }
+  return null;
 }
 
 interface SiteSummary {
