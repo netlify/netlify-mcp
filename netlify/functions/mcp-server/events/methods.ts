@@ -35,7 +35,7 @@ import {
   updateSiteHook,
 } from './hooks-api.ts';
 import { getServerBaseUrl } from './base-url.ts';
-import { MissingJWEKeyError } from '../utils.ts';
+import { isEventsRelayConfigured, MissingJWEKeyError } from '../utils.ts';
 
 // JSON-RPC error codes we return. -32602 is INVALID_PARAMS; the extension does
 // not define codes of its own, so every caller-fixable refusal uses it with a
@@ -238,6 +238,11 @@ async function handleSubscribe(
     );
   }
 
+  // One expiry, used for all three of: what the relay enforces, what we seal
+  // in the token, and what the client is told. `ttlMs` only ever shortens it.
+  const ttlMs = Math.min(params.ttlMs ?? SUBSCRIPTION_TTL_MS, SUBSCRIPTION_TTL_MS);
+  const subExp = Date.now() + ttlMs;
+
   const signatureSecret = generateNetlifySigningSecret();
   let jwe: string;
   try {
@@ -251,6 +256,7 @@ async function handleSubscribe(
       cb: params.delivery.url,
       whsec: params.delivery.secret,
       nsec: signatureSecret,
+      subExp,
     });
   } catch (error) {
     // The relay key is missing or misconfigured. That is an operator problem,
@@ -293,7 +299,21 @@ async function handleSubscribe(
       // failures make Netlify disable the hook, after which it never fires
       // again on its own.
       if (existing.disabled) {
-        await enableSiteHook(existing.id, req);
+        // enableSiteHook returns false on a 403/500 rather than throwing. Left
+        // unchecked, subscribe would report a successful refresh while the hook
+        // stayed disabled — and the client would not try again for a week.
+        if (!await enableSiteHook(existing.id, req)) {
+          log.warn('events could not re-enable a disabled hook', {
+            subscriptionId: subId,
+            hookId: existing.id,
+          });
+          throw new EventsError(
+            'This subscription exists but Netlify has disabled its notification hook after ' +
+            'repeated delivery failures, and it could not be re-enabled. Check that the ' +
+            'callback endpoint is reachable, then try again.',
+            -32603,
+          );
+        }
         log.info('events re-enabled a disabled hook on refresh', {
           subscriptionId: subId,
           hookId: existing.id,
@@ -334,12 +354,11 @@ async function handleSubscribe(
     hasContextFilter: !!filters.context,
   });
 
-  // `ttlMs`, when the client asks for one, caps the grant.
-  const ttlMs = Math.min(params.ttlMs ?? SUBSCRIPTION_TTL_MS, SUBSCRIPTION_TTL_MS);
-
   return {
     id: subId,
-    refreshBefore: new Date(Date.now() + ttlMs).toISOString(),
+    // Exactly the instant the relay will stop delivering — same value, not a
+    // recomputation, so the promise and the enforcement cannot drift.
+    refreshBefore: new Date(subExp).toISOString(),
     // Netlify's outgoing hooks keep no history, so there is nothing to replay
     // from. Events that occur while a subscription is lapsed are lost.
     cursor: null,
@@ -406,6 +425,16 @@ async function handleUnsubscribe(
  * `ServerCapabilities` is typed to the spec's known keys.
  */
 export function registerEventMethods(server: McpServer, req: Request): void {
+  // Don't advertise what cannot work. Without EVENTS_RELAY_JWE_SECRET every
+  // subscribe fails at the point it seals a relay token, so a client that
+  // discovered the capability would offer the user subscriptions that break
+  // every time. Staying silent instead means such a deployment just looks like
+  // a server without events, and the operator sees the reason in the logs.
+  if (!isEventsRelayConfigured()) {
+    log.warn('events capability not advertised: EVENTS_RELAY_JWE_SECRET is not configured');
+    return;
+  }
+
   server.server.registerCapabilities({ events: {} } as Record<string, unknown>);
 
   server.server.setRequestHandler(

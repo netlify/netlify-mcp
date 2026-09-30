@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   canonicalJson,
+  isSubscriptionExpired,
+  SUBSCRIPTION_TTL_MS,
   computeSubscriptionId,
   generateNetlifySigningSecret,
   openRelayToken,
@@ -73,6 +75,7 @@ test('relay tokens round-trip through seal/open', async () => {
     cb: identity.callbackUrl,
     whsec: 'whsec_' + Buffer.alloc(32, 7).toString('base64'),
     nsec: generateNetlifySigningSecret(),
+    subExp: Date.now() + SUBSCRIPTION_TTL_MS,
   });
 
   const opened = await openRelayToken(jwe);
@@ -101,7 +104,7 @@ test('a relay token is sealed with the events key, not the auth key', async () =
     subId: computeSubscriptionId(identity),
     userId: 'user-1', eventName: 'deploy.failed', netlifyEvent: 'deploy_failed',
     siteId: 'site-abc', filters: {}, cb: 'https://example.com/cb',
-    whsec: 'whsec_x', nsec: 'n',
+    whsec: 'whsec_x', nsec: 'n', subExp: Date.now() + SUBSCRIPTION_TTL_MS,
   });
   await assert.rejects(
     () => decryptJWE(relayToken),
@@ -136,4 +139,22 @@ test('secureEquals compares by value and tolerates length mismatch', () => {
   assert.equal(secureEquals('abc', 'abd'), false);
   assert.equal(secureEquals('abc', 'abcd'), false);
   assert.equal(secureEquals('', ''), true);
+});
+
+test('isSubscriptionExpired enforces the window the client was promised', () => {
+  const base = {
+    v: 1 as const, subId: 'x', userId: 'u', eventName: 'deploy.failed',
+    netlifyEvent: 'deploy_failed', siteId: 's', filters: {},
+    cb: 'https://example.com/cb', whsec: 'whsec_x', nsec: 'n',
+  };
+  const now = 1_800_000_000_000;
+
+  assert.equal(isSubscriptionExpired({ ...base, subExp: now + 1000 }, now), false);
+  assert.equal(isSubscriptionExpired({ ...base, subExp: now - 1000 }, now), true);
+  assert.equal(isSubscriptionExpired({ ...base, subExp: now }, now), false, 'the boundary instant is still live');
+
+  // A token minted before subExp existed must be treated as expired rather than
+  // delivered forever — the exact bug this field exists to close.
+  assert.equal(isSubscriptionExpired({ ...base } as any, now), true, 'missing subExp fails closed');
+  assert.equal(isSubscriptionExpired({ ...base, subExp: NaN } as any, now), true);
 });

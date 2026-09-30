@@ -72,3 +72,44 @@ test('an events key that DERIVES to the auth key is rejected', () => {
     delete process.env.EVENTS_RELAY_JWE_SECRET;
   }
 });
+
+test('the events capability is NOT advertised when the relay key is absent', async () => {
+  // Advertising it would offer a client subscriptions that fail every single
+  // time, because sealing a relay token is impossible without the key. Better
+  // to look like a server without events, and say why in the logs.
+  const { createMcpHandler, McpServer } = await import('@modelcontextprotocol/server');
+  const { registerEventMethods } = await import('./events/methods.ts');
+
+  const req = new Request('https://mcp.example.com/mcp', { method: 'POST' });
+  const handler = createMcpHandler(async () => {
+    const server = new McpServer({ name: 'netlify', version: '0.0.0-test' });
+    registerEventMethods(server, req);
+    return server;
+  });
+
+  const response = await handler.fetch(new Request('https://mcp.example.com/mcp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'mcp-protocol-version': '2026-07-28',
+      'Mcp-Method': 'server/discover',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'server/discover',
+      params: {
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientInfo': { name: 'test', version: '1' },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+    }),
+  }));
+
+  const body = JSON.parse(await response.text());
+  assert.equal(
+    body.result?.capabilities?.events, undefined,
+    'events must not be advertised on a deployment that cannot serve it',
+  );
+});

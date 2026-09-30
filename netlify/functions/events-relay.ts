@@ -18,7 +18,7 @@ import {
 } from './mcp-server/logger.ts';
 import { systemLogForwarder } from './mcp-server/system-log-forwarder.ts';
 import { installProcessGuards } from './mcp-server/process-guards.ts';
-import { openRelayToken, parseRelayPath, secureEquals } from './mcp-server/events/subscription.ts';
+import { isSubscriptionExpired, openRelayToken, parseRelayPath, secureEquals } from './mcp-server/events/subscription.ts';
 import { verifyNetlifySignature } from './mcp-server/events/signing.ts';
 import { getEventDefinition } from './mcp-server/events/registry.ts';
 import { matchesFilters, projectPayload, serializeDelivery } from './mcp-server/events/project-payload.ts';
@@ -90,6 +90,20 @@ export default async (req: Request, context: Context) => {
       // URL was assembled from parts of two different subscriptions.
       if (!secureEquals(token.subId, parsed.subId)) {
         return gone('relay token does not match its subscription id');
+      }
+
+      // The spec requires delivery to stop once `refreshBefore` has passed. The
+      // window the client was told is sealed in the token, so enforce it here:
+      // 410 both stops delivery and has Netlify delete the hook, so a
+      // subscription nobody refreshed cannot keep leaking a site's activity to
+      // a subscriber who may since have lost access to it.
+      if (isSubscriptionExpired(token)) {
+        log.info('events relay subscription expired', {
+          subscriptionId: token.subId,
+          eventName: token.eventName,
+          subExp: token.subExp,
+        });
+        return gone('subscription expired; the client must call events/subscribe again to refresh');
       }
 
       const definition = getEventDefinition(token.eventName);

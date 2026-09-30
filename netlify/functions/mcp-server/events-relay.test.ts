@@ -72,6 +72,7 @@ async function buildRelayUrl(overrides: Partial<Parameters<typeof sealRelayToken
     cb: identity.callbackUrl,
     whsec: WHSEC,
     nsec: NSEC,
+    subExp: Date.now() + 60_000,
     ...overrides,
   });
   return { subId, url: `https://mcp.example.com${relayPath(subId, jwe)}` };
@@ -232,4 +233,26 @@ test('relay passes a subscriber 410 back to netlify', async () => {
 test('relay rejects non-POST methods', async () => {
   const response = await relay(new Request('https://mcp.example.com/events/relay/x/y', { method: 'GET' }), fakeContext);
   assert.equal(response.status, 405);
+});
+
+test('relay stops delivering once the promised window has passed', async () => {
+  // The spec requires delivery to stop at refreshBefore. Before this, the
+  // relay kept going for the full life of the token, so a subscription nobody
+  // refreshed leaked a site's activity for weeks past its stated expiry — to a
+  // subscriber who may since have lost access to the site.
+  stubSubscriber();
+  const { url } = await buildRelayUrl({ subExp: Date.now() - 1 });
+
+  const response = await relay(netlifyPost(url, DEPLOY_BODY), fakeContext);
+  assert.equal(response.status, 410, '410 also has Netlify delete the hook');
+  assert.equal(delivered.length, 0, 'nothing may be forwarded after expiry');
+  assert.match(await response.clone().text(), /expired/);
+});
+
+test('relay still delivers just inside the window', async () => {
+  stubSubscriber();
+  const { url } = await buildRelayUrl({ subExp: Date.now() + 60_000 });
+  const response = await relay(netlifyPost(url, DEPLOY_BODY), fakeContext);
+  assert.equal(response.status, 202);
+  assert.equal(delivered.length, 1);
 });

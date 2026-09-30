@@ -17,11 +17,10 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 
 process.env.OAUTH_ISSUER = 'https://mcp.example.com';
 process.env.JWE_SECRET = 'test-only-auth-jwe-secret-at-least-32-chars';
-// Deliberately NOT setting EVENTS_RELAY_JWE_SECRET: discovery and events/list
-// must keep working on a server that has not configured the relay key, so a
-// misconfiguration degrades subscribe alone rather than breaking the whole
-// extension. The test below asserts that.
-delete process.env.EVENTS_RELAY_JWE_SECRET;
+// A configured relay key, i.e. a deployment where events can actually work.
+// The unconfigured case is asserted in events-key-config.test.ts, which needs
+// its own process because the derived key is memoized.
+process.env.EVENTS_RELAY_JWE_SECRET = 'test-only-events-relay-secret-at-least-32-chars';
 
 const { registerEventMethods } = await import('./events/methods.ts');
 
@@ -80,28 +79,6 @@ test('events/list dispatches and returns the catalogue', async () => {
   assert.deepEqual(failed.delivery, ['webhook']);
   assert.equal(failed.inputSchema.required[0], 'site');
   assert.ok(failed.payloadSchema.properties.error_message);
-});
-
-test('discovery and events/list work without the relay key configured', async () => {
-  // Already covered above, but stated explicitly: neither path touches
-  // EVENTS_RELAY_JWE_SECRET, so a server missing it still advertises the
-  // extension and can still be inspected. Only subscribe degrades.
-  const discover = await callMcp('server/discover');
-  assert.deepEqual(discover.result?.capabilities?.events, {});
-  const list = await callMcp('events/list');
-  assert.ok(list.result?.events?.length > 5);
-});
-
-test('subscribe reports a missing relay key as a server problem, not a bad request', async () => {
-  const body = await callMcp('events/subscribe', {
-    name: 'deploy.failed',
-    arguments: { site: 'my-site' },
-    delivery: { mode: 'webhook', url: 'https://1.1.1.1/cb', secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64') },
-  });
-  assert.ok(body.error);
-  // Whatever the failure, the message must not leak the env var name into a
-  // conversation, and must not blame the caller's request.
-  assert.equal(body.error.message.includes('EVENTS_RELAY_JWE_SECRET'), false);
 });
 
 test('an unknown events method is a clean method-not-found', async () => {

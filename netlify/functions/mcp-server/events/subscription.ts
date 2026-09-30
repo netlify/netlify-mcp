@@ -20,14 +20,30 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createJWE, decryptJWE, getEventsRelayKey, MissingJWEKeyError } from '../utils.ts';
 
-// Relay tokens outlive a refresh cycle several times over so an in-flight
-// delivery can never be dropped for staleness, but they do eventually expire:
-// once a token is dead the relay answers 410, and Netlify deletes the hook on a
-// 410 (Hook#process_http_response). That turns token expiry into automatic
-// garbage collection for subscriptions a client stopped refreshing.
-export const RELAY_TOKEN_TTL = '30d';
-/** How long a subscription is granted before the client must refresh it. */
+/**
+ * How long a subscription is granted before the client must refresh it. This is
+ * the value reported as `refreshBefore`, AND — sealed into the relay token as
+ * `subExp` — the point at which the relay stops delivering. One source of
+ * truth, because the spec requires delivery to stop once `refreshBefore` has
+ * passed: an earlier version reported 7 days while the relay kept delivering
+ * for the 30-day life of the token, so a user removed from a site carried on
+ * receiving its deploy and form data for three more weeks.
+ *
+ * Expiry is also how "recheck the user's access during the subscription's
+ * lifetime" is satisfied: a refresh is an authenticated `events/subscribe`,
+ * which re-resolves the user and re-checks site access, so access is
+ * revalidated at least weekly or delivery stops.
+ */
 export const SUBSCRIPTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The JWE's own lifetime, deliberately a little longer than the subscription.
+ * The margin means an expired subscription is caught by the explicit `subExp`
+ * check — which can say so precisely — rather than by falling into the generic
+ * "token could not be read" path. Both answer 410, so Netlify deletes the hook
+ * either way and nothing is left firing.
+ */
+export const RELAY_TOKEN_TTL = '8d';
 
 export interface SubscriptionIdentity {
   /** Netlify user id of the subscriber. Part of the identity: two users watching
@@ -62,6 +78,12 @@ export interface RelayToken {
   whsec: string;
   /** The secret Netlify signs its deliveries to us with (`x-webhook-signature`). */
   nsec: string;
+  /**
+   * Epoch millis at which this subscription stops being delivered — the same
+   * value the client was told as `refreshBefore`. Sealed in the token so the
+   * stateless relay can enforce it without a lookup.
+   */
+  subExp: number;
 }
 
 /**
@@ -164,6 +186,14 @@ export async function openRelayToken(jwe: string): Promise<OpenRelayTokenResult>
   } catch {
     return { status: 'unreadable' };
   }
+}
+
+/** True once a subscription's granted window has passed. */
+export function isSubscriptionExpired(token: RelayToken, now = Date.now()): boolean {
+  // A token minted before subExp existed has no window recorded; treat it as
+  // expired so it is refreshed rather than delivered indefinitely.
+  if (typeof token.subExp !== 'number' || !Number.isFinite(token.subExp)) return true;
+  return now > token.subExp;
 }
 
 /** Constant-time string compare for secrets and challenge echoes. */

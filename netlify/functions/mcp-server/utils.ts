@@ -114,6 +114,22 @@ function deriveKey(password: string): Uint8Array {
 }
 
 /**
+ * Whether event subscriptions can work on this deployment at all.
+ *
+ * Used to decide whether to ADVERTISE the events capability: offering
+ * subscriptions that are guaranteed to fail is worse than not offering them, so
+ * a deployment without the relay key simply looks like a server without events.
+ */
+export function isEventsRelayConfigured(): boolean {
+  try {
+    getEventsRelayKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The key that seals event-notification relay tokens.
  *
  * Kept separate from `getSecretKey()` so the events feature has its own
