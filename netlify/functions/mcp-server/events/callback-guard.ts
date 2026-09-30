@@ -80,11 +80,27 @@ export function isPrivateAddress(ip: string): boolean {
 /**
  * Check a client-supplied callback URL before we ever send to it.
  *
- * Resolving the name here narrows DNS rebinding but does not close it: the name
- * could resolve differently on the delivery that follows. Full protection needs
- * connect-time pinning, which `fetch` does not expose — so this is a real but
- * partial mitigation, and the reason deliveries also carry no ambient
- * credentials (the only secret on the wire is the client's own signing secret).
+ * What stops a request being redirected somewhere else after it is vetted:
+ *
+ *  - The destination is immutable. It is sealed in the relay token under
+ *    AES-256-GCM and bound into `subId`, so it cannot be read, edited or
+ *    replayed against another subscription, and the relay only ever connects
+ *    to `token.cb` — never to anything the inbound request supplies.
+ *  - HTTP redirects are refused, not followed (`redirect: 'error'`), on both
+ *    the handshake and every delivery.
+ *  - IP literals are refused outright, so there is no second spelling of an
+ *    address to get right.
+ *  - This check re-runs on every delivery, not just at subscribe.
+ *
+ * What remains is DNS rebinding: the name is resolved here and again by
+ * `fetch`, so a record that changes in between could point elsewhere. Closing
+ * that needs connect-time address pinning, which is a deliberate non-goal —
+ * pinning an IP breaks ordinary DNS-based failover and load balancing for every
+ * honest subscriber. The exposure is bounded instead: HTTPS means the
+ * destination still has to present a valid certificate for the vetted
+ * hostname, and deliveries carry no ambient credentials — the only secret on
+ * the wire is the subscriber's own signing secret, which is useless to anyone
+ * else.
  */
 export async function checkCallbackUrl(rawUrl: string): Promise<CallbackCheck> {
   let url: URL;
