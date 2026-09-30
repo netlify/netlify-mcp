@@ -13,11 +13,49 @@ import { log } from "./logger.ts";
 // and serverless-function runtimes share a key. That key is intentionally
 // inert: it only activates on localhost, so it grants nothing on a deployed
 // instance even though it lives in the repo.
+//
+// There are TWO independent keys, deliberately:
+//
+//   JWE_SECRET               — auth: OAuth access/refresh tokens, the
+//                              authorization code, the stateless DCR client_id,
+//                              and the /proxy/:token JWE.
+//   EVENTS_RELAY_JWE_SECRET  — event notification relay tokens only.
+//
+// Separated so the two rotation levers don't collide. Rotating JWE_SECRET is the
+// revocation lever for client registrations and tokens, and it has to stay
+// usable on its own terms — but it would otherwise also make every live event
+// subscription's relay token unreadable, silently killing customer
+// notifications. With separate keys, each can be rotated without touching the
+// other.
 const MIN_JWE_SECRET_LENGTH = 32; // 256 bits, the key size A256GCM requires
 const DEV_ONLY_LOCALHOST_KEY = 'dev-only-insecure-localhost-key-not-for-production-use';
+// A DIFFERENT dev key, so local development exercises the separation too: a
+// token minted for one purpose must not open with the other's key. The
+// difference has to fall inside the first 32 characters, because deriveKey()
+// truncates there — 'events-relay-' leads for exactly that reason.
+const DEV_ONLY_LOCALHOST_EVENTS_KEY = 'events-relay-dev-only-insecure-localhost-key-not-for-production-use';
+
+/**
+ * Thrown when a required JWE key is absent. Distinct from a decryption failure
+ * on purpose: callers must be able to tell "this deployment is misconfigured"
+ * (retryable, operator-fixable) from "this token is not valid" (terminal). The
+ * events relay depends on that distinction — it answers a bad token with 410,
+ * which makes Netlify DELETE the hook, so a missing key must never take that
+ * path or one misconfigured deploy would wipe every subscription.
+ */
+export class MissingJWEKeyError extends Error {
+  readonly envVar: string;
+  constructor(envVar: string, message: string) {
+    super(message);
+    this.name = 'MissingJWEKeyError';
+    this.envVar = envVar;
+  }
+}
 
 let cachedSecretKey: Uint8Array | null = null;
+let cachedEventsKey: Uint8Array | null = null;
 let warnedAboutDevKey = false;
+let warnedAboutEventsDevKey = false;
 
 /**
  * True when the server is running against a localhost issuer (i.e. `netlify
@@ -66,8 +104,92 @@ function getSecretKey(): Uint8Array {
     );
   }
 
-  cachedSecretKey = new TextEncoder().encode(password.padEnd(32, '0').slice(0, 32)); // A256GCM needs exactly 32 bytes
+  cachedSecretKey = deriveKey(password);
   return cachedSecretKey;
+}
+
+/** A256GCM needs exactly 32 bytes. */
+function deriveKey(password: string): Uint8Array {
+  return new TextEncoder().encode(password.padEnd(32, '0').slice(0, 32));
+}
+
+/**
+ * Whether event subscriptions can work on this deployment at all.
+ *
+ * Used to decide whether to ADVERTISE the events capability: offering
+ * subscriptions that are guaranteed to fail is worse than not offering them, so
+ * a deployment without the relay key simply looks like a server without events.
+ */
+export function isEventsRelayConfigured(): boolean {
+  try {
+    getEventsRelayKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The key that seals event-notification relay tokens.
+ *
+ * Kept separate from `getSecretKey()` so the events feature has its own
+ * rotation lever (see the note at the top of this file). Rotating this one
+ * invalidates every live subscription's relay token — the relay then answers
+ * 410 and Netlify deletes the hooks, so subscriptions are cleanly torn down
+ * rather than left firing into the void, but clients must re-subscribe.
+ */
+export function getEventsRelayKey(): Uint8Array {
+  if (cachedEventsKey) {
+    return cachedEventsKey;
+  }
+
+  let password = process.env.EVENTS_RELAY_JWE_SECRET;
+
+  if (!password) {
+    if (!isLocalIssuer()) {
+      // Fail closed, and fail LOUD — but only for the events feature. The rest
+      // of the server is unaffected by this key being absent.
+      throw new MissingJWEKeyError(
+        'EVENTS_RELAY_JWE_SECRET',
+        'EVENTS_RELAY_JWE_SECRET is not set, so event notification subscriptions ' +
+        'cannot be created or delivered. Set it to a random secret of at least ' +
+        `${MIN_JWE_SECRET_LENGTH} characters (e.g. \`openssl rand -base64 48\`). ` +
+        'It MUST be different from JWE_SECRET so the two can be rotated independently.',
+      );
+    }
+    if (!warnedAboutEventsDevKey) {
+      log.warn(
+        '[JWE] EVENTS_RELAY_JWE_SECRET is not set — using an insecure dev-only key because ' +
+        'the issuer is localhost. NEVER run a deployed instance without a strong key.',
+      );
+      warnedAboutEventsDevKey = true;
+    }
+    password = DEV_ONLY_LOCALHOST_EVENTS_KEY;
+  } else if (password.length < MIN_JWE_SECRET_LENGTH) {
+    throw new MissingJWEKeyError(
+      'EVENTS_RELAY_JWE_SECRET',
+      `EVENTS_RELAY_JWE_SECRET is too short (${password.length} chars). It must be at least ${MIN_JWE_SECRET_LENGTH} characters (256 bits).`,
+    );
+  }
+
+  const derived = deriveKey(password);
+
+  // Compare the DERIVED keys, not the raw strings. deriveKey() truncates to the
+  // first 32 characters, so two secrets that merely share a 32-char prefix
+  // collapse to the same key — a string comparison would wave that through and
+  // the two rotation levers would still be coupled, just invisibly.
+  const authSecret = process.env.JWE_SECRET;
+  if (authSecret && Buffer.from(derived).equals(Buffer.from(deriveKey(authSecret)))) {
+    throw new MissingJWEKeyError(
+      'EVENTS_RELAY_JWE_SECRET',
+      'EVENTS_RELAY_JWE_SECRET derives to the same key as JWE_SECRET (note that only the ' +
+      'first 32 characters are used, so a shared prefix is enough to collide). The point ' +
+      'of the separate key is that either can be rotated without invalidating the other.',
+    );
+  }
+
+  cachedEventsKey = derived;
+  return cachedEventsKey;
 }
 
 export function getOAuthIssuer(): string {
@@ -192,8 +314,12 @@ export function returnNeedsAuthResponse(opts?: { error?: string; errorDescriptio
  * metadata and must remain valid for the life of the registration (revocation is
  * via JWE_SECRET rotation, which invalidates all registrations at once).
  */
-export async function createJWE(payload: Record<string, any>, expiresIn: string | null = '1h'): Promise<string> {
-  const secret = getSecretKey()
+export async function createJWE(
+  payload: Record<string, any>,
+  expiresIn: string | null = '1h',
+  key?: Uint8Array,
+): Promise<string> {
+  const secret = key ?? getSecretKey()
 
   const builder = new EncryptJWT(payload)
     .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
@@ -220,8 +346,8 @@ async function peekClaims(jwe: string, secret: Uint8Array): Promise<Record<strin
   }
 }
 
-export async function decryptJWE(jwe: string) {
-  const secret = getSecretKey()
+export async function decryptJWE(jwe: string, key?: Uint8Array) {
+  const secret = key ?? getSecretKey()
 
   try {
     const { payload } = await jwtDecrypt(jwe, secret)
