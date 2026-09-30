@@ -55,37 +55,12 @@ function projectFormSubmission(raw: Record<string, any>) {
   };
 }
 
-function projectSplitTest(raw: Record<string, any>) {
-  return {
-    site_id: str(raw.site_id) ?? '',
-    split_test_id: str(raw.id) ?? '',
-    name: str(raw.name),
-    active: typeof raw.active === 'boolean' ? raw.active : null,
-    branches: Array.isArray(raw.branches) ? raw.branches : [],
-  };
-}
-
-function projectDevServer(raw: Record<string, any>) {
-  return {
-    site_id: str(raw.site_id) ?? '',
-    dev_server_id: str(raw.id) ?? '',
-    state: str(raw.state),
-    branch: str(raw.branch),
-    url: str(raw.url),
-    title: str(raw.title),
-  };
-}
-
 export function projectPayload(def: EventDefinition, raw: Record<string, any>): Record<string, unknown> {
   switch (def.payloadKind) {
     case 'deploy':
       return projectDeploy(raw);
     case 'form_submission':
       return projectFormSubmission(raw);
-    case 'split_test':
-      return projectSplitTest(raw);
-    case 'dev_server':
-      return projectDevServer(raw);
   }
 }
 

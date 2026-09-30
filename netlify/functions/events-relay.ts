@@ -4,9 +4,8 @@
 // Stateless. Everything the relay needs arrives in the URL it is called at —
 // `/events/relay/<subId>/<jwe>` — where the JWE seals the subscriber's callback
 // URL, their signing secret, and the secret Netlify signed this delivery with.
-// No datastore, no session, no lookup.
-//
-// See EVENTS_DESIGN.md for the whole model.
+// No datastore, no session, no lookup — the Netlify hook record itself is the
+// subscription store, keyed by the deterministic subId in the path.
 
 import type { Config, Context } from '@netlify/functions';
 

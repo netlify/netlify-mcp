@@ -170,10 +170,7 @@ async function assertEventAvailable(
   }
   if (urlType.events?.length && !urlType.events.includes(netlifyEvent)) {
     throw new EventsError(
-      `The "${eventName}" event is not enabled for this site. ` +
-      (eventName.startsWith('dev_server.')
-        ? 'Dev servers must be enabled on the site first.'
-        : 'Choose a different event.'),
+      `The "${eventName}" event is not enabled for this site. Choose a different event.`,
     );
   }
 }

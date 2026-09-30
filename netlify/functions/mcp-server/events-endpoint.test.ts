@@ -36,6 +36,11 @@ const origLog = console.log;
 before(() => { console.log = () => {}; });
 after(() => { console.log = origLog; globalThis.fetch = realFetch; });
 
+// Sourced from the registry rather than hardcoded, so adding or removing an
+// event doesn't require touching this file.
+const { EVENT_DEFINITIONS } = await import('./events/registry.ts');
+const EXPECTED_EVENT_COUNT = Object.keys(EVENT_DEFINITIONS).length;
+
 const MODERN_META = {
   'io.modelcontextprotocol/protocolVersion': '2026-07-28',
   'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.0.0' },
@@ -93,7 +98,7 @@ test('events/list returns the full catalogue on the legacy era', async () => {
   );
   assert.equal(status, 200);
   assert.equal(body.error, undefined);
-  assert.equal(body.result.events.length, 20);
+  assert.equal(body.result.events.length, EXPECTED_EVENT_COUNT);
 });
 
 test('events/list returns the full catalogue on the modern era', async () => {
@@ -103,7 +108,7 @@ test('events/list returns the full catalogue on the modern era', async () => {
   );
   assert.equal(status, 200);
   assert.equal(body.error, undefined);
-  assert.equal(body.result.events.length, 20);
+  assert.equal(body.result.events.length, EXPECTED_EVENT_COUNT);
   assert.ok(body.result.events.some((e: any) => e.name === 'deploy.started_failing'));
 });
 

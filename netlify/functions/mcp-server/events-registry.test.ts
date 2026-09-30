@@ -15,7 +15,9 @@ import {
 } from './events/project-payload.ts';
 
 // The event names bitballoon's UrlHook actually declares (app/models/url_hook.rb).
-// If Netlify adds or renames one, this is the list to reconcile against.
+// This is the full upstream list, deliberately including events we do NOT
+// expose (split_test_*, dev_server_*) — it is the set our names must be a
+// SUBSET of, so it stays the reconciliation point if Netlify renames something.
 const NETLIFY_URL_HOOK_EVENTS = new Set([
   'submission_created',
   'split_test_activated', 'split_test_deactivated', 'split_test_modified',
@@ -50,6 +52,21 @@ test('deploy_deleted is not capability-gated', () => {
   // keys off `available_if` — so it is hidden from the UI on some plans but is
   // never blocked from firing. Gating it here would refuse a working subscription.
   assert.equal(EVENT_DEFINITIONS['deploy.deleted'].requiresCapability, undefined);
+});
+
+test('split-test and dev-server events are not exposed', () => {
+  // Dropped deliberately: neither is something a user asks to be notified
+  // about through an assistant, and each dragged along its own payload shape.
+  for (const name of Object.keys(EVENT_DEFINITIONS)) {
+    assert.equal(name.startsWith('split_test.'), false, `${name} should not be exposed`);
+    assert.equal(name.startsWith('dev_server.'), false, `${name} should not be exposed`);
+  }
+  for (const def of Object.values(EVENT_DEFINITIONS)) {
+    assert.ok(
+      def.payloadKind === 'deploy' || def.payloadKind === 'form_submission',
+      `unexpected payloadKind ${def.payloadKind}`,
+    );
+  }
 });
 
 test('deploy events that need the capability declare it', () => {

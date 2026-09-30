@@ -78,7 +78,6 @@ export async function resolveSubscriberUserId(incomingRequest: Request): Promise
 interface SiteSummary {
   id: string;
   name?: string;
-  dev_server_enabled?: boolean;
 }
 
 /**

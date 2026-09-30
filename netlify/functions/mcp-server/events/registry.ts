@@ -19,11 +19,9 @@ export interface EventDefinition {
   netlifyEvent: string;
   /** Account capability required for the hook to actually fire, if any. */
   requiresCapability?: string;
-  /** True when the gate is a per-site setting rather than an account capability. */
-  requiresSiteSetting?: 'dev_server';
   description: string;
   /** Which Netlify payload class arrives on the wire, so the relay can project it. */
-  payloadKind: 'deploy' | 'form_submission' | 'split_test' | 'dev_server';
+  payloadKind: 'deploy' | 'form_submission';
 }
 
 // Shared across every deploy event: which site, and optional narrowing that
@@ -115,33 +113,6 @@ const FORM_SUBMISSION_PAYLOAD_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const SPLIT_TEST_PAYLOAD_SCHEMA = {
-  type: 'object',
-  properties: {
-    site_id: { type: 'string' },
-    split_test_id: { type: 'string' },
-    name: { type: ['string', 'null'] },
-    active: { type: ['boolean', 'null'] },
-    branches: { type: 'array', items: { type: 'object', additionalProperties: true } },
-  },
-  required: ['site_id', 'split_test_id'],
-  additionalProperties: false,
-} as const;
-
-const DEV_SERVER_PAYLOAD_SCHEMA = {
-  type: 'object',
-  properties: {
-    site_id: { type: 'string' },
-    dev_server_id: { type: 'string' },
-    state: { type: ['string', 'null'] },
-    branch: { type: ['string', 'null'] },
-    url: { type: ['string', 'null'] },
-    title: { type: ['string', 'null'] },
-  },
-  required: ['site_id', 'dev_server_id'],
-  additionalProperties: false,
-} as const;
-
 const DEPLOY_CAP = 'deploy_url_hooks';
 
 export const EVENT_DEFINITIONS: Record<string, EventDefinition> = {
@@ -228,45 +199,6 @@ export const EVENT_DEFINITIONS: Record<string, EventDefinition> = {
     payloadKind: 'form_submission',
     description: 'A form submission was received for the given site.',
   },
-  'split_test.activated': {
-    netlifyEvent: 'split_test_activated',
-    payloadKind: 'split_test',
-    description: 'A split test (A/B test) was activated for the given site.',
-  },
-  'split_test.deactivated': {
-    netlifyEvent: 'split_test_deactivated',
-    payloadKind: 'split_test',
-    description: 'A split test was deactivated for the given site.',
-  },
-  'split_test.modified': {
-    netlifyEvent: 'split_test_modified',
-    payloadKind: 'split_test',
-    description: 'A split test\'s branch configuration or weighting changed.',
-  },
-  'dev_server.created': {
-    netlifyEvent: 'dev_server_created',
-    requiresSiteSetting: 'dev_server',
-    payloadKind: 'dev_server',
-    description: 'A dev server was created for the given site. Requires dev servers enabled on the site.',
-  },
-  'dev_server.live': {
-    netlifyEvent: 'dev_server_live',
-    requiresSiteSetting: 'dev_server',
-    payloadKind: 'dev_server',
-    description: 'A dev server became live for the given site. Requires dev servers enabled on the site.',
-  },
-  'dev_server.failed': {
-    netlifyEvent: 'dev_server_failed',
-    requiresSiteSetting: 'dev_server',
-    payloadKind: 'dev_server',
-    description: 'A dev server failed for the given site. Requires dev servers enabled on the site.',
-  },
-  'dev_server.stopped': {
-    netlifyEvent: 'dev_server_stopped',
-    requiresSiteSetting: 'dev_server',
-    payloadKind: 'dev_server',
-    description: 'A dev server stopped for the given site. Requires dev servers enabled on the site.',
-  },
 };
 
 /** Reverse index: Netlify's event name -> our name. Used by the relay. */
@@ -288,10 +220,6 @@ function payloadSchemaFor(def: EventDefinition) {
       return DEPLOY_PAYLOAD_SCHEMA;
     case 'form_submission':
       return FORM_SUBMISSION_PAYLOAD_SCHEMA;
-    case 'split_test':
-      return SPLIT_TEST_PAYLOAD_SCHEMA;
-    case 'dev_server':
-      return DEV_SERVER_PAYLOAD_SCHEMA;
   }
 }
 
