@@ -102,6 +102,22 @@ function validateSubscriptionParams(params: { name: string; arguments?: Record<s
     throw new EventsError('The "site" argument is required: a site ID, name, or slug.');
   }
 
+  // We advertise `additionalProperties: false` on every inputSchema, and the
+  // spec asks us to "validate the event name and arguments against your event
+  // definition". Silently ignoring an unrecognised key is the same failure as
+  // an unrecognised context value: the subscription looks accepted and quietly
+  // does something other than what was asked.
+  const allowed = def.payloadKind === 'deploy'
+    ? ['site', 'branch', 'context']
+    : ['site'];
+  const unknown = Object.keys(params.arguments ?? {}).filter((k) => !allowed.includes(k));
+  if (unknown.length > 0) {
+    throw new EventsError(
+      `Unsupported argument(s) for "${params.name}": ${unknown.join(', ')}. ` +
+      `Supported: ${allowed.join(', ')}.`,
+    );
+  }
+
   // The context filter is compared against the payload's own context, so an
   // unrecognised value (a typo like "prod") would match nothing and leave a
   // subscription that silently never delivers — the worst failure mode for a

@@ -81,6 +81,32 @@ test('events/list dispatches and returns the catalogue', async () => {
   assert.ok(failed.payloadSchema.properties.error_message);
 });
 
+test('events/subscribe rejects unrecognised arguments', async () => {
+  // inputSchema advertises additionalProperties:false, so accepting extras and
+  // ignoring them would mean a typo'd filter silently widens the subscription.
+  const body = await callMcp('events/subscribe', {
+    name: 'deploy.failed',
+    arguments: { site: 'my-site', braanch: 'main' },
+    delivery: { mode: 'webhook', url: 'https://example.com/cb', secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64') },
+  });
+  assert.ok(body.error);
+  assert.equal(body.error.code, -32602);
+  assert.match(body.error.message, /braanch/);
+  assert.match(body.error.message, /Supported: site, branch, context/);
+});
+
+test('non-deploy events do not accept deploy-only filters', async () => {
+  // A form submission has no branch or context to filter on, and its schema
+  // says so.
+  const body = await callMcp('events/subscribe', {
+    name: 'form.submission_created',
+    arguments: { site: 'my-site', branch: 'main' },
+    delivery: { mode: 'webhook', url: 'https://example.com/cb', secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64') },
+  });
+  assert.ok(body.error);
+  assert.match(body.error.message, /branch/);
+});
+
 test('an unknown events method is a clean method-not-found', async () => {
   const body = await callMcp('events/nope');
   assert.equal(body.error?.code, -32601);
