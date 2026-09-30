@@ -70,6 +70,10 @@ const UnsubscribeParamsSchema = z.object({
   delivery: z.object({ mode: z.literal('webhook'), url: z.string() }),
 });
 
+// The values Netlify actually reports as a deploy's context, and what
+// `inputSchema` advertises as the enum.
+const DEPLOY_CONTEXTS = ['production', 'branch-deploy', 'deploy-preview'] as const;
+
 function normalizeFilters(args: Record<string, unknown> | undefined): EventFilters {
   const filters: EventFilters = {};
   if (typeof args?.branch === 'string' && args.branch) filters.branch = args.branch;
@@ -96,6 +100,19 @@ function validateSubscriptionParams(params: { name: string; arguments?: Record<s
   const siteArg = params.arguments?.site;
   if (typeof siteArg !== 'string' || !siteArg) {
     throw new EventsError('The "site" argument is required: a site ID, name, or slug.');
+  }
+
+  // The context filter is compared against the payload's own context, so an
+  // unrecognised value (a typo like "prod") would match nothing and leave a
+  // subscription that silently never delivers — the worst failure mode for a
+  // notification. Reject it here, before auth or any API call, so the message
+  // names the actual problem.
+  const context = params.arguments?.context;
+  if (typeof context === 'string' && context
+      && !(DEPLOY_CONTEXTS as readonly string[]).includes(context)) {
+    throw new EventsError(
+      `Invalid "context" filter "${context}". Must be one of: ${DEPLOY_CONTEXTS.join(', ')}.`,
+    );
   }
 
   return { def, siteArg };
@@ -350,7 +367,22 @@ async function handleUnsubscribe(
   );
 
   if (existing) {
-    await deleteSiteHook(existing.id, req);
+    // A discarded result here would tell the client it had unsubscribed while
+    // deliveries kept arriving. deleteSiteHook already counts 404 as success.
+    const deleted = await deleteSiteHook(existing.id, req);
+    if (!deleted) {
+      log.warn('events unsubscribe could not delete the hook', {
+        subscriptionId: subId,
+        hookId: existing.id,
+        siteId: site.id,
+      });
+      throw new EventsError(
+        'Could not remove the event subscription — Netlify refused to delete the ' +
+        'underlying notification hook, so events may continue to arrive. This may ' +
+        'need write access to the site.',
+        -32603,
+      );
+    }
   }
 
   log.info('events unsubscribed', {

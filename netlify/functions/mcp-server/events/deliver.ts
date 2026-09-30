@@ -125,11 +125,14 @@ export async function deliverEvent(args: {
       return { relayStatus: 202, delivered: false, attempts, lastStatus, reason: 'too-large' };
     }
 
-    // 4xx other than the above is a client-side problem that a retry won't fix.
-    if (response.status >= 400 && response.status < 500) {
+    // 408 and 429 are 4xx but transient — a request timeout and a rate limit
+    // both succeed on a later attempt — so they take the retry path alongside
+    // 5xx. Every other 4xx is a client-side problem a retry won't fix.
+    if (response.status >= 400 && response.status < 500
+        && response.status !== 408 && response.status !== 429) {
       return { relayStatus: 202, delivered: false, attempts, lastStatus, reason: 'client-error' };
     }
-    // 5xx: fall through and retry.
+    // 5xx, 408, 429: fall through and retry.
   }
 
   log.warn('events delivery exhausted inline attempts; deferring to netlify queue', {

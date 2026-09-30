@@ -120,9 +120,9 @@ test('events/subscribe resolves an identity from a raw PAT bearer', async () => 
   // found only by calling a real deployment, because every earlier test either
   // stopped at local param validation or used no bearer at all.
   //
-  // A deliberately unusable callback (link-local) means this stops at the SSRF
-  // guard, which is strictly LATER than identity resolution — so reaching that
-  // error proves the identity was resolved, and nothing is written.
+  // A deliberately unusable callback (an IP literal) means this stops in the
+  // callback guard, which is strictly LATER than identity resolution — so
+  // reaching that error proves the identity resolved, and nothing is written.
   const { body } = await post({
     jsonrpc: '2.0', id: 6, method: 'events/subscribe',
     params: {
@@ -130,7 +130,7 @@ test('events/subscribe resolves an identity from a raw PAT bearer', async () => 
       arguments: { site: 'some-site' },
       delivery: {
         mode: 'webhook',
-        url: 'https://169.254.169.254/cb',
+        url: 'https://127.0.0.1/cb',
         secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64'),
       },
     },

@@ -19,6 +19,7 @@ export type CallbackRejection =
   | 'not-https'
   | 'has-credentials'
   | 'unresolvable'
+  | 'ip-literal'
   | 'private-address';
 
 export interface CallbackCheck {
@@ -47,16 +48,25 @@ function isPrivateIPv4(ip: string): boolean {
   return false;
 }
 
+/**
+ * IPv6, by allowlist rather than by enumerating the private ranges.
+ *
+ * Only global unicast (2000::/3) is public, so everything else — `::1`,
+ * `fe80::/10`, `fc00::/7`, multicast, `::ffff:`-mapped v4, NAT64 — is private by
+ * default with no parsing required. The one carve-out inside 2000::/3 is
+ * 6to4 (2002::/16), which embeds an arbitrary IPv4 address.
+ *
+ * Fails closed: anything we cannot read the leading hextet of is private.
+ */
 function isPrivateIPv6(ip: string): boolean {
-  const addr = ip.toLowerCase().split('%')[0]; // strip zone id
-  if (addr === '::' || addr === '::1') return true;
-  if (addr.startsWith('fe8') || addr.startsWith('fe9') ||
-      addr.startsWith('fea') || addr.startsWith('feb')) return true; // link-local
-  if (addr.startsWith('fc') || addr.startsWith('fd')) return true;   // unique-local
-  if (addr.startsWith('ff')) return true;                            // multicast
-  // IPv4-mapped (::ffff:a.b.c.d) — defer to the v4 rules.
-  const mapped = addr.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateIPv4(mapped[1]);
+  const first = ip.toLowerCase().split('%')[0].split(':')[0];
+  // A leading '::' yields an empty group, which is correctly not global unicast.
+  const leading = first === '' ? 0 : Number.parseInt(first, 16);
+  if (!Number.isInteger(leading)) return true;
+
+  const globalUnicast = leading >= 0x2000 && leading <= 0x3fff;
+  if (!globalUnicast) return true;
+  if (leading === 0x2002) return true; // 6to4 tunnels an IPv4 address
   return false;
 }
 
@@ -91,12 +101,14 @@ export async function checkCallbackUrl(rawUrl: string): Promise<CallbackCheck> {
     return { ok: false, reason: 'has-credentials' };
   }
 
-  // A literal IP in the URL never gets a DNS lookup, so check it directly.
-  const literal = url.hostname.replace(/^\[|\]$/g, '');
-  if (isIP(literal)) {
-    return isPrivateAddress(literal)
-      ? { ok: false, reason: 'private-address', addresses: [literal] }
-      : { ok: true, addresses: [literal] };
+  // Callbacks must be hostnames, not IP literals. A real subscriber always has
+  // a DNS name, and refusing literals outright is both simpler and safer than
+  // vetting them: WHATWG `URL` rewrites an IPv6 host into its compressed
+  // hexadecimal form (`[::ffff:127.0.0.1]` becomes `::ffff:7f00:1`), so any
+  // literal-matching scheme has a second spelling of every address to get
+  // right. IPs reached via DNS are still checked below.
+  if (isIP(url.hostname.replace(/^\[|\]$/g, ''))) {
+    return { ok: false, reason: 'ip-literal' };
   }
 
   let addresses: string[];

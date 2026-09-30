@@ -208,3 +208,73 @@ test('serializeDelivery flags a payload over the 256 KiB limit', () => {
   });
   assert.equal(huge.oversize, true);
 });
+
+// --- site resolution must never guess -------------------------------------
+
+test('findHookBySubscriptionId and site selection never pick an arbitrary match', async () => {
+  // `?name=` is a SUBSTRING search, so "foo" can return foo-staging, foo-prod...
+  // Picking the first would silently create a notification hook on a site the
+  // caller never named. Exact match wins; a lone result is accepted; anything
+  // else resolves to null so the caller gets the "use a site ID" message.
+  const { resolveSite } = await import('./events/hooks-api.ts');
+  const realFetch = globalThis.fetch;
+
+  const withSites = (sites: unknown) => {
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input?.url ?? input);
+      if (url.includes('/api/v1/sites?name=')) {
+        return new Response(JSON.stringify(sites), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('', { status: 404 }); // the direct-id lookup misses
+    }) as typeof fetch;
+  };
+  const req = new Request('https://x/mcp', { headers: { Authorization: 'Bearer nfp_test' } });
+
+  try {
+    withSites([{ id: 'a', name: 'foo-staging' }, { id: 'b', name: 'foo-prod' }]);
+    assert.equal(await resolveSite('foo', req), null, 'ambiguous must not guess');
+
+    withSites([{ id: 'a', name: 'foo-staging' }, { id: 'b', name: 'foo' }]);
+    assert.equal((await resolveSite('foo', req))?.id, 'b', 'exact name wins');
+
+    withSites([{ id: 'only', name: 'foo-staging' }]);
+    assert.equal((await resolveSite('foo', req))?.id, 'only', 'a lone result is unambiguous enough');
+
+    withSites([]);
+    assert.equal(await resolveSite('foo', req), null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// --- unsubscribe must not claim success it did not achieve -----------------
+
+test('deleteSiteHook reports failure, and 404 counts as success', async () => {
+  // handleUnsubscribe now throws when this returns false. Discarding it told
+  // the client it had unsubscribed while deliveries kept arriving.
+  const { deleteSiteHook } = await import('./events/hooks-api.ts');
+  const realFetch = globalThis.fetch;
+  const req = new Request('https://x/mcp', { headers: { Authorization: 'Bearer nfp_test' } });
+
+  const withStatus = (status: number) => {
+    // 204 must carry a null body per the Response constructor.
+    const body = status === 204 || status === 304 ? null : '';
+    globalThis.fetch = (async () => new Response(body, { status })) as typeof fetch;
+  };
+
+  try {
+    withStatus(204);
+    assert.equal(await deleteSiteHook('h1', req), true, '204 is success');
+
+    withStatus(404);
+    assert.equal(await deleteSiteHook('h1', req), true, 'already gone is success');
+
+    withStatus(403);
+    assert.equal(await deleteSiteHook('h1', req), false, 'refused must report failure');
+
+    withStatus(500);
+    assert.equal(await deleteSiteHook('h1', req), false, 'server error must report failure');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

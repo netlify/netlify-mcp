@@ -22,15 +22,26 @@ test('isPrivateAddress allows ordinary public addresses', () => {
   }
 });
 
-test('isPrivateAddress handles IPv6 including mapped v4', () => {
-  assert.equal(isPrivateAddress('::1'), true);
-  assert.equal(isPrivateAddress('::'), true);
-  assert.equal(isPrivateAddress('fe80::1'), true);      // link-local
-  assert.equal(isPrivateAddress('fd00::1'), true);      // unique-local
-  assert.equal(isPrivateAddress('ff02::1'), true);      // multicast
-  assert.equal(isPrivateAddress('::ffff:127.0.0.1'), true, 'mapped loopback');
-  assert.equal(isPrivateAddress('::ffff:8.8.8.8'), false, 'mapped public');
+test('isPrivateAddress treats everything outside global unicast as private', () => {
+  // Allowlist rather than range enumeration: only 2000::/3 is public, which
+  // covers ::1, link-local, unique-local, multicast, mapped v4 and NAT64 with
+  // no address parsing. These are the forms a HOSTNAME can resolve to.
+  for (const ip of [
+    '::1', '::', 'fe80::1', 'fd00::1', 'ff02::1',
+    '::ffff:7f00:1',    // the hexadecimal form of ::ffff:127.0.0.1
+    '::ffff:a9fe:a9fe', // 169.254.169.254, the cloud metadata address
+    '64:ff9b::7f00:1',  // NAT64-wrapped loopback
+    '2002:7f00:1::',    // 6to4-wrapped loopback, inside 2000::/3
+    '::7f00:1',         // deprecated IPv4-compatible
+  ]) {
+    assert.equal(isPrivateAddress(ip), true, `${ip} should be private`);
+  }
+});
+
+test('isPrivateAddress allows ordinary public IPv6', () => {
   assert.equal(isPrivateAddress('2606:4700::1111'), false);
+  assert.equal(isPrivateAddress('2001:4860:4860::8888'), false);
+  assert.equal(isPrivateAddress('3fff::1'), false, 'top of 2000::/3');
 });
 
 test('isPrivateAddress fails closed on non-addresses', () => {
@@ -53,23 +64,28 @@ test('checkCallbackUrl rejects malformed URLs and embedded credentials', async (
   assert.equal(withCreds.reason, 'has-credentials');
 });
 
-test('checkCallbackUrl blocks literal private addresses without DNS', async () => {
+test('checkCallbackUrl refuses IP-literal hosts outright', async () => {
+  // A real subscriber always has a DNS name, so literals are refused rather
+  // than vetted. That removes a whole class of bypass: WHATWG URL rewrites an
+  // IPv6 host into compressed hex, so `https://[::ffff:127.0.0.1]` arrives as
+  // `::ffff:7f00:1` and any literal-matching scheme has a second spelling of
+  // every address to get right. Public literals are refused too — the point is
+  // that we never have to reason about which is which.
   for (const url of [
     'https://127.0.0.1/cb',
     'https://169.254.169.254/latest/meta-data',
     'https://10.1.2.3/cb',
+    'https://1.1.1.1/cb',
     'https://[::1]/cb',
+    'https://[::ffff:127.0.0.1]/cb',
+    'https://[::ffff:169.254.169.254]/latest/meta-data',
+    'https://[2002:7f00:1::]/cb',
+    'https://[2606:4700::1111]/cb',
   ]) {
     const result = await checkCallbackUrl(url);
-    assert.equal(result.ok, false, `${url} should be blocked`);
-    assert.equal(result.reason, 'private-address');
+    assert.equal(result.ok, false, `${url} should be refused`);
+    assert.equal(result.reason, 'ip-literal', `${url} should be refused as a literal`);
   }
-});
-
-test('checkCallbackUrl allows a literal public address', async () => {
-  const result = await checkCallbackUrl('https://1.1.1.1/cb');
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.addresses, ['1.1.1.1']);
 });
 
 test('checkCallbackUrl rejects a hostname that does not resolve', async () => {

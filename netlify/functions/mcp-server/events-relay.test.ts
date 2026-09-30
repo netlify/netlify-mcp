@@ -21,7 +21,8 @@ import {
 
 const WHSEC = 'whsec_' + Buffer.alloc(32, 5).toString('base64');
 const NSEC = 'netlify-signing-secret';
-const CALLBACK = 'https://1.1.1.1/cb';
+// A hostname: the callback guard refuses IP literals.
+const CALLBACK = 'https://example.com/cb';
 
 const realFetch = globalThis.fetch;
 let delivered: Array<{ url: string; headers: Record<string, string>; body: any }> = [];

@@ -128,9 +128,14 @@ export async function resolveSite(
     incomingRequest,
   );
   if (Array.isArray(matches) && matches.length > 0) {
-    // Prefer an exact name match; a substring search can return several.
+    // An exact name match is unambiguous.
     const exact = matches.find((s) => s.name === site);
-    return exact ?? matches[0];
+    if (exact) return exact;
+    // A single hit is the only other safe read of the caller's intent. Beyond
+    // that, `?name=` is a substring search, so picking the first result would
+    // silently create a notification hook on a site the caller never named.
+    // Returning null instead surfaces the "use a site ID" message.
+    if (matches.length === 1) return matches[0];
   }
 
   return null;

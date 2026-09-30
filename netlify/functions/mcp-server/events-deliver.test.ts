@@ -5,8 +5,10 @@ import { deliverEvent } from './events/deliver.ts';
 import { findHookBySubscriptionId, type NetlifyHook } from './events/hooks-api.ts';
 
 const WHSEC = 'whsec_' + Buffer.alloc(32, 3).toString('base64');
-// A literal public IP, so the SSRF guard passes without a DNS lookup.
-const CALLBACK = 'https://1.1.1.1/cb';
+// A hostname, because the guard now refuses IP literals outright. example.com
+// is IANA-reserved and resolves to public addresses; fetch is stubbed, so
+// nothing actually leaves the machine.
+const CALLBACK = 'https://example.com/cb';
 
 const realFetch = globalThis.fetch;
 let calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
@@ -73,12 +75,25 @@ test('a 413 is never retried and does not blame netlify', async () => {
   assert.equal(outcome.reason, 'too-large');
 });
 
-test('a non-410/413 4xx is not retried', async () => {
-  stubFetch(() => new Response('', { status: 400 }));
-  const outcome = await deliver();
-  assert.equal(calls.length, 1);
-  assert.equal(outcome.relayStatus, 202);
-  assert.equal(outcome.reason, 'client-error');
+test('a permanent 4xx is not retried', async () => {
+  for (const status of [400, 401, 403, 404, 422]) {
+    stubFetch(() => new Response('', { status }));
+    const outcome = await deliver();
+    assert.equal(calls.length, 1, `${status} should not be retried`);
+    assert.equal(outcome.relayStatus, 202);
+    assert.equal(outcome.reason, 'client-error');
+  }
+});
+
+test('408 and 429 are retried despite being 4xx', async () => {
+  // Both are transient: a request timeout and a rate limit each succeed on a
+  // later attempt, so they must not take the permanent client-error path.
+  for (const transient of [408, 429]) {
+    stubFetch((attempt) => new Response('', { status: attempt < 2 ? transient : 200 }));
+    const outcome = await deliver();
+    assert.equal(outcome.delivered, true, `${transient} should be retried`);
+    assert.equal(outcome.attempts, 2);
+  }
 });
 
 test('a 5xx is retried and can still succeed', async () => {
@@ -126,10 +141,12 @@ test('delivery never follows a redirect', async () => {
   await deliver();
 });
 
-test('a callback pointing at private address space is dropped, not retried', async () => {
+test('a callback resolving into private address space is dropped, not retried', async () => {
   stubFetch(() => new Response('', { status: 200 }));
   const outcome = await deliverEvent({
-    callbackUrl: 'https://169.254.169.254/cb',
+    // Resolves to 127.0.0.1/::1 — the DNS path, which is what the guard is for
+    // now that literals are refused before they get this far.
+    callbackUrl: 'https://localhost/cb',
     secret: WHSEC,
     subscriptionId: 'sub_1',
     eventId: 'evt_1',

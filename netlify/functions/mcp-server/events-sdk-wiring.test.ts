@@ -143,6 +143,36 @@ test('events/subscribe requires a webhook delivery mode', async () => {
   assert.ok(body.error, 'a non-webhook delivery mode must be refused by the schema');
 });
 
+test('events/subscribe rejects an unrecognised context filter', async () => {
+  // Passing it through would create a subscription whose filter matches no
+  // real deploy context, so it would silently never deliver — the worst
+  // failure mode for a notification. Reject instead.
+  const body = await callMcp('events/subscribe', {
+    name: 'deploy.failed',
+    arguments: { site: 'my-site', context: 'prod' },
+    delivery: { mode: 'webhook', url: 'https://example.com/cb', secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64') },
+  });
+  assert.ok(body.error);
+  assert.equal(body.error.code, -32602);
+  assert.match(body.error.message, /Invalid "context" filter "prod"/);
+  assert.match(body.error.message, /production/, 'the message should list the valid values');
+});
+
+test('events/subscribe accepts each advertised context value', async () => {
+  for (const context of ['production', 'branch-deploy', 'deploy-preview']) {
+    const body = await callMcp('events/subscribe', {
+      name: 'deploy.failed',
+      arguments: { site: 'my-site', context },
+      delivery: { mode: 'webhook', url: 'https://example.com/cb', secret: 'whsec_' + Buffer.alloc(32, 1).toString('base64') },
+    });
+    // Each still fails later (no auth/site here) but must NOT fail on context.
+    assert.equal(
+      /Invalid "context" filter/.test(body.error?.message ?? ''), false,
+      `${context} should be accepted`,
+    );
+  }
+});
+
 test('events/subscribe requires a site argument', async () => {
   const body = await callMcp('events/subscribe', {
     name: 'deploy.failed',
