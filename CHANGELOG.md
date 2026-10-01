@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.17.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.16.0...mcp-v1.17.0) (2026-09-30)
+
+
+### Features
+
+* support subscribing to events ([#53](https://github.com/netlify/netlify-mcp/issues/53)) ([f669f52](https://github.com/netlify/netlify-mcp/commit/f669f5281968b9c8c57bda1c3d776b6cf261faff))
+
+
+### Bug Fixes
+
+* allow claude.ai/* to be aparat of the allowed urls for claude design to download from ([#50](https://github.com/netlify/netlify-mcp/issues/50)) ([57e547a](https://github.com/netlify/netlify-mcp/commit/57e547a1b23ace88227b6fc0ce014ec390e4c4f7))
+
 ## [1.16.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.15.1...mcp-v1.16.0) (2026-09-25)
 
 
