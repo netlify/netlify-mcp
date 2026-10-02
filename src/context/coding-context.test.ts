@@ -177,6 +177,47 @@ test('a manifest with the wrong schema_version or no skills array is unavailable
   assert.ok(!result.ok);
 });
 
+test('the skills host is pinned', () => {
+  assert.equal(SKILLS_HOST, 'https://www.netlify.com/context-files');
+});
+
+test('a manifest whose version could leave the versioned path is unavailable', async () => {
+  for (const version of ['../../api/v1/user?x=', '.', '..', '1.0/../x', '']) {
+    resetCodingContextCachesForTests();
+    manifestBody = manifest({ version });
+    assert.equal(await getSkillManifest(), undefined);
+  }
+});
+
+test('a skill with an unsafe name is not a topic', async () => {
+  manifestBody = manifest({
+    skills: [
+      entry('netlify-functions', 'active', ['SKILL.md']),
+      { ...entry('netlify-functions', 'active', ['SKILL.md']), name: '../netlify-functions' },
+    ],
+  });
+  assert.deepEqual(await getCodingContextTopics(), ['netlify-functions', 'serverless']);
+  const result = await getNetlifyCodingContext('../netlify-functions');
+  assert.ok(!result.ok);
+});
+
+test('a reference path with unsafe segments is neither listed nor selectable', async () => {
+  const unsafe = '../netlify-functions/SKILL.md';
+  const skill = entry('netlify-database', 'active', ['SKILL.md', 'references/migrations.md']);
+  skill.files[unsafe] = sha('x');
+  manifestBody = manifest({ skills: [skill] });
+
+  const result = await getNetlifyCodingContext('netlify-database');
+  assert.ok(result.ok);
+  assert.ok(!result.text.includes('..'));
+  assert.ok(result.text.includes('- references/migrations.md'));
+
+  requested = [];
+  const selected = await getNetlifyCodingContext('netlify-database', unsafe);
+  assert.ok(!selected.ok);
+  assert.deepEqual(requested.filter((u) => u.includes('/skills/')), []);
+});
+
 test('a failed manifest request is not cached', async () => {
   globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
   assert.equal(await getSkillManifest(), undefined);

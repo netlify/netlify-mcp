@@ -62,6 +62,10 @@ export async function getSkillManifest(): Promise<SkillManifest | undefined> {
       log.error('Skills manifest has an unsupported shape', { schemaVersion: data?.schema_version });
       return undefined;
     }
+    if (!isSafeSegment(data.version)) {
+      log.error('Skills manifest has an invalid version');
+      return undefined;
+    }
     cachedManifest = { data, timestamp: Date.now() };
     return data;
   } catch (error) {
@@ -70,8 +74,26 @@ export async function getSkillManifest(): Promise<SkillManifest | undefined> {
   }
 }
 
+// Manifest values are concatenated into the request path, so each segment must
+// be plain: no dots-only names, separators, query or fragment characters.
+function isSafeSegment(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
 function activeSkills(manifest: SkillManifest): Map<string, SkillEntry> {
-  return new Map(manifest.skills.filter((s) => s.status === 'active').map((s) => [s.name, s]));
+  return new Map(
+    manifest.skills
+      .filter((s) => s.status === 'active' && isSafeSegment(s.name))
+      .map((s): [string, SkillEntry] => [
+        s.name,
+        {
+          ...s,
+          files: Object.fromEntries(
+            Object.entries(s.files ?? {}).filter(([path]) => path.split('/').every(isSafeSegment)),
+          ),
+        },
+      ]),
+  );
 }
 
 export async function getCodingContextTopics(): Promise<string[]> {
