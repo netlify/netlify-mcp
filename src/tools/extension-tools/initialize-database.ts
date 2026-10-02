@@ -10,6 +10,8 @@ export const initializeDatabaseDomainTool: DomainTool<typeof initializeDatabaseP
   inputSchema: initializeDatabaseParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
+    // Returns setup instructions only; touches nothing.
+    destructiveHint: false,
   },
   cb: async () => {
     return 'Ensure the @netlify/database npm package is installed. After installation, restart the development server or run a new build.';

@@ -229,7 +229,17 @@ async function handleMCPPost(req: Request) {
             description:
               "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
             inputSchema: { creationType: creationTypeEnum },
-            annotations: { readOnlyHint: true },
+            // All four hints explicit: the spec defaults destructiveHint and
+            // openWorldHint to true when omitted, so declaring only
+            // readOnlyHint published this as implicitly destructive. It fetches
+            // context over the public internet, which is open-world under
+            // OpenAI's rubric (see completeToolAnnotations).
+            annotations: {
+              readOnlyHint: true,
+              destructiveHint: false,
+              idempotentHint: true,
+              openWorldHint: true,
+            },
           },
           async ({ creationType }) => {
             checkCompatibility();

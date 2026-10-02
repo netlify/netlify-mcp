@@ -32,7 +32,7 @@ import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken, NetlifyUnauthError, NetlifyApiError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
 import { log } from '../../netlify/functions/mcp-server/logger.js';
-import { categorizeToolsByReadWrite } from './tool-utils.js';
+import { aggregateToolAnnotations, categorizeToolsByReadWrite, completeToolAnnotations } from './tool-utils.js';
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
@@ -105,9 +105,9 @@ const registerDomainTools = (
       server.registerTool(toolName, {
         description: toolDescription,
         inputSchema: schemaShape,
-        annotations: {
-          readOnlyHint: operationType === 'read'
-        }
+        // Verbose mode registers each operation separately, so each gets its
+        // own precise hints rather than the domain-wide aggregate.
+        annotations: completeToolAnnotations(tool.toolAnnotations),
       }, async (...args: any[]) => {
         checkCompatibility();
 
@@ -165,9 +165,9 @@ const registerDomainTools = (
     server.registerTool(toolName, {
       description: toolDescription,
       inputSchema: paramsSchema,
-      annotations: {
-        readOnlyHint: operationType === 'read'
-      }
+      // One tool fronting many operations, so the hints describe the worst case
+      // of what the selector can actually be asked to do.
+      annotations: aggregateToolAnnotations(tools),
     }, async (...args: any[]) => {
       checkCompatibility();
 

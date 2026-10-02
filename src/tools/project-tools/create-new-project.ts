@@ -22,6 +22,8 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
   inputSchema: createNewProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
+    // Purely additive: creates a new project, never modifies an existing one.
+    destructiveHint: false,
   },
   cb: async ({ teamSlug, name: requestedName }, {request}) => {
 
