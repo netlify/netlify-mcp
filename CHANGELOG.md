@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.17.0...mcp-v1.17.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* declare all tool behaviour hints explicitly ([#58](https://github.com/netlify/netlify-mcp/issues/58)) ([9501c56](https://github.com/netlify/netlify-mcp/commit/9501c569d84fbb472372bda2921cf5e595c06c12))
+
 ## [1.17.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.16.0...mcp-v1.17.0) (2026-09-30)
 
 
