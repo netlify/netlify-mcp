@@ -1,125 +1,166 @@
-import { appendErrorToLog } from "../utils/logging.js"
-import { unauthenticatedFetch } from "../utils/api-networking.ts";
-import { log } from "../../netlify/functions/mcp-server/logger.js";
+import { createHash } from 'node:crypto';
+import { unauthenticatedFetch } from '../utils/api-networking.ts';
+import { log } from '../../netlify/functions/mcp-server/logger.js';
 
-export interface ConsumersData {
-  consumers: ConsumerConfig[]
-}
-export interface ContextConfig {
-  scope: string
-  glob?: string
-  shared?: string[]
-  endpoint?: string
+export const SKILLS_HOST = 'https://www.netlify.com/context-files';
+
+export interface SkillManifest {
+  schema_version: number;
+  version: string;
+  skills: SkillEntry[];
 }
 
-export interface ContextFile {
-  key: string
-  config: ContextConfig
-  content: string
+export interface SkillEntry {
+  name: string;
+  status: 'active' | 'deprecated';
+  prior_names: string[];
+  description: string;
+  files: Record<string, string>;
 }
 
-// Cache wrapper interface to store timestamp with context file
-interface CachedContext {
-  data: ContextFile;
-  timestamp: number;
-}
+// The topic names MCP offered before skills existed. Clients may have cached
+// them, so each still resolves to the skill that replaced it.
+export const LEGACY_TOPICS: Record<string, string> = {
+  serverless: 'netlify-functions',
+  'edge-functions': 'netlify-edge-functions',
+  blobs: 'netlify-blobs',
+  'image-cdn': 'netlify-image-cdn',
+  forms: 'netlify-forms',
+  db: 'netlify-database',
+};
 
-export interface ConsumerConfig {
-  key: string
-  presentedName: string
-  consumerProcessCmd?: string
-  path: string
-  ext: string
-  truncationLimit?: number
-  contextScopes: Record<string, ContextConfig>
-  hideFromCLI?: boolean
-  consumerTrigger?: string
-}
+export type CodingContextResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string };
 
-let contextConsumer: ConsumerConfig | undefined;
-const contextCache: Record<string, CachedContext> = {};
 const TEN_MINUTES_MS = 10 * 60 * 1000;
+const SKILL_FILE = 'SKILL.md';
+const REFERENCES_PREFIX = 'references/';
 
-const getConsumer = () => 'netlify-mcp';
+let cachedManifest: { data: SkillManifest; timestamp: number } | undefined;
+const fileCache = new Map<string, string>();
 
-// when we last loaded the consumer config
-let contextConsumerTimestamp: number = 0;
-
-// load the consumer configuration for the MCP so
-// we can share all of the available context for the
-// client to select from.
-export async function getContextConsumerConfig(){
-  const now = Date.now();
-
-  // Return cached consumer if it exists and is less than 10 minutes old
-  if(contextConsumer && (now - contextConsumerTimestamp) < TEN_MINUTES_MS) {
-    return contextConsumer;
-  }
-
-  try {
-    const response = await unauthenticatedFetch(`https://docs.netlify.com/ai-context/context-consumers`)
-    const data = await response.json() as ConsumersData;
-
-    if(data?.consumers?.length > 0){
-      contextConsumer = data.consumers.find(c => c.key === getConsumer());
-    }
-
-  } catch (error) {
-    appendErrorToLog('Error fetching context consumers:', error);
-  }
-
-  // Update timestamp when we get fresh data
-  if (contextConsumer) {
-    contextConsumerTimestamp = Date.now();
-  }
-
-  return contextConsumer;
+/** Test-only: clears the manifest and file caches. */
+export function resetCodingContextCachesForTests() {
+  cachedManifest = undefined;
+  fileCache.clear();
 }
 
-
-export async function getNetlifyCodingContext(contextKey: string): Promise<ContextFile | undefined> {
-  const now = Date.now();
-
-  // Check if we have a cached version that's less than 10 minutes old
-  // If so, return the cached version otherwise fetch fresh data
-  if (contextCache[contextKey] && (now - contextCache[contextKey].timestamp) < TEN_MINUTES_MS) {
-    return contextCache[contextKey]?.data;
+export async function getSkillManifest(): Promise<SkillManifest | undefined> {
+  if (cachedManifest && Date.now() - cachedManifest.timestamp < TEN_MINUTES_MS) {
+    return cachedManifest.data;
   }
 
-  const consumer = await getContextConsumerConfig();
-
-  if(!consumer || !consumer.contextScopes[contextKey]?.endpoint){
-    log.error('unable to find the context you are looking for. Check docs.netlify.com for more information.');
-    return;
-  }
-
-  const endpoint = new URL(consumer.contextScopes[contextKey].endpoint);
-  endpoint.searchParams.set('consumer', getConsumer());
-
-  let data = '';
   try {
-    const response = await unauthenticatedFetch(endpoint.toString())
-    data = await response.text() as string;
+    const response = await unauthenticatedFetch(`${SKILLS_HOST}/manifest.json`);
+    if (!response.ok) {
+      log.error('Skills manifest request failed', { status: response.status });
+      return undefined;
+    }
+    const data = (await response.json()) as SkillManifest;
+    if (data?.schema_version !== 1 || !Array.isArray(data.skills)) {
+      log.error('Skills manifest has an unsupported shape', { schemaVersion: data?.schema_version });
+      return undefined;
+    }
+    cachedManifest = { data, timestamp: Date.now() };
+    return data;
+  } catch (error) {
+    log.error('Error fetching skills manifest', { err: error });
+    return undefined;
+  }
+}
 
-    if(!data){
-      log.error('unable to find the context you are looking for. Check docs.netlify.com for more information.');
-      return;
+function activeSkills(manifest: SkillManifest): Map<string, SkillEntry> {
+  return new Map(manifest.skills.filter((s) => s.status === 'active').map((s) => [s.name, s]));
+}
+
+export async function getCodingContextTopics(): Promise<string[]> {
+  const manifest = await getSkillManifest();
+  if (!manifest) return [];
+
+  const active = activeSkills(manifest);
+  const legacy = Object.keys(LEGACY_TOPICS).filter((name) => active.has(LEGACY_TOPICS[name]));
+  return [...active.keys(), ...legacy];
+}
+
+// Files come from the versioned path, which is immutable per release, so the
+// cache needs no TTL and a cached manifest can never pair with another
+// release's bytes. The hash is checked before anything enters the cache.
+async function fetchSkillFile(
+  version: string,
+  skillName: string,
+  path: string,
+  expectedHash: string,
+): Promise<string> {
+  const cacheKey = `${version}/${skillName}/${path}`;
+  const cached = fileCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const response = await unauthenticatedFetch(`${SKILLS_HOST}/v/${version}/skills/${skillName}/${path}`);
+  if (!response.ok) {
+    throw new Error(`Request for ${skillName}/${path} failed with status ${response.status}`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const actualHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  if (actualHash !== expectedHash) {
+    throw new Error(`Hash mismatch for ${skillName}/${path}`);
+  }
+
+  const text = bytes.toString('utf8');
+  fileCache.set(cacheKey, text);
+  return text;
+}
+
+export async function getNetlifyCodingContext(
+  topic: string,
+  reference?: string,
+): Promise<CodingContextResult> {
+  const manifest = await getSkillManifest();
+  if (!manifest) {
+    return { ok: false, error: 'Netlify coding context is temporarily unavailable. Try again later.' };
+  }
+
+  const active = activeSkills(manifest);
+  const skill = active.get(topic) ?? active.get(LEGACY_TOPICS[topic] ?? '');
+  if (!skill) {
+    return { ok: false, error: `Unknown topic "${topic}". Available: ${[...active.keys()].join(', ')}` };
+  }
+
+  const referencePaths = Object.keys(skill.files).filter((path) => path !== SKILL_FILE);
+
+  try {
+    if (reference !== undefined) {
+      // Matched only against manifest keys, never used to build a URL directly,
+      // so it cannot reach outside the skill.
+      const path = referencePaths.find((p) => p === reference || p === `${REFERENCES_PREFIX}${reference}`);
+      if (!path) {
+        const available = referencePaths.length ? referencePaths.join(', ') : 'none';
+        return {
+          ok: false,
+          error: `Unknown reference "${reference}" for ${skill.name}. Available: ${available}`,
+        };
+      }
+      return { ok: true, text: await fetchSkillFile(manifest.version, skill.name, path, skill.files[path]) };
     }
 
-    const contextFile: ContextFile = {
-      key: contextKey,
-      config: consumer.contextScopes[contextKey],
-      content: data
-    };
+    const skillHash = skill.files[SKILL_FILE];
+    if (!skillHash) {
+      return { ok: false, error: `Skill ${skill.name} has no ${SKILL_FILE}.` };
+    }
+    const body = await fetchSkillFile(manifest.version, skill.name, SKILL_FILE, skillHash);
+    if (referencePaths.length === 0) return { ok: true, text: body };
 
-    contextCache[contextKey] = {
-      data: contextFile,
-      timestamp: Date.now()
-    };
-
+    const note = [
+      '---',
+      'This skill has reference files with more detail. To read one, call this tool again with the same creationType and set `reference` to its path:',
+      ...referencePaths.map((p) => `- ${p}`),
+    ].join('\n');
+    return { ok: true, text: `${body}\n\n${note}` };
   } catch (error) {
-    log.error('Error fetching context', { err: error });
+    log.error('Error fetching skill file', { err: error });
+    return {
+      ok: false,
+      error: `Unable to load context for ${skill.name}: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
-
-  return contextCache[contextKey]?.data;
 }
