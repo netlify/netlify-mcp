@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 
 // Deployed-style issuer so absolute URLs and identity lookups have a stable base.
 process.env.OAUTH_ISSUER = 'https://mcp.netlify.example.com';
@@ -171,4 +172,49 @@ test('register: request-context path is bounded on the always-on log line', asyn
   assert.equal(r.statusCode, 201);
   assert.ok(parsed);
   assert.equal(parsed.path.length, 200);
+});
+
+test('unimplemented grants fail before authorization-code processing', async () => {
+  const previous = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  try {
+    for (const grant of ['urn:ietf:params:oauth:grant-type:jwt-bearer', 'client_credentials']) {
+      const r = await call('POST', '/oauth-server/token', new URLSearchParams({
+        grant_type: grant,
+        assertion: 'untrusted-assertion',
+        client_id: 'some-client',
+      }).toString());
+      assert.equal(r.status, 400);
+      assert.equal(r.json.error, 'unsupported_grant_type');
+    }
+  } finally {
+    if (previous === undefined) delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+    else process.env.EMA_BACKEND_TOKEN_ENDPOINT = previous;
+  }
+});
+
+test('configured EMA forwards to the backend while discovery remains off', async () => {
+  const previous = process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+  process.env.EMA_BACKEND_TOKEN_ENDPOINT = 'https://api.example.test/oauth/ema/token';
+  const body = 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=original-proof&client_id=claude';
+  const authorization = 'Basic Y2xpZW50OnNlY3JldA==';
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(url), process.env.EMA_BACKEND_TOKEN_ENDPOINT);
+    assert.equal(init?.body, body);
+    assert.equal(new Headers(init?.headers).get('authorization'), authorization);
+    return Response.json({ error: 'invalid_grant' }, { status: 400 });
+  });
+  try {
+    const event = mkEvent('POST', '/oauth-server/token', body);
+    event.headers.authorization = authorization;
+    const result = await handler(event, {} as any, () => {});
+    assert.equal(JSON.parse(result.body).error, 'invalid_grant');
+    assert.equal(fetchMock.mock.callCount(), 1);
+    const metadata = await call('GET', '/.well-known/oauth-authorization-server');
+    assert.ok(!metadata.json.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:jwt-bearer'));
+  } finally {
+    fetchMock.mock.restore();
+    if (previous === undefined) delete process.env.EMA_BACKEND_TOKEN_ENDPOINT;
+    else process.env.EMA_BACKEND_TOKEN_ENDPOINT = previous;
+  }
 });
