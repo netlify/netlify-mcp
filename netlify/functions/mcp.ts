@@ -231,12 +231,14 @@ async function handleMCPPost(req: Request) {
             inputSchema: { creationType: creationTypeEnum },
             // All four hints explicit: the spec defaults destructiveHint and
             // openWorldHint to true when omitted, so declaring only
-            // readOnlyHint published this as implicitly destructive.
+            // readOnlyHint published this as implicitly destructive AND
+            // open-world. It reads a fixed set of Netlify context scopes, so
+            // its domain of interaction is closed.
             annotations: {
               readOnlyHint: true,
               destructiveHint: false,
               idempotentHint: true,
-              openWorldHint: true,
+              openWorldHint: false,
             },
           },
           async ({ creationType }) => {

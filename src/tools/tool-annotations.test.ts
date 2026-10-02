@@ -36,8 +36,21 @@ test('every domain tool completes to explicit booleans', () => {
 test('a read-only tool is never published as destructive', () => {
   const a = completeToolAnnotations({ readOnlyHint: true });
   assert.deepEqual(a, {
-    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true,
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
   });
+});
+
+test('openWorldHint is false: a bounded domain, not "makes a network call"', () => {
+  // The spec's test is whether the reachable set of entities is bounded — "the
+  // world of a web search tool is open, whereas that of a memory tool is not."
+  // These tools act only on the caller's own Netlify resources. This differs
+  // from the spec default of true, which is why it must be explicit.
+  for (const tool of ALL_DOMAIN_TOOLS) {
+    assert.equal(
+      completeToolAnnotations(tool.toolAnnotations).openWorldHint, false,
+      `${tool.domain}/${tool.operation} should declare a closed world`,
+    );
+  }
 });
 
 test('a writer defaults to destructive unless it says otherwise', () => {
@@ -92,12 +105,12 @@ test('the real reader/updater groupings land on sensible hints', () => {
 
   const r = aggregateToolAnnotations(readers);
   assert.deepEqual(
-    [r.readOnlyHint, r.destructiveHint, r.openWorldHint], [true, false, true],
+    [r.readOnlyHint, r.destructiveHint, r.openWorldHint], [true, false, false],
   );
 
   const w = aggregateToolAnnotations(writers);
   assert.deepEqual(
     // Destructive because env-var and form-submission management issue DELETEs.
-    [w.readOnlyHint, w.destructiveHint, w.openWorldHint], [false, true, true],
+    [w.readOnlyHint, w.destructiveHint, w.openWorldHint], [false, true, false],
   );
 });

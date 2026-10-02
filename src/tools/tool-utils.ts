@@ -28,9 +28,13 @@ export const categorizeToolsByReadWrite = (domainTools: DomainTool<any>[]) => {
  * published as implicitly destructive — and clients that surface these hints
  * (and reviewers that check them) saw nothing but the one key.
  *
- * `openWorldHint` stays true: every one of these tools calls api.netlify.com,
- * so the honest answer is that they reach outside this process. It is also the
- * spec default, so making it explicit changes no behaviour.
+ * `openWorldHint` is false. The hint is not "does this make a network call" —
+ * the spec's test is whether the set of entities the tool can reach is bounded:
+ * "the world of a web search tool is open, whereas that of a memory tool is
+ * not." These tools act only on the caller's own Netlify account — their sites,
+ * deploys, teams, env vars — which is an enumerable, closed domain, much closer
+ * to the memory example than the search one. It happens to differ from the
+ * spec's default of true, which is exactly why it has to be stated.
  */
 export const completeToolAnnotations = (annotations: ToolAnnotations): ToolAnnotations => {
   const readOnly = annotations.readOnlyHint === true;
@@ -43,7 +47,7 @@ export const completeToolAnnotations = (annotations: ToolAnnotations): ToolAnnot
     destructiveHint: readOnly ? false : (annotations.destructiveHint ?? true),
     // Reads are repeatable; writes are not assumed to be.
     idempotentHint: readOnly ? true : (annotations.idempotentHint ?? false),
-    openWorldHint: annotations.openWorldHint ?? true,
+    openWorldHint: annotations.openWorldHint ?? false,
   };
 };
 
@@ -64,6 +68,7 @@ export const aggregateToolAnnotations = (tools: DomainTool<any>[]): ToolAnnotati
     // Destructive if ANY operation is.
     destructiveHint: members.some(a => a.destructiveHint === true),
     idempotentHint: members.every(a => a.idempotentHint === true),
+    // Open-world if ANY operation reaches an unbounded set of entities.
     openWorldHint: members.some(a => a.openWorldHint === true),
   };
 };
