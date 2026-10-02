@@ -28,13 +28,19 @@ export const categorizeToolsByReadWrite = (domainTools: DomainTool<any>[]) => {
  * published as implicitly destructive — and clients that surface these hints
  * (and reviewers that check them) saw nothing but the one key.
  *
- * `openWorldHint` is false. The hint is not "does this make a network call" —
- * the spec's test is whether the set of entities the tool can reach is bounded:
- * "the world of a web search tool is open, whereas that of a memory tool is
- * not." These tools act only on the caller's own Netlify account — their sites,
- * deploys, teams, env vars — which is an enumerable, closed domain, much closer
- * to the memory example than the search one. It happens to differ from the
- * spec's default of true, which is exactly why it has to be stated.
+ * `openWorldHint` is true. Two published definitions disagree here and it is
+ * worth knowing which one this follows:
+ *
+ *   MCP schema — is the reachable set of entities bounded? "the world of a web
+ *     search tool is open, whereas that of a memory tool is not." By that test
+ *     these tools are CLOSED: they touch only the caller's own Netlify account.
+ *   OpenAI apps rubric — true "when the tool accesses the public internet or
+ *     open-ended external entities, including through read-only actions such as
+ *     web search." By that test they are OPEN: every one calls api.netlify.com.
+ *
+ * We follow OpenAI's, because the apps directory is what reviews these values,
+ * and it is also the spec default — so this is the conservative reading of an
+ * ambiguous hint rather than a claim that the domain is unbounded.
  */
 export const completeToolAnnotations = (annotations: ToolAnnotations): ToolAnnotations => {
   const readOnly = annotations.readOnlyHint === true;
@@ -47,7 +53,7 @@ export const completeToolAnnotations = (annotations: ToolAnnotations): ToolAnnot
     destructiveHint: readOnly ? false : (annotations.destructiveHint ?? true),
     // Reads are repeatable; writes are not assumed to be.
     idempotentHint: readOnly ? true : (annotations.idempotentHint ?? false),
-    openWorldHint: annotations.openWorldHint ?? false,
+    openWorldHint: annotations.openWorldHint ?? true,
   };
 };
 

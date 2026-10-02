@@ -378,7 +378,7 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
       description:
         'Deploy a Claude Design design to Netlify. This is the "Send to Netlify" destination for Claude Design: it takes a publicly fetchable URL to a self-contained HTML bundle (images, fonts, and styles inlined), creates a Netlify site, deploys the HTML, and returns a live URL. Intended for Claude Design exports, not general-purpose web hosting.',
       inputSchema: importInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (input: ImportInput) => {
       const authError = await guardAuth(remoteMCPRequest);
@@ -415,7 +415,7 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
       description:
         'Check the status of a Claude Design import started by import-claude-design-from-url. Returns processing | done | failed, plus the design URL once done.',
       inputSchema: statusInputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ job_id }: { job_id: string }) => {
       const authError = await guardAuth(remoteMCPRequest);

@@ -36,19 +36,21 @@ test('every domain tool completes to explicit booleans', () => {
 test('a read-only tool is never published as destructive', () => {
   const a = completeToolAnnotations({ readOnlyHint: true });
   assert.deepEqual(a, {
-    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true,
   });
 });
 
-test('openWorldHint is false: a bounded domain, not "makes a network call"', () => {
-  // The spec's test is whether the reachable set of entities is bounded — "the
-  // world of a web search tool is open, whereas that of a memory tool is not."
-  // These tools act only on the caller's own Netlify resources. This differs
-  // from the spec default of true, which is why it must be explicit.
+test('openWorldHint follows the OpenAI rubric: reaches the public internet', () => {
+  // Two definitions disagree. The MCP schema asks whether the reachable set is
+  // bounded (these tools would be closed); OpenAI's apps rubric asks whether
+  // the tool "accesses the public internet" (these tools all call
+  // api.netlify.com, so open). We follow OpenAI's, since that is what reviews
+  // these values — and it matches the spec default, so it is the conservative
+  // reading of an ambiguous hint.
   for (const tool of ALL_DOMAIN_TOOLS) {
     assert.equal(
-      completeToolAnnotations(tool.toolAnnotations).openWorldHint, false,
-      `${tool.domain}/${tool.operation} should declare a closed world`,
+      completeToolAnnotations(tool.toolAnnotations).openWorldHint, true,
+      `${tool.domain}/${tool.operation} reaches api.netlify.com`,
     );
   }
 });
@@ -105,12 +107,12 @@ test('the real reader/updater groupings land on sensible hints', () => {
 
   const r = aggregateToolAnnotations(readers);
   assert.deepEqual(
-    [r.readOnlyHint, r.destructiveHint, r.openWorldHint], [true, false, false],
+    [r.readOnlyHint, r.destructiveHint, r.openWorldHint], [true, false, true],
   );
 
   const w = aggregateToolAnnotations(writers);
   assert.deepEqual(
     // Destructive because env-var and form-submission management issue DELETEs.
-    [w.readOnlyHint, w.destructiveHint, w.openWorldHint], [false, true, false],
+    [w.readOnlyHint, w.destructiveHint, w.openWorldHint], [false, true, true],
   );
 });
