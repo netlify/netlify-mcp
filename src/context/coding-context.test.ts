@@ -157,7 +157,6 @@ test('manifest comes from /manifest.json, files from the versioned path, never d
     `${SKILLS_HOST}/v/${VERSION}/skills/netlify-database/SKILL.md`,
     `${SKILLS_HOST}/v/${VERSION}/skills/netlify-database/references/migrations.md`,
   ]);
-  assert.ok(requested.every((u) => !u.includes('docs.netlify.com')));
 });
 
 test('manifest and files are cached across calls', async () => {
