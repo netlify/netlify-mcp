@@ -19,11 +19,18 @@ const deploySiteRemotelyParamsSchema = z.object({
 export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
+  description:
+    "Deploy a project to an existing Netlify site and publish it, making it what visitors see. Returns a command for the user to run in their project directory. siteId is required in practice — this cannot create a new site, and omitting it produces a command that will not work. Use get-projects or create-new-project first if the target site id is not known.",
   inputSchema: deploySiteRemotelyParamsSchema,
   omitFromLocalMCP: true,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Publishing adds a new deploy and makes it live. The previous deploy is
+    // retained and can be restored, so nothing is destroyed — but each call
+    // produces another deploy rather than converging, hence not idempotent.
+    destructiveHint: false,
+    idempotentHint: false,
+},
   cb: async (params, {request}) => {
 
     const proxyToken = await createJWE({

@@ -10,6 +10,8 @@ const getTeamsParamsSchema = z.object({});
 export const getTeamsDomainTool: DomainTool<typeof getTeamsParamsSchema> = {
   domain: 'team',
   operation: 'get-teams',
+  description:
+    "List every Netlify team (account) the authenticated user belongs to, with each team's name and slug. Takes no arguments. Use it first when an operation needs a team slug or id and the user has not said which team.",
   inputSchema: getTeamsParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

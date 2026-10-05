@@ -13,10 +13,16 @@ const updateProjectNameParamsSchema = z.object({
 export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNameParamsSchema> = {
   domain: 'project',
   operation: 'update-project-name',
+  description:
+    "Rename a Netlify project. The name must be hyphenated alphanumeric (for example 'my-site'). This also changes the site's netlify.app subdomain, so any existing links to the old subdomain stop working and the old name becomes available to others.",
   inputSchema: updateProjectNameParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Renames the project. The old netlify.app subdomain stops resolving, but
+    // nothing is deleted and the change is reversible by renaming back.
+    destructiveHint: false,
+    idempotentHint: true,
+},
   cb: async ({ siteId, name }, {request}) => {
 
     if(name === undefined || name === '') {

@@ -19,3 +19,27 @@ export function isClaudeMCPClient(req: Request, body: any): boolean {
   }
   return CLAUDE_CLIENT_PATTERN.test(userAgent) || CLAUDE_CLIENT_PATTERN.test(clientName);
 }
+
+
+// OpenAI's MCP client (ChatGPT / Codex) identifies itself with a user-agent
+// beginning `openai-mcp`. It gets the GRANULAR tool surface: one tool per
+// operation rather than a per-domain selector that dispatches through a union.
+//
+// This is required rather than cosmetic. OpenAI's app guidelines say to "expose
+// each model-callable operation as a separate tool with a clear description,
+// input schema, and annotations", and specifically not to "use discovery,
+// operation selection, or schema fetching with a generic executor to enable
+// operations not individually exposed for review" — which is exactly what the
+// grouped `netlify-<domain>-services-<reader|updater>` tools do. Every grouped
+// tool that fronts more than one operation came back from review as needing
+// further review; the two that front a single operation did not.
+//
+// Matched on user-agent alone, not clientInfo: this server is stateless and
+// clientInfo only arrives on `initialize`, never on the `tools/list` that
+// actually needs the decision.
+const OPENAI_MCP_USER_AGENT_PREFIX = 'openai-mcp';
+
+export function isOpenAIMCPClient(req?: Request): boolean {
+  const userAgent = req?.headers.get('user-agent') ?? '';
+  return userAgent.trim().toLowerCase().startsWith(OPENAI_MCP_USER_AGENT_PREFIX);
+}

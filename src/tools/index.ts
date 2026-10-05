@@ -96,7 +96,10 @@ const registerDomainTools = (
     // Register each tool individually (no anyOf/union)
     tools.forEach(tool => {
       const toolName = `netlify-${domain}-${tool.operation}`;
-      const toolDescription = `${tool.operation} operation for Netlify ${domain}${readOnlyIndicator}`;
+      // Prefer the operation's own description. The generated fallback only
+      // restates the tool name, which is not enough on its own.
+      const toolDescription = tool.description
+        ?? `${tool.operation} operation for Netlify ${domain}${readOnlyIndicator}`;
 
       // The MCP SDK expects inputSchema to be a plain object with Zod schemas as properties
       // We need to extract the shape from the Zod object and use it directly
@@ -137,9 +140,14 @@ const registerDomainTools = (
           // so the client still gets its error result.
           if (err instanceof NetlifyUnauthError) throw err;
           if (err instanceof NetlifyApiError && err.status < 500) {
-            log.warn('tool operation client error', { domain, operation: tool.operation, toolName, status: err.status });
+            // `operation` must match what the call line in mcp.ts recorded, or
+            // failures land on a different dimension from the calls they came
+            // from. In granular mode there is no selectSchema, so that line
+            // falls back to the full tool name — use it here too, and keep the
+            // short name separately for comparing an operation across surfaces.
+            log.warn('tool operation client error', { domain, operation: toolName, domainOperation: tool.operation, toolName, status: err.status });
           } else {
-            log.error('tool operation failed', { domain, operation: tool.operation, toolName, err });
+            log.error('tool operation failed', { domain, operation: toolName, domainOperation: tool.operation, toolName, err });
           }
           throw err;
         }

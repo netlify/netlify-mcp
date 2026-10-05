@@ -12,6 +12,8 @@ const getDeployBySiteIdParamsSchema = z.object({
 export const getDeployBySiteIdDomainTool: DomainTool<typeof getDeployBySiteIdParamsSchema> = {
   domain: 'deploy',
   operation: 'get-deploy-for-site',
+  description:
+    "Get a deploy belonging to a specific Netlify site, given both the site id and deploy id. Returns the same detail as get-deploy but scoped to the site, so it will not return a deploy from another site.",
   inputSchema: getDeployBySiteIdParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

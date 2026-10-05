@@ -11,6 +11,8 @@ const getTeamEnvVarsParamsSchema = z.object({
 export const getTeamEnvVarsDomainTool: DomainTool<typeof getTeamEnvVarsParamsSchema> = {
   domain: 'team',
   operation: 'get-team-env-vars',
+  description:
+    "List environment variables shared across a Netlify team, optionally narrowed to a single key. Returns team-level variables only — use manage-env-vars for variables set on an individual site. Values of variables marked secret are not returned.",
   inputSchema: getTeamEnvVarsParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,
