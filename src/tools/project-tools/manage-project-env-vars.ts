@@ -23,7 +23,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
   domain: 'project',
   operation: 'manage-env-vars',
   description:
-    "Read, create, update, or delete environment variables on a Netlify site. Set getAllEnvVars to list them, upsertEnvVar to create or overwrite one (optionally marking it secret and scoping it to specific contexts), or deleteEnvVar to remove one. Overwriting and deleting are permanent, and a build is needed for changes to take effect.",
+    "Read, create, update, or delete environment variables on a Netlify site. Set getAllEnvVars to list them, upsertEnvVar to create or overwrite one, or deleteEnvVar to remove one. envVarIsSecret and newVarScopes apply only when the variable is being CREATED: for a key that already exists, upsert updates the value alone and silently leaves the existing secret flag and scopes unchanged. Deleting is permanent, and a build is needed for changes to take effect.",
   inputSchema: manageEnvVarsParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,

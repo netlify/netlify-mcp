@@ -20,7 +20,7 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   domain: 'deploy',
   operation: 'deploy-site',
   description:
-    "Deploy the current project to Netlify and publish it. Pass an existing site id to deploy to that site; omit it only when the user has explicitly confirmed they want a NEW site created, never by assumption. This replaces what the site currently serves to visitors.",
+    "Deploy a project to an existing Netlify site and publish it, making it what visitors see. Returns a command for the user to run in their project directory. siteId is required in practice — this cannot create a new site, and omitting it produces a command that will not work. Use get-projects or create-new-project first if the target site id is not known.",
   inputSchema: deploySiteRemotelyParamsSchema,
   omitFromLocalMCP: true,
   toolAnnotations: {

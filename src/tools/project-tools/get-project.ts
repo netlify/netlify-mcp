@@ -13,7 +13,7 @@ export const getProjectDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'get-project',
   description:
-    "Get one Netlify project (site) by id: its name, URLs, build settings, framework, and current published deploy. Use it to confirm a site's configuration before changing it.",
+    "Get one Netlify project (site) by id: its name, plan, team id, public and branch URLs, visitor access controls (password and SSO requirements), and the state and id of its currently published deploy. Does not return build settings or the detected framework.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

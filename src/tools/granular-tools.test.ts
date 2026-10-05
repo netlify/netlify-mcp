@@ -83,7 +83,7 @@ test('destructive hints are set per operation, not per domain', () => {
   // delete nothing, so they must not carry a destructive warning they would
   // then share with the real deletes.
   for (const op of [
-    'create-new-project', 'update-forms', 'initialize-database',
+    'create-new-project', 'update-forms',
     'update-project-name', 'update-visitor-access-controls', 'deploy-site',
   ]) {
     assert.equal(byOp[op].readOnlyHint, false, `${op} is still a write`);
@@ -93,4 +93,8 @@ test('destructive hints are set per operation, not per domain', () => {
   // create-new-project is additive but not repeatable: each call makes another.
   assert.equal(byOp['create-new-project'].idempotentHint, false);
   assert.equal(byOp['deploy-site'].idempotentHint, false);
+
+  // Returns instructions as text, so it is a read despite the "initialize" name.
+  assert.equal(byOp['initialize-database'].readOnlyHint, true);
+  assert.equal(byOp['initialize-database'].destructiveHint, false);
 });
