@@ -21,9 +21,14 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-    // Changes who can view the site. No data is deleted and any control can be
-    // re-applied, so this is a configuration change rather than a destructive one.
-    destructiveHint: false,
+    // Destructive because it can expose a site that was private: passing
+    // requirePassword: false with no SSO requirement falls through to the
+    // reset defaults and sends password: "", sso_login: false, removing all
+    // protection. Re-protecting afterwards does not undo content having been
+    // publicly reachable, and the call also silently clears whichever control
+    // it is not setting. (Previously false on the reasoning that nothing is
+    // deleted and controls can be re-applied; revised after app review.)
+    destructiveHint: true,
     idempotentHint: true,
 },
   cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
