@@ -74,6 +74,8 @@ test('destructive hints are set per operation, not per domain', () => {
   // the user cannot simply set back.
   for (const op of [
     'manage-env-vars', 'manage-form-submissions', 'change-extension-installation',
+    // Can make a private site publicly visible, which re-protecting does not undo.
+    'update-visitor-access-controls',
   ]) {
     assert.equal(byOp[op].destructiveHint, true, `${op} should be destructive`);
   }
@@ -83,8 +85,7 @@ test('destructive hints are set per operation, not per domain', () => {
   // delete nothing, so they must not carry a destructive warning they would
   // then share with the real deletes.
   for (const op of [
-    'create-new-project', 'update-forms',
-    'update-project-name', 'update-visitor-access-controls', 'deploy-site',
+    'create-new-project', 'update-forms', 'update-project-name', 'deploy-site',
   ]) {
     assert.equal(byOp[op].readOnlyHint, false, `${op} is still a write`);
     assert.equal(byOp[op].destructiveHint, false, `${op} should NOT be destructive`);

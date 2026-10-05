@@ -117,5 +117,6 @@ test('granular tools carry explicit behaviour hints', async () => {
     'netlify-extension-change-extension-installation',
     'netlify-project-manage-env-vars',
     'netlify-project-manage-form-submissions',
+    'netlify-project-update-visitor-access-controls',
   ]);
 });
