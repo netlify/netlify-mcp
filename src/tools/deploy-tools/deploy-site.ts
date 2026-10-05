@@ -19,11 +19,17 @@ const deploySiteRemotelyParamsSchema = z.object({
 export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
+  description:
+    "Deploy the current project to Netlify and publish it. Pass an existing site id to deploy to that site; omit it only when the user has explicitly confirmed they want a NEW site created, never by assumption. This replaces what the site currently serves to visitors.",
   inputSchema: deploySiteRemotelyParamsSchema,
   omitFromLocalMCP: true,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Publishing replaces what the site currently serves, and each call creates a
+    // new deploy rather than converging on one.
+    destructiveHint: true,
+    idempotentHint: false,
+},
   cb: async (params, {request}) => {
 
     const proxyToken = await createJWE({

@@ -96,7 +96,10 @@ const registerDomainTools = (
     // Register each tool individually (no anyOf/union)
     tools.forEach(tool => {
       const toolName = `netlify-${domain}-${tool.operation}`;
-      const toolDescription = `${tool.operation} operation for Netlify ${domain}${readOnlyIndicator}`;
+      // Prefer the operation's own description. The generated fallback only
+      // restates the tool name, which is not enough on its own.
+      const toolDescription = tool.description
+        ?? `${tool.operation} operation for Netlify ${domain}${readOnlyIndicator}`;
 
       // The MCP SDK expects inputSchema to be a plain object with Zod schemas as properties
       // We need to extract the shape from the Zod object and use it directly

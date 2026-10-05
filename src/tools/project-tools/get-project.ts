@@ -12,6 +12,8 @@ const getProjectParamsSchema = z.object({
 export const getProjectDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'get-project',
+  description:
+    "Get one Netlify project (site) by id: its name, URLs, build settings, framework, and current published deploy. Use it to confirm a site's configuration before changing it.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

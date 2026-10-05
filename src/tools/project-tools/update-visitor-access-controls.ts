@@ -16,10 +16,15 @@ const getProjectParamsSchema = z.object({
 export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'update-visitor-access-controls',
+  description:
+    "Control who can view a Netlify site, by requiring SSO team login and/or a site password, applied either to all deploys or to non-production deploys only. Changing these can revoke access for people who currently have it, and removing a requirement makes previously protected content publicly visible.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Access revocation. Re-applying the same controls is a no-op.
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
 
     if(requireSSOTeamLogin === undefined && requirePassword === undefined) {

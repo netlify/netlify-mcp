@@ -10,6 +10,8 @@ const getDeployByIdParamsSchema = z.object({
 export const getDeployByIdDomainTool: DomainTool<typeof getDeployByIdParamsSchema> = {
   domain: 'deploy',
   operation: 'get-deploy',
+  description:
+    "Get one Netlify deploy by its deploy id, including state (ready, building, error), the error message when it failed, branch, commit, duration, and its URLs. Use it to check whether a specific deploy succeeded or to read why it failed. Requires the deploy id; use get-deploy-for-site if you only know the site.",
   inputSchema: getDeployByIdParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

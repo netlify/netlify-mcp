@@ -22,10 +22,15 @@ const manageEnvVarsParamsSchema = z.object({
 export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchema> = {
   domain: 'project',
   operation: 'manage-env-vars',
+  description:
+    "Read, create, update, or delete environment variables on a Netlify site. Set getAllEnvVars to list them, upsertEnvVar to create or overwrite one (optionally marking it secret and scoping it to specific contexts), or deleteEnvVar to remove one. Overwriting and deleting are permanent, and a build is needed for changes to take effect.",
   inputSchema: manageEnvVarsParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Includes deleting variables. Re-applying the same value is a no-op.
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
     const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request);

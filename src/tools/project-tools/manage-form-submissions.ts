@@ -16,10 +16,15 @@ const manageFormSubmissionsParamsSchema = z.object({
 export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmissionsParamsSchema> = {
   domain: 'project',
   operation: 'manage-form-submissions',
+  description:
+    "Read or delete Netlify Forms submissions. Use action 'get-submissions' with a form or site id to page through submitted data, or 'delete-submission' with a submission id to delete one permanently. Deletion cannot be undone.",
   inputSchema: manageFormSubmissionsParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Includes delete-submission. Deleting an already-deleted submission is a no-op.
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ formId, siteId, limit, offset, action, submissionId }, {request}) => {
 
     if(action === 'delete-submission'){
