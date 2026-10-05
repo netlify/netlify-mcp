@@ -7,8 +7,9 @@ const initializeDatabaseParamsSchema = z.object({});
 export const initializeDatabaseDomainTool: DomainTool<typeof initializeDatabaseParamsSchema> = {
   domain: 'extension',
   operation: 'initialize-database',
+  granularToolName: 'netlify-get-database-setup-steps',
   description:
-    "Return the steps for adding a Netlify Database (Postgres) to the current project. This only returns instructions — it does not provision anything or change the project.",
+    "Get the setup steps for adding a Netlify Database (Postgres) to the current project. Returns written instructions only: it does not provision a database, install anything, or change the project. Follow the returned steps to actually add the database.",
   inputSchema: initializeDatabaseParamsSchema,
   toolAnnotations: {
     // Returns setup instructions as text. It calls nothing and changes

@@ -95,7 +95,7 @@ const registerDomainTools = (
   if (verboseMode) {
     // Register each tool individually (no anyOf/union)
     tools.forEach(tool => {
-      const toolName = `netlify-${domain}-${tool.operation}`;
+      const toolName = tool.granularToolName ?? `netlify-${domain}-${tool.operation}`;
       // Prefer the operation's own description. The generated fallback only
       // restates the tool name, which is not enough on its own.
       const toolDescription = tool.description
