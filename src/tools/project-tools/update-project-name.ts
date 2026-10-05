@@ -18,9 +18,9 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
   inputSchema: updateProjectNameParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-    // Overwrites the name, which changes the site's netlify.app URL and breaks
-    // existing links. Re-applying the same name is a no-op.
-    destructiveHint: true,
+    // Renames the project. The old netlify.app subdomain stops resolving, but
+    // nothing is deleted and the change is reversible by renaming back.
+    destructiveHint: false,
     idempotentHint: true,
 },
   cb: async ({ siteId, name }, {request}) => {

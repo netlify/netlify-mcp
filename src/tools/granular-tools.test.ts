@@ -70,16 +70,22 @@ test('destructive hints are set per operation, not per domain', () => {
     REMOTE_TOOLS.map(t => [t.operation, completeToolAnnotations(t.toolAnnotations)]),
   );
 
-  // Deletes and overwrites.
+  // Destructive means data is DELETED. Only these three can remove something
+  // the user cannot simply set back.
   for (const op of [
-    'manage-env-vars', 'manage-form-submissions', 'update-project-name',
-    'update-visitor-access-controls', 'change-extension-installation', 'deploy-site',
+    'manage-env-vars', 'manage-form-submissions', 'change-extension-installation',
   ]) {
     assert.equal(byOp[op].destructiveHint, true, `${op} should be destructive`);
   }
 
-  // Additive or inert writes no longer inherit the domain's worst case.
-  for (const op of ['create-new-project', 'update-forms', 'initialize-database']) {
+  // Everything else that writes only CHANGES state. Renaming a project,
+  // altering visitor access and publishing a deploy are all reversible and
+  // delete nothing, so they must not carry a destructive warning they would
+  // then share with the real deletes.
+  for (const op of [
+    'create-new-project', 'update-forms', 'initialize-database',
+    'update-project-name', 'update-visitor-access-controls', 'deploy-site',
+  ]) {
     assert.equal(byOp[op].readOnlyHint, false, `${op} is still a write`);
     assert.equal(byOp[op].destructiveHint, false, `${op} should NOT be destructive`);
   }

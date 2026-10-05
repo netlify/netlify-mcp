@@ -25,9 +25,10 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   omitFromLocalMCP: true,
   toolAnnotations: {
     readOnlyHint: false,
-    // Publishing replaces what the site currently serves, and each call creates a
-    // new deploy rather than converging on one.
-    destructiveHint: true,
+    // Publishing adds a new deploy and makes it live. The previous deploy is
+    // retained and can be restored, so nothing is destroyed — but each call
+    // produces another deploy rather than converging, hence not idempotent.
+    destructiveHint: false,
     idempotentHint: false,
 },
   cb: async (params, {request}) => {

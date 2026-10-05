@@ -17,12 +17,13 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
   domain: 'project',
   operation: 'update-visitor-access-controls',
   description:
-    "Control who can view a Netlify site by requiring EITHER SSO team login OR a site password — not both. This call replaces the site's whole visitor-access configuration: requiring a password clears any SSO requirement and vice versa, and passing neither removes all protection and makes the site publicly visible. If both are requested the password takes effect and SSO is turned off. Scope the rule to all deploys or to non-production deploys only with appliesTo.",
+    "Control who can view a Netlify site by requiring EITHER SSO team login OR a site password — not both. This call replaces the site's whole visitor-access configuration: requiring a password clears any SSO requirement and vice versa, and omitting both is rejected. To remove all protection and make the site publicly visible, pass requirePassword: false, requireSSOTeamLogin: false, or both. If both are requested as true the password takes effect and SSO is turned off. Scope the rule to all deploys or to non-production deploys only with appliesTo.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-    // Access revocation. Re-applying the same controls is a no-op.
-    destructiveHint: true,
+    // Changes who can view the site. No data is deleted and any control can be
+    // re-applied, so this is a configuration change rather than a destructive one.
+    destructiveHint: false,
     idempotentHint: true,
 },
   cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
