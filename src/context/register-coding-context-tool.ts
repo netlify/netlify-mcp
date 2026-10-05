@@ -31,7 +31,17 @@ export async function registerCodingContextTool(
             'Optional. Path of one of the skill\'s reference files (for example "references/migrations.md"), as listed at the end of the main response for that creationType. Omit to get the main skill guidance.',
           ),
       },
-      annotations: { readOnlyHint: true },
+      // All four hints explicit: the spec defaults destructiveHint and
+      // openWorldHint to true when omitted, so declaring only readOnlyHint
+      // published this as implicitly destructive. It fetches context over the
+      // public internet, which is open-world under OpenAI's rubric (see
+      // completeToolAnnotations).
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ creationType, reference }) => {
       checkCompatibility();

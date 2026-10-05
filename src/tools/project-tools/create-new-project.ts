@@ -19,10 +19,16 @@ const randomNameSuffix = () => Math.random().toString(36).slice(2, 6);
 export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParamsSchema> = {
   domain: 'project',
   operation: 'create-new-project',
+  description:
+    "Create a new, empty Netlify project in a team. If the requested name is taken, a similar available name is used instead, so the created project may not have exactly the name requested — check the returned name. Calling this twice creates two projects.",
   inputSchema: createNewProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Purely additive, but NOT idempotent: each call creates another project, and
+    // a name conflict is resolved by picking a different name.
+    destructiveHint: false,
+    idempotentHint: false,
+},
   cb: async ({ teamSlug, name: requestedName }, {request}) => {
 
     let attemptName = requestedName;

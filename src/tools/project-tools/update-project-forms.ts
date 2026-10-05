@@ -13,10 +13,16 @@ const getProjectParamsSchema = z.object({
 export const updateFormsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'update-forms',
+  description:
+    "Enable or disable Netlify Forms processing for a site. Disabling stops new submissions from being captured on the next deploy; it does not delete submissions already collected.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Toggles a processing setting on or off. No submission data is removed, and
+    // setting the same value twice leaves the same state.
+    destructiveHint: false,
+    idempotentHint: true,
+},
   cb: async ({ siteId, forms }, {request}) => {
 
     if(forms === undefined) {

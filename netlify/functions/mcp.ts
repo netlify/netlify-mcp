@@ -9,7 +9,7 @@ import { getPackageVersion } from "../../src/utils/version.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
-import { isClaudeMCPClient } from "../../src/utils/client-detection.ts";
+import { isClaudeMCPClient, isOpenAIMCPClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
@@ -192,7 +192,19 @@ async function handleMCPPost(req: Request) {
     });
   }
 
-  const verboseMode = new URL(req.url).searchParams.get('verbose') === 'true';
+  // Granular mode registers one tool per operation instead of a per-domain
+  // selector tool. `?verbose=true` opts in manually; OpenAI's client always
+  // gets it, because their app guidelines require each model-callable operation
+  // to be individually exposed for review (see isOpenAIMCPClient).
+  const explicitlyVerbose = new URL(req.url).searchParams.get('verbose') === 'true';
+  const openAIClient = isOpenAIMCPClient(req);
+  const verboseMode = explicitlyVerbose || openAIClient;
+  if (verboseMode) {
+    addLogContext({
+      toolSurface: 'granular',
+      granularReason: openAIClient ? 'openai-client' : 'verbose-param',
+    });
+  }
 
   // Reconstruct a request with the buffered body so the v2 handler can read it
   // (req's stream was consumed above).

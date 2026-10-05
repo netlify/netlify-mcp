@@ -12,6 +12,8 @@ const getFormsForProjectParamsSchema = z.object({
 export const getFormsForProjectDomainTool: DomainTool<typeof getFormsForProjectParamsSchema> = {
   domain: 'project',
   operation: 'get-forms-for-project',
+  description:
+    "List the Netlify Forms defined on a site, or get one form by id, including each form's name and submission count. Use it to find a form id before reading or deleting its submissions.",
   inputSchema: getFormsForProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

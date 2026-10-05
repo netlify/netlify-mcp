@@ -54,3 +54,13 @@
   from = "/.well-known/openid-configuration"
   to = ".netlify/functions/oauth-server/openid-configuration"
   status = 200
+
+# Domain ownership proof for the OpenAI apps/plugin directory. The file is a
+# static asset at the repo root (this site publishes the root, so no build step
+# is involved); this header only pins its Content-Type, since the token file has
+# no extension and would otherwise be served as a generic binary download.
+[[headers]]
+  for = "/.well-known/openai-apps-challenge"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+    Cache-Control = "public, max-age=300"

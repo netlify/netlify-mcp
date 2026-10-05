@@ -14,6 +14,8 @@ const getProjectParamsSchema = z.object({
 export const getProjectsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'get-projects',
+  description:
+    "List the authenticated user's Netlify projects (sites), optionally filtered to a team or searched by name. Use it to find a site id when the user names a site in words rather than by id.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,
