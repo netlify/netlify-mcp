@@ -17,7 +17,7 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
   domain: 'project',
   operation: 'update-visitor-access-controls',
   description:
-    "Control who can view a Netlify site, by requiring SSO team login and/or a site password, applied either to all deploys or to non-production deploys only. Changing these can revoke access for people who currently have it, and removing a requirement makes previously protected content publicly visible.",
+    "Control who can view a Netlify site by requiring EITHER SSO team login OR a site password — not both. This call replaces the site's whole visitor-access configuration: requiring a password clears any SSO requirement and vice versa, and passing neither removes all protection and makes the site publicly visible. If both are requested the password takes effect and SSO is turned off. Scope the rule to all deploys or to non-production deploys only with appliesTo.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,

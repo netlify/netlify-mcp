@@ -201,10 +201,11 @@ async function handleMCPPost(req: Request) {
   const explicitlyVerbose = new URL(req.url).searchParams.get('verbose') === 'true';
   const openAIClient = isOpenAIMCPClient(req);
   const verboseMode = explicitlyVerbose || openAIClient;
-  if (openAIClient) {
-    addLogContext({ toolSurface: 'granular', granularReason: 'openai-client' });
-  } else if (explicitlyVerbose) {
-    addLogContext({ toolSurface: 'granular', granularReason: 'verbose-param' });
+  if (verboseMode) {
+    addLogContext({
+      toolSurface: 'granular',
+      granularReason: openAIClient ? 'openai-client' : 'verbose-param',
+    });
   }
 
   // Reconstruct a request with the buffered body so the v2 handler can read it
