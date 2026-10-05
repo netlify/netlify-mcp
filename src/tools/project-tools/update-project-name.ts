@@ -14,15 +14,13 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
   domain: 'project',
   operation: 'update-project-name',
   description:
-    "Rename a Netlify project. The name must be hyphenated alphanumeric (for example 'my-site'). This also changes the site's netlify.app subdomain, so any existing links to the old subdomain stop working and the old name becomes available to others.",
+    "Rename a Netlify project. The name must be hyphenated alphanumeric (for example 'my-site'). This also changes the site's netlify.app subdomain: every existing link to the old URL stops working, and the old name is released back to the shared pool where anyone can claim it, so renaming back may not be possible. Confirm the new name with the user before calling.",
   inputSchema: updateProjectNameParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-    // Renames the project. The old netlify.app subdomain stops resolving, but
-    // nothing is deleted and the change is reversible by renaming back.
-    destructiveHint: false,
+    destructiveHint: true,
     idempotentHint: true,
-},
+  },
   cb: async ({ siteId, name }, {request}) => {
 
     if(name === undefined || name === '') {

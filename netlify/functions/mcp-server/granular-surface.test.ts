@@ -88,8 +88,9 @@ test('the two names flagged as unclear are overridden', async () => {
   const names = (await toolsList('openai-mcp/1.0.0')).map(t => t.name);
   assert.ok(names.includes('netlify-deploy-site'));
   assert.ok(names.includes('netlify-get-database-setup-steps'));
-  assert.equal(names.includes('netlify-deploy-deploy-site'), false);
-  assert.equal(names.includes('netlify-extension-initialize-database'), false);
+  for (const stale of ['netlify-deploy-deploy-site', 'netlify-extension-initialize-database']) {
+    assert.equal(names.includes(stale), false, `${stale} should be gone`);
+  }
 });
 
 test('overriding a granular name does not change the operation id', async () => {
@@ -117,6 +118,7 @@ test('granular tools carry explicit behaviour hints', async () => {
     'netlify-extension-change-extension-installation',
     'netlify-project-manage-env-vars',
     'netlify-project-manage-form-submissions',
+    'netlify-project-update-project-name',
     'netlify-project-update-visitor-access-controls',
   ]);
 });
