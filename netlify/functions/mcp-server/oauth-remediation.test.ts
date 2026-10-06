@@ -97,6 +97,11 @@ function proxyRequest(token: string, path: string, method = 'POST') {
   return new Request(`https://mcp.example/proxy/${token}${path}`, { method });
 }
 
+/** The browser's own cookie name with a secret it was never given. */
+function wrongSecret(cookie: string): string {
+  return `${cookie.split('=')[0]}=${'C'.repeat(43)}`;
+}
+
 function body(res: any) {
   return JSON.parse(res.body as string);
 }
@@ -315,22 +320,24 @@ test('consent cannot be read or approved without the session cookie that started
 
   const noCookie = await consentPage(flow.txn, null);
   assert.equal(noCookie.statusCode, 400);
-  const otherBrowser = await consentPage(flow.txn, 'netlify_mcp_oauth=' + 'C'.repeat(43));
+  const otherBrowser = await consentPage(flow.txn, wrongSecret(flow.cookie));
   assert.equal(otherBrowser.statusCode, 400);
 
   const approveNoCookie = await decide({ txn: flow.txn, csrf: flow.csrf, decision: 'approve' }, null);
   assert.equal(approveNoCookie.statusCode, 400);
-  const approveOtherBrowser = await decide({ txn: flow.txn, csrf: flow.csrf, decision: 'approve' }, 'netlify_mcp_oauth=' + 'C'.repeat(43));
+  const approveOtherBrowser = await decide({ txn: flow.txn, csrf: flow.csrf, decision: 'approve' }, wrongSecret(flow.cookie));
   assert.equal(approveOtherBrowser.statusCode, 400);
   const approveBadCsrf = await decide({ txn: flow.txn, csrf: 'forged', decision: 'approve' }, flow.cookie);
   assert.equal(approveBadCsrf.statusCode, 400);
   assert.equal(body(approveBadCsrf).error, 'invalid_request');
 
-  // After all that, the real browser can still approve exactly once.
+  // After all that, the real browser can still approve; a second submit
+  // resumes the same approval rather than recording another.
   const netlify = await approve(flow);
   assert.equal(netlify.searchParams.get('state'), flow.txn);
   const again = await decide({ txn: flow.txn, csrf: flow.csrf, decision: 'approve' }, flow.cookie);
-  assert.equal(again.statusCode, 400);
+  assert.equal(again.statusCode, 302);
+  assert.equal(location(again).searchParams.get('state'), flow.txn);
 });
 
 test('declined consent sends access_denied to the registered redirect and the transaction is dead', async () => {
@@ -360,17 +367,26 @@ test('the callback requires an approved, unexpired transaction owned by this bro
   // Approved, but a different browser posts the token.
   const approved = await startFlow(clientId, REDIRECT_A, pkcePair().challenge);
   const netlify = await approve(approved);
-  const stolen = await callback({ token: 'tok', state: netlify.searchParams.get('state') as string }, 'netlify_mcp_oauth=' + 'D'.repeat(43));
+  const stolen = await callback({ token: 'tok', state: netlify.searchParams.get('state') as string }, wrongSecret(approved.cookie));
   assert.equal(stolen.statusCode, 400);
   const noCookie = await callback({ token: 'tok', state: netlify.searchParams.get('state') as string }, null);
   assert.equal(noCookie.statusCode, 400);
 
-  // The right browser completes it once; a replay of the same POST mints no second code.
+  // The right browser completes it. A replay of the same POST before the code
+  // is exchanged gets the same one-use code back, never a second one; after
+  // the exchange it gets nothing.
   const first = await finish(approved, netlify);
   assert.equal(first.statusCode, 302);
+  const firstCode = await verifyToken(location(first).searchParams.get('code') as string, 'code');
   const replay = await finish(approved, netlify);
-  assert.equal(replay.statusCode, 400);
-  assert.equal(replay.headers?.Location, undefined);
+  assert.equal(replay.statusCode, 302);
+  const replayCode = await verifyToken(location(replay).searchParams.get('code') as string, 'code');
+  assert.equal(replayCode.jti, firstCode.jti);
+  assert.equal(replayCode.grant, firstCode.grant);
+  await getOAuthStore().redeemCode(firstCode.jti);
+  const afterExchange = await finish(approved, netlify);
+  assert.equal(afterExchange.statusCode, 400);
+  assert.equal(afterExchange.headers?.Location, undefined);
 
   // Expired: approved ten minutes ago.
   const stale = await startFlow(clientId, REDIRECT_A, pkcePair().challenge);
@@ -564,6 +580,7 @@ class FailingStore implements OAuthStore {
   getGrant(id: string) { return this.guard(() => this.inner.getGrant(id)); }
   updateGrant(g: any, e: string) { return this.guard(() => this.inner.updateGrant(g, e)); }
   redeemCode(j: string) { return this.guard(() => this.inner.redeemCode(j)); }
+  isCodeRedeemed(j: string) { return this.guard(() => this.inner.isCodeRedeemed(j)); }
 }
 
 test('a storage failure fails closed at every endpoint that depends on it', async () => {

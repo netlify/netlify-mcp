@@ -14,6 +14,7 @@ import {
   type RegisteredClient,
 } from "./client-registry.ts";
 import { attributionParams } from "./agent-attribution.ts";
+import { escapeHtml, minutesLeft, pageShell, PAGE_SECURITY_HEADERS, statePage, wantsHtml, type BrowserState } from "./auth-pages.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
 import { OAUTH_ROUTES, SCOPE_DESCRIPTIONS, SUPPORTED_GRANT_TYPES, SUPPORTED_SCOPES } from "./oauth-config.ts";
@@ -35,6 +36,7 @@ import {
   TRANSACTION_TTL_MS,
   type AuthTransaction,
   type Grant,
+  type Issuance,
   type OAuthStore,
 } from "./oauth-store.ts";
 
@@ -168,10 +170,12 @@ function oauthError(
  * §4.1.2.1's authorization-endpoint vocabulary and the closest fit).
  */
 function storageError(op: string, error: unknown): HandlerResponse {
-  return oauthError(503, 'temporarily_unavailable', 'The authorization server\'s grant store is unavailable; try again shortly', op, {
+  const response = oauthError(503, 'temporarily_unavailable', 'The authorization server\'s grant store is unavailable; try again shortly', op, {
     reason: 'storage_unavailable',
     detail: error instanceof Error ? error.message : String(error),
   });
+  response.headers = { ...response.headers, 'Retry-After': '5' };
+  return response;
 }
 
 function isStorageError(error: unknown): error is OAuthStorageError {
@@ -248,34 +252,73 @@ function isTransactionId(value: string | null): value is string {
   return !!value && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
+type OwnedTransaction = { txn: AuthTransaction; etag: string; sessionSecret: string };
+type Refusal = { error: HandlerResponse; state: BrowserState; status: number; reason: string };
+
+/** Where an answered transaction leaves the browser: the page for its status. */
+function answeredState(status: AuthTransaction['status']): BrowserState {
+  return status === 'declined' ? 'cancelled' : status === 'pending' || status === 'approved' ? 'not_approved' : 'finished';
+}
+
 /**
  * Load the transaction behind `txnId` and check that this browser owns it.
- * `null` with a response means the request has already been answered.
+ * A refusal carries both the JSON error and the page state, so each browser
+ * endpoint can answer a person with a page and a program with JSON.
  */
 async function loadOwnedTransaction(
   store: OAuthStore,
   req: Request,
   txnId: string | null,
   op: string,
-): Promise<{ txn: AuthTransaction; etag: string; sessionSecret: string } | { error: HandlerResponse }> {
+): Promise<OwnedTransaction | Refusal> {
+  const refuse = (state: BrowserState, description: string, reason: string, context: Record<string, unknown> = {}): Refusal => ({
+    error: oauthError(400, 'invalid_request', description, op, { reason, ...context }),
+    state,
+    status: 400,
+    reason,
+  });
   if (!isTransactionId(txnId)) {
-    return { error: oauthError(400, 'invalid_request', 'Missing or malformed authorization transaction', op, { reason: 'transaction_malformed' }) };
-  }
-  const sessionSecret = readSessionSecret(req, txnId);
-  if (!sessionSecret) {
-    return { error: oauthError(400, 'invalid_request', 'This browser did not start this authorization, or the request expired; start again from the application', op, { reason: 'session_cookie_missing' }) };
+    return refuse('unknown', 'Missing or malformed authorization transaction', 'transaction_malformed');
   }
   const found = await store.getTransaction(txnId);
+  const sessionSecret = readSessionSecret(req, txnId);
+  if (!sessionSecret) {
+    // The cookie is dropped once a request is finished or cancelled, so a
+    // reload afterwards lands here; say that rather than blame the browser.
+    const state = found && (found.record.status === 'completed' || found.record.status === 'declined') ? answeredState(found.record.status) : 'other_browser';
+    return refuse(state, 'This browser did not start this authorization, or the request expired; start again from the application', 'session_cookie_missing');
+  }
   if (!found) {
-    return { error: oauthError(400, 'invalid_request', 'Unknown or expired authorization transaction; start again from the application', op, { reason: 'transaction_unknown' }) };
+    return refuse('unknown', 'Unknown or expired authorization transaction; start again from the application', 'transaction_unknown');
   }
   if (!safeEqual(found.record.sessionHash, sha256(sessionSecret))) {
-    return { error: oauthError(400, 'invalid_request', 'This browser did not start this authorization; start again from the application', op, { reason: 'session_mismatch', client_id: maskToken(found.record.client_id) }) };
+    return refuse('other_browser', 'This browser did not start this authorization; start again from the application', 'session_mismatch', { client_id: maskToken(found.record.client_id) });
   }
   if (Date.now() >= found.record.expiresAt) {
-    return { error: oauthError(400, 'invalid_request', 'The authorization request expired; start again from the application', op, { reason: 'transaction_expired', client_id: maskToken(found.record.client_id) }) };
+    return refuse('expired', 'The authorization request expired; start again from the application', 'transaction_expired', { client_id: maskToken(found.record.client_id) });
   }
   return { txn: found.record, etag: found.etag, sessionSecret };
+}
+
+function isRefusal(value: OwnedTransaction | Refusal): value is Refusal {
+  return 'error' in value;
+}
+
+/**
+ * The answer to a browser endpoint that cannot go on: a page for a person, the
+ * OAuth JSON error for anything else. Both are logged once, by oauthError.
+ */
+function browserRefusal(req: Request, refusal: { error: HandlerResponse; state: BrowserState; status: number }): HandlerResponse {
+  if (!wantsHtml(req)) return refusal.error;
+  return statePage(refusal.state, refusal.status, refusal.status === 503 ? { 'Retry-After': '5' } : {});
+}
+
+function browserStorageError(req: Request, op: string, error: unknown): HandlerResponse {
+  return browserRefusal(req, { error: storageError(op, error), state: 'unavailable', status: 503 });
+}
+
+function browserError(req: Request, state: BrowserState, statusCode: number, description: string, op: string, context: Record<string, unknown>): HandlerResponse {
+  return browserRefusal(req, { error: oauthError(statusCode, 'invalid_request', description, op, context), state, status: statusCode });
 }
 
 /** Scopes this server actually grants out of what the client asked for. */
@@ -364,10 +407,6 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 // Consent
 // ---------------------------------------------------------------------------
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
-}
-
 const MAX_DISPLAYED_NAME = 80;
 
 function displayName(txn: AuthTransaction): string {
@@ -378,106 +417,85 @@ function displayName(txn: AuthTransaction): string {
   return raw.length > MAX_DISPLAYED_NAME ? `${raw.slice(0, MAX_DISPLAYED_NAME)}\u2026` : raw;
 }
 
-const CONSENT_SECURITY_HEADERS = {
-  'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'no-store',
-  'X-Frame-Options': 'DENY',
-  // No form-action: Chrome applies it to the 302 a form post is answered
-  // with, and both pages legitimately redirect off-origin (to Netlify, and to
-  // the client's registered callback). CSRF is the cookie-derived token.
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-};
+function destination(txn: AuthTransaction): string {
+  const redirect = new URL(txn.redirect_uri);
+  return `${escapeHtml(redirect.protocol)}${redirect.host ? '//' : ''}<strong>${escapeHtml(redirect.host || redirect.pathname)}</strong>${escapeHtml(redirect.host ? redirect.pathname : '')}${escapeHtml(redirect.search)}`;
+}
+
+function decisionForm(txn: AuthTransaction, csrf: string, origin: string, approveLabel: string, denyLabel: string): string {
+  return `<form method="post" action="${escapeHtml(new URL(OAUTH_ROUTES.consent, origin).toString())}">
+    <input type="hidden" name="txn" value="${escapeHtml(txn.id)}">
+    <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+    <div class="actions">
+      <button class="primary" type="submit" name="decision" value="approve">${escapeHtml(approveLabel)}</button>
+      <button type="submit" name="decision" value="deny">${escapeHtml(denyLabel)}</button>
+    </div>
+  </form>`;
+}
+
+function expiryNote(txn: AuthTransaction): string {
+  const minutes = minutesLeft(txn.expiresAt);
+  return `This request expires in ${minutes} minute${minutes === 1 ? '' : 's'}, at <time datetime="${new Date(txn.expiresAt).toISOString()}">${new Date(txn.expiresAt).toISOString().slice(11, 16)} UTC</time>.`;
+}
 
 function consentPage(txn: AuthTransaction, csrf: string, origin: string): string {
   const name = escapeHtml(displayName(txn));
-  const redirect = new URL(txn.redirect_uri);
   const scopes = effectiveScopes(txn.scope);
   const verified = txn.client_source === 'static';
   const scopeItems = scopes.length > 0
     ? scopes.map((s) => `<li><code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s] ?? '')}</li>`).join('')
     : '<li>No specific scopes were requested.</li>';
   const identityNote = verified
-    ? `<p class="badge ok">Verified application: this client is pre-registered with Netlify.</p>`
-    : `<p class="badge warn">Unverified application: the name above was supplied by the application when it registered itself and has not been checked by Netlify. Decide based on the destination below, not the name.</p>`;
+    ? `<p class="badge ok">Verified application: Netlify registered this application and its address itself.</p>`
+    : `<p class="badge warn">Unverified application: it registered itself with Netlify MCP automatically, so Netlify has not checked who runs it. The name above is the one it gave itself. Decide based on the destination below, not the name.</p>`;
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Authorize ${name} · Netlify MCP</title>
-<style>
-  body { font: 16px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: #f4f5f7; color: #0e1e25; }
-  main { max-width: 36rem; margin: 3rem auto; background: #fff; border-radius: 12px; padding: 2rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
-  h2 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
-  .badge { padding: .6rem .8rem; border-radius: 8px; font-size: .95rem; }
-  .ok { background: #e6f7ee; color: #0b5d34; }
-  .warn { background: #fff4e5; color: #7a3e00; }
-  .dest { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; background: #f4f5f7; padding: .6rem .8rem; border-radius: 8px; }
-  .dest strong { color: #0b4f8a; }
-  ul { padding-left: 1.2rem; }
-  .actions { display: flex; gap: .75rem; margin-top: 1.5rem; }
-  button { font: inherit; padding: .7rem 1.2rem; border-radius: 8px; border: 1px solid #c3c9d0; background: #fff; cursor: pointer; }
-  button.primary { background: #05bdba; border-color: #05bdba; color: #fff; }
-  .fine { font-size: .85rem; color: #4d5a62; margin-top: 1.5rem; }
-</style>
-</head>
-<body>
-<main>
-  <h1>Allow <span data-client-name>${name}</span> to use your Netlify account?</h1>
+  return pageShell(`Authorize ${displayName(txn)}`, `  <h1>Allow <span data-client-name>${name}</span> to use your Netlify account?</h1>
   ${identityNote}
 
   <h2>Where the authorization is sent</h2>
   <p>If you allow it, Netlify MCP will send this application a credential for your account at:</p>
-  <p class="dest">${escapeHtml(redirect.protocol)}${redirect.host ? '//' : ''}<strong>${escapeHtml(redirect.host || redirect.pathname)}</strong>${escapeHtml(redirect.host ? redirect.pathname : '')}${escapeHtml(redirect.search)}</p>
+  <p class="dest">${destination(txn)}</p>
   <p class="fine">Only approve if you recognise this destination as the application you are connecting from.</p>
 
   <h2>What it will be able to do</h2>
   <p>Netlify MCP acts on your behalf with the <strong>full access of your Netlify login</strong>: projects, deploys, environment variables including secret values, forms, DNS and team settings. The scopes below are what the application asked for; they do not narrow that access.</p>
   <ul>${scopeItems}</ul>
 
-  <form method="post" action="${escapeHtml(new URL(OAUTH_ROUTES.consent, origin).toString())}">
-    <input type="hidden" name="txn" value="${escapeHtml(txn.id)}">
-    <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
-    <div class="actions">
-      <button class="primary" type="submit" name="decision" value="approve">Allow and continue to Netlify login</button>
-      <button type="submit" name="decision" value="deny">Deny</button>
-    </div>
-  </form>
-  <p class="fine">After you allow, Netlify asks you to sign in and confirm. This request expires in ten minutes.</p>
-</main>
-</body>
-</html>`;
+  ${decisionForm(txn, csrf, origin, 'Allow and continue to Netlify login', 'Deny')}
+  <p class="fine">After you allow, Netlify asks you to sign in and confirm. ${expiryNote(txn)}</p>`);
+}
+
+/**
+ * Back from the Netlify login, or a second tab: the request was allowed but
+ * not finished. The person can pick up where they left off or call it off.
+ */
+function resumePage(txn: AuthTransaction, csrf: string, origin: string): string {
+  const name = escapeHtml(displayName(txn));
+  return pageShell('Continue signing in', `  <h1>You already allowed <span data-client-name>${name}</span></h1>
+  <p>The sign-in has not finished yet. Continue to the Netlify login to finish it, or cancel it so the application gets nothing.</p>
+  <p class="dest">${destination(txn)}</p>
+  ${decisionForm(txn, csrf, origin, 'Continue to Netlify login', 'Cancel sign-in')}
+  <p class="fine">${expiryNote(txn)}</p>`);
+}
+
+function htmlResponse(body: string): HandlerResponse {
+  return { statusCode: 200, headers: { ...PAGE_SECURITY_HEADERS }, body };
 }
 
 export async function handleConsentPage(req: Request): Promise<HandlerResponse> {
   const url = new URL(req.url);
-  let store: OAuthStore;
   try {
-    store = getOAuthStore();
+    const owned = await loadOwnedTransaction(getOAuthStore(), req, url.searchParams.get('txn'), 'consent');
+    if (isRefusal(owned)) return browserRefusal(req, owned);
+    const { txn, sessionSecret } = owned;
+    const csrf = csrfTokenFor(sessionSecret, txn.id);
+    if (txn.status === 'pending') return htmlResponse(consentPage(txn, csrf, url.origin));
+    if (txn.status === 'approved') return htmlResponse(resumePage(txn, csrf, url.origin));
+    return browserError(req, answeredState(txn.status), 400, 'This authorization request has already been answered; start again from the application', 'consent', { reason: 'transaction_not_pending', status: txn.status });
   } catch (error) {
-    return storageError('consent', error);
-  }
-  let owned;
-  try {
-    owned = await loadOwnedTransaction(store, req, url.searchParams.get('txn'), 'consent');
-  } catch (error) {
-    if (isStorageError(error)) return storageError('consent', error);
+    if (isStorageError(error)) return browserStorageError(req, 'consent', error);
     throw error;
   }
-  if ('error' in owned) return owned.error;
-  const { txn, sessionSecret } = owned;
-  if (txn.status !== 'pending') {
-    return oauthError(400, 'invalid_request', 'This authorization request has already been answered; start again from the application', 'consent', { reason: 'transaction_not_pending', status: txn.status });
-  }
-  return {
-    statusCode: 200,
-    headers: { ...CONSENT_SECURITY_HEADERS },
-    body: consentPage(txn, csrfTokenFor(sessionSecret, txn.id), url.origin),
-  };
 }
 
 /** Send the user back to the client with an OAuth error (redirect already validated at /auth). */
@@ -489,69 +507,99 @@ function redirectWithError(txn: AuthTransaction, error: string, description: str
   target.searchParams.set('iss', getOAuthIssuer());
   return {
     statusCode: 302,
-    headers: { 'Location': target.toString(), 'Cache-Control': 'no-store' },
+    headers: { 'Location': target.toString(), 'Set-Cookie': sessionCookie(txn.id, '', 0), 'Cache-Control': 'no-store' },
     body: '',
   };
 }
 
+function toNetlifyLogin(req: Request, txn: AuthTransaction): HandlerResponse {
+  // The upstream state is the transaction id alone: the callback resolves
+  // everything else from the record, so nothing the browser carries back is
+  // authoritative.
+  const origin = new URL(req.url).origin;
+  const netlifyRedirectUri = `${origin}${OAUTH_ROUTES.clientRedirect}`;
+  const authorize = new URL('https://app.netlify.com/authorize');
+  authorize.searchParams.set('client_id', NTL_AUTH_CLIENT_ID);
+  authorize.searchParams.set('response_type', 'token');
+  authorize.searchParams.set('state', txn.id);
+  authorize.searchParams.set('redirect_uri', netlifyRedirectUri);
+  authorize.searchParams.set('utm_source', 'mcp');
+  authorize.searchParams.set('utm_campaign', 'integrations');
+  return {
+    statusCode: 302,
+    headers: {
+      'Location': `${authorize.toString()}${attributionParams(txn.client_name)}`,
+      'Cache-Control': 'no-store',
+    },
+    body: '',
+  };
+}
+
+/**
+ * Mark an unfinished transaction declined. Retries the compare-and-swap so a
+ * cancel racing a second tab still lands; returns the record as it ended up.
+ */
+async function decline(store: OAuthStore, owned: OwnedTransaction): Promise<AuthTransaction> {
+  let { txn, etag } = owned;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (txn.status !== 'pending' && txn.status !== 'approved') return txn;
+    const declined: AuthTransaction = { ...txn, status: 'declined', declinedAt: Date.now() };
+    if (await store.updateTransaction(declined, etag)) return declined;
+    const found = await store.getTransaction(txn.id);
+    if (!found) return txn;
+    ({ record: txn, etag } = found);
+  }
+  return txn;
+}
+
 export async function handleConsentDecision(req: Request): Promise<HandlerResponse> {
   const form = new URLSearchParams(await req.text());
-  let store: OAuthStore;
-  try {
-    store = getOAuthStore();
-  } catch (error) {
-    return storageError('consent/decision', error);
-  }
 
   try {
+    const store = getOAuthStore();
     const owned = await loadOwnedTransaction(store, req, form.get('txn'), 'consent/decision');
-    if ('error' in owned) return owned.error;
+    if (isRefusal(owned)) return browserRefusal(req, owned);
     const { txn, etag, sessionSecret } = owned;
 
     const csrf = form.get('csrf') ?? '';
     if (!safeEqual(csrf, csrfTokenFor(sessionSecret, txn.id))) {
-      return oauthError(400, 'invalid_request', 'The consent form did not come from this authorization; start again from the application', 'consent/decision', { reason: 'csrf_mismatch', client_id: maskToken(txn.client_id) });
-    }
-    if (txn.status !== 'pending') {
-      return oauthError(400, 'invalid_request', 'This authorization request has already been answered; start again from the application', 'consent/decision', { reason: 'transaction_not_pending', status: txn.status });
+      return browserError(req, 'unknown', 400, 'The consent form did not come from this authorization; start again from the application', 'consent/decision', { reason: 'csrf_mismatch', client_id: maskToken(txn.client_id) });
     }
 
     const decision = form.get('decision');
     if (decision !== 'approve') {
-      const declined = await store.updateTransaction({ ...txn, status: 'declined' }, etag);
-      log.info('consent declined', { client_id: maskToken(txn.client_id), recorded: declined });
+      // Deny before approval, or cancel after it: either way the client gets
+      // access_denied and the transaction can never produce a code.
+      const ended = await decline(store, owned);
+      if (ended.status !== 'declined') {
+        return browserError(req, answeredState(ended.status), 400, 'This authorization request has already finished and can no longer be cancelled', 'consent/decision', { reason: 'transaction_not_cancellable', status: ended.status });
+      }
+      log.info('consent declined', { client_id: maskToken(txn.client_id), after_approval: txn.status === 'approved' });
       return redirectWithError(txn, 'access_denied', 'The user declined the authorization request');
     }
 
-    const approved = await store.updateTransaction({ ...txn, status: 'approved', approvedAt: Date.now() }, etag);
-    if (!approved) {
-      return oauthError(409, 'invalid_request', 'This authorization request was answered concurrently; start again from the application', 'consent/decision', { reason: 'transaction_conflict' });
+    if (txn.status === 'approved') {
+      // A double submit, a Back button or the resume page: the approval
+      // already stands, so the browser simply goes to Netlify again.
+      log.info('consent resumed', { client_id: maskToken(txn.client_id) });
+      return toNetlifyLogin(req, txn);
+    }
+    if (txn.status !== 'pending') {
+      return browserError(req, answeredState(txn.status), 400, 'This authorization request has already been answered; start again from the application', 'consent/decision', { reason: 'transaction_not_pending', status: txn.status });
+    }
+
+    if (!(await store.updateTransaction({ ...txn, status: 'approved', approvedAt: Date.now() }, etag))) {
+      // Answered concurrently. If the other answer was also an approval the
+      // browser can carry on; anything else is reported as it stands.
+      const now = await store.getTransaction(txn.id);
+      if (now?.record.status === 'approved') return toNetlifyLogin(req, now.record);
+      return browserError(req, now ? answeredState(now.record.status) : 'conflict', 409, 'This authorization request was answered concurrently; start again from the application', 'consent/decision', { reason: 'transaction_conflict', status: now?.record.status });
     }
 
     log.info('consent approved', { client_id: maskToken(txn.client_id), client_source: txn.client_source, redirect_host: redirectHostForLog(txn.redirect_uri) });
-
-    // Now, and only now, the browser goes to Netlify. The upstream state is the
-    // transaction id alone: the callback resolves everything else from the
-    // record, so nothing the browser carries back is authoritative.
-    const origin = new URL(req.url).origin;
-    const netlifyRedirectUri = `${origin}${OAUTH_ROUTES.clientRedirect}`;
-    const authorize = new URL('https://app.netlify.com/authorize');
-    authorize.searchParams.set('client_id', NTL_AUTH_CLIENT_ID);
-    authorize.searchParams.set('response_type', 'token');
-    authorize.searchParams.set('state', txn.id);
-    authorize.searchParams.set('redirect_uri', netlifyRedirectUri);
-    authorize.searchParams.set('utm_source', 'mcp');
-    authorize.searchParams.set('utm_campaign', 'integrations');
-    return {
-      statusCode: 302,
-      headers: {
-        'Location': `${authorize.toString()}${attributionParams(txn.client_name)}`,
-        'Cache-Control': 'no-store',
-      },
-      body: '',
-    };
+    return toNetlifyLogin(req, txn);
   } catch (error) {
-    if (isStorageError(error)) return storageError('consent/decision', error);
+    if (isStorageError(error)) return browserStorageError(req, 'consent/decision', error);
     throw error;
   }
 }
@@ -564,13 +612,14 @@ export async function handleConsentDecision(req: Request): Promise<HandlerRespon
  * Netlify's own OAuth answers with the token in the URL fragment, which only
  * the browser can read. This page moves it to the server in a same-origin POST
  * body, so the upstream token never appears in a request line, a proxy log or
- * a Referer header.
+ * a Referer header. A cancelled Netlify login comes back with `error` instead,
+ * in the fragment or the query, and is passed on the same way.
  */
 export async function handleClientSideAuthExchange(){
   return {
     statusCode: 200,
     headers: {
-      ...CONSENT_SECURITY_HEADERS,
+      ...PAGE_SECURITY_HEADERS,
       'Content-Security-Policy': CLIENT_REDIRECT_CSP,
     },
     body: CLIENT_REDIRECT_PAGE,
@@ -583,12 +632,15 @@ const CLIENT_REDIRECT_SCRIPT = `
       if (hash.charAt(0) === '#') hash = hash.slice(1);
       if (hash.charAt(0) === '?') hash = hash.slice(1);
       var params = new URLSearchParams(hash);
+      var query = new URLSearchParams(window.location.search);
       var token = params.get('access_token') || params.get('token') || '';
-      var state = params.get('state') || '';
+      var state = params.get('state') || query.get('state') || '';
+      var error = params.get('error') || query.get('error') || '';
       history.replaceState(null, '', window.location.pathname);
       var form = document.getElementById('handoff');
       form.elements.token.value = token;
       form.elements.state.value = state;
+      form.elements.error.value = error;
       form.submit();
     })();
 `;
@@ -608,6 +660,7 @@ const CLIENT_REDIRECT_PAGE = `<!DOCTYPE html>
   <form id="handoff" method="post" action="${OAUTH_ROUTES.serverRedirect}">
     <input type="hidden" name="token" value="">
     <input type="hidden" name="state" value="">
+    <input type="hidden" name="error" value="">
     <noscript><button type="submit">Continue</button></noscript>
   </form>
   <script>${CLIENT_REDIRECT_SCRIPT}</script>
@@ -618,72 +671,149 @@ const CLIENT_REDIRECT_PAGE = `<!DOCTYPE html>
 // script changes.
 const CLIENT_REDIRECT_CSP = `default-src 'none'; script-src '${scriptHash(CLIENT_REDIRECT_SCRIPT)}'; frame-ancestors 'none'; base-uri 'none'`;
 
+/** The client's callback with the code; the session has done its job. */
+function deliverCode(txn: AuthTransaction, code: string): HandlerResponse {
+  const target = new URL(txn.redirect_uri);
+  if (txn.state) {
+    target.searchParams.set('state', txn.state);
+  }
+  // RFC 9207: Include iss parameter in authorization response
+  target.searchParams.set('iss', getOAuthIssuer());
+  target.searchParams.set('code', code);
+  return {
+    statusCode: 302,
+    headers: {
+      'Location': target.toString(),
+      'Set-Cookie': sessionCookie(txn.id, '', 0),
+      'Cache-Control': 'no-store',
+    },
+    body: '',
+  };
+}
+
+/**
+ * Move an approved transaction to `issuing`, fixing the grant and code ids
+ * before either exists. Returns the transaction as it now stands, which may be
+ * a parallel request's `issuing` or `completed` record.
+ */
+async function beginIssuance(store: OAuthStore, owned: OwnedTransaction, upstreamHash: string): Promise<OwnedTransaction> {
+  let { txn, etag } = owned;
+  for (let attempt = 0; attempt < 3 && txn.status === 'approved'; attempt++) {
+    const issuing: AuthTransaction = {
+      ...txn,
+      status: 'issuing',
+      issuance: { grant: newTokenId(), code: newTokenId(), upstreamHash, startedAt: Date.now() },
+    };
+    if (await store.updateTransaction(issuing, etag)) {
+      const reread = await store.getTransaction(txn.id);
+      if (!reread) throw new OAuthStorageError(`transaction ${txn.id} vanished after it was updated`);
+      return { ...owned, txn: reread.record, etag: reread.etag };
+    }
+    const found = await store.getTransaction(txn.id);
+    if (!found) throw new OAuthStorageError(`transaction ${txn.id} vanished during issuance`);
+    ({ record: txn, etag } = found);
+  }
+  return { ...owned, txn, etag };
+}
+
+/** The grant this transaction's issuance names, created if no attempt got that far. */
+async function ensureGrant(store: OAuthStore, txn: AuthTransaction, issuance: Issuance, upstreamToken: string): Promise<Grant | null> {
+  const existing = await store.getGrant(issuance.grant);
+  if (existing) return existing.record.transaction === txn.id ? existing.record : null;
+
+  // Resolve the user/team for this token once, here, so it can be embedded in
+  // the code (and downstream access/refresh tokens) without a per-request
+  // lookup. Best-effort — never blocks issuing the code.
+  const identity = await resolveIdentity(upstreamToken);
+  const grant: Grant = {
+    v: RECORD_VERSION,
+    id: issuance.grant,
+    client_id: txn.client_id,
+    redirect_uri: txn.redirect_uri,
+    ...(txn.scope ? { scope: txn.scope } : {}),
+    ...(identity ? { identity } : {}),
+    transaction: txn.id,
+    createdAt: Date.now(),
+    currentRefresh: null,
+    revoked: null,
+  };
+  if (await store.putGrant(grant)) return grant;
+  // A parallel attempt created it between our read and write.
+  const raced = await store.getGrant(issuance.grant);
+  return raced && raced.record.transaction === txn.id ? raced.record : null;
+}
+
+async function handleUpstreamCancel(req: Request, store: OAuthStore, txnId: string | null, upstreamError: string): Promise<HandlerResponse> {
+  const owned = await loadOwnedTransaction(store, req, txnId, 'server-redirect');
+  if (isRefusal(owned)) return browserRefusal(req, owned);
+  const ended = await decline(store, owned);
+  log.info('server redirect: Netlify login did not complete', { client_id: maskToken(owned.txn.client_id), upstream_error: truncateForLog(upstreamError), status: ended.status });
+  if (ended.status !== 'declined') {
+    return browserError(req, answeredState(ended.status), 400, 'This authorization request has already finished', 'server-redirect', { reason: 'upstream_error_after_issue', status: ended.status });
+  }
+  return redirectWithError(owned.txn, 'access_denied', 'The Netlify login was cancelled or failed');
+}
+
 export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
   if (req.method !== 'POST') {
-    return oauthError(405, 'invalid_request', 'The callback accepts the Netlify token only in a POST body', 'server-redirect', { reason: 'method_not_allowed', method: req.method });
+    return browserError(req, 'method', 405, 'The callback accepts the Netlify token only in a POST body', 'server-redirect', { reason: 'method_not_allowed', method: req.method });
   }
   const form = new URLSearchParams(await req.text());
   const token = form.get('token');
   const txnId = form.get('state');
-
-  if (!token) {
-    return oauthError(400, 'invalid_request', 'Missing required parameter: token', 'server-redirect', { hasState: !!txnId });
-  }
-
-  let store: OAuthStore;
-  try {
-    store = getOAuthStore();
-  } catch (error) {
-    return storageError('server-redirect', error);
-  }
+  const upstreamError = form.get('error');
 
   try {
-    const owned = await loadOwnedTransaction(store, req, txnId, 'server-redirect');
-    if ('error' in owned) return owned.error;
-    const { txn, etag } = owned;
+    const store = getOAuthStore();
 
-    if (txn.status !== 'approved') {
-      return oauthError(400, 'invalid_request', 'This authorization was not approved in this browser; start again from the application', 'server-redirect', { reason: 'transaction_not_approved', status: txn.status, client_id: maskToken(txn.client_id) });
+    if (!token) {
+      if (upstreamError) return await handleUpstreamCancel(req, store, txnId, upstreamError);
+      return browserError(req, 'no_token', 400, 'Missing required parameter: token', 'server-redirect', { hasState: !!txnId });
+    }
+
+    let owned = await loadOwnedTransaction(store, req, txnId, 'server-redirect');
+    if (isRefusal(owned)) return browserRefusal(req, owned);
+
+    if (owned.txn.status === 'pending' || owned.txn.status === 'declined') {
+      return browserError(req, answeredState(owned.txn.status), 400, 'This authorization was not approved in this browser; start again from the application', 'server-redirect', { reason: 'transaction_not_approved', status: owned.txn.status, client_id: maskToken(owned.txn.client_id) });
     }
 
     // Defense in depth: the record was validated at /auth, but the registry is
     // re-consulted so a client whose registration changed underneath an open
     // transaction cannot be redirected to on stale data.
-    const { error: redirectError } = await validateClientRedirect(txn.client_id, txn.redirect_uri, 'server-redirect');
+    const { error: redirectError } = await validateClientRedirect(owned.txn.client_id, owned.txn.redirect_uri, 'server-redirect');
     if (redirectError) {
       return redirectError;
     }
 
-    // Completing the transaction is the single-use step for the callback: two
-    // browsers posting the same approved transaction mint at most one code.
-    const completed = await store.updateTransaction({ ...txn, status: 'completed' }, etag);
-    if (!completed) {
-      return oauthError(400, 'invalid_request', 'This authorization was already completed; start again from the application', 'server-redirect', { reason: 'transaction_already_completed', client_id: maskToken(txn.client_id) });
+    const upstreamHash = sha256(`upstream:${token}`);
+    owned = await beginIssuance(store, owned, upstreamHash);
+    const { txn } = owned;
+    const issuance = txn.issuance;
+    if (!issuance || (txn.status !== 'issuing' && txn.status !== 'completed')) {
+      return browserError(req, answeredState(txn.status), 400, 'This authorization was answered elsewhere; start again from the application', 'server-redirect', { reason: 'transaction_not_approved', status: txn.status });
+    }
+    // A retry must carry the same Netlify sign-in that started the issuance;
+    // anything else would swap the account behind a code already promised.
+    if (!safeEqual(issuance.upstreamHash, upstreamHash)) {
+      return browserError(req, 'finished', 400, 'This authorization was already completed; start again from the application', 'server-redirect', { reason: 'transaction_already_completed', client_id: maskToken(txn.client_id) });
+    }
+    // Once the code has been exchanged there is nothing left to deliver; a
+    // replay of this POST must not produce anything usable.
+    if (txn.status === 'completed' && await store.isCodeRedeemed(issuance.code)) {
+      return browserError(req, 'finished', 400, 'This authorization was already completed; start again from the application', 'server-redirect', { reason: 'transaction_already_completed', client_id: maskToken(txn.client_id) });
     }
 
-    // Resolve the user/team for this token once, here, so it can be embedded in
-    // the code (and downstream access/refresh tokens) without a per-request
-    // lookup. Best-effort — never blocks issuing the code.
-    const identity = await resolveIdentity(token);
+    const grant = await ensureGrant(store, txn, issuance, token);
+    if (!grant || grant.revoked) {
+      return browserError(req, 'finished', 400, 'This authorization can no longer be completed; start again from the application', 'server-redirect', { reason: grant ? 'grant_revoked' : 'grant_foreign', grant: issuance.grant });
+    }
 
-    const grant: Grant = {
-      v: RECORD_VERSION,
-      id: newTokenId(),
-      client_id: txn.client_id,
-      redirect_uri: txn.redirect_uri,
-      ...(txn.scope ? { scope: txn.scope } : {}),
-      ...(identity ? { identity } : {}),
-      transaction: txn.id,
-      createdAt: Date.now(),
-      currentRefresh: null,
-      revoked: null,
-    };
-    await store.putGrant(grant);
-
-    log.info('server redirect: issuing authorization code', { client_id: maskToken(txn.client_id), redirect_host: redirectHostForLog(txn.redirect_uri), scope: truncateForLog(txn.scope), hasIdentity: !!identity, grant: grant.id });
-
+    // Same jti on every attempt: however many times this is delivered, the
+    // token endpoint redeems it once.
     const code = await issueToken<'code'>({
       typ: 'code',
+      jti: issuance.code,
       grant: grant.id,
       client_id: txn.client_id,
       redirect_uri: txn.redirect_uri,
@@ -691,30 +821,19 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
       code_challenge_method: 'S256',
       ...(txn.scope ? { scope: txn.scope } : {}),
       accessToken: token,
-      ...(identity ? { identity } : {}),
+      ...(grant.identity ? { identity: grant.identity } : {}),
     });
 
-    const target = new URL(txn.redirect_uri);
-    if (txn.state) {
-      target.searchParams.set('state', txn.state);
+    if (txn.status === 'issuing') {
+      // Losing this swap means a parallel attempt completed it first, which is
+      // the same outcome.
+      await store.updateTransaction({ ...txn, status: 'completed', completedAt: Date.now() }, owned.etag);
     }
-    // RFC 9207: Include iss parameter in authorization response
-    target.searchParams.set('iss', getOAuthIssuer());
-    target.searchParams.set('code', code);
 
-    return {
-      statusCode: 302,
-      headers: {
-        'Location': target.toString(),
-        // The session has done its job; drop it so a later page on this origin
-        // cannot reuse it.
-        'Set-Cookie': sessionCookie(txn.id, '', 0),
-        'Cache-Control': 'no-store',
-      },
-      body: '',
-    };
+    log.info('server redirect: issuing authorization code', { client_id: maskToken(txn.client_id), redirect_host: redirectHostForLog(txn.redirect_uri), scope: truncateForLog(txn.scope), hasIdentity: !!grant.identity, grant: grant.id, redelivery: txn.status === 'completed' });
+    return deliverCode(txn, code);
   } catch (error) {
-    if (isStorageError(error)) return storageError('server-redirect', error);
+    if (isStorageError(error)) return browserStorageError(req, 'server-redirect', error);
     throw error;
   }
 }

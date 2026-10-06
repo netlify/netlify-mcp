@@ -23,7 +23,20 @@ export const TRANSACTION_TTL_MS = 20 * 60 * 1000;
 export const CODE_REDEMPTION_TTL_MS = 20 * 60 * 1000;
 export const REFRESH_RACE_GRACE_MS = 30 * 1000;
 
-export type TransactionStatus = 'pending' | 'approved' | 'declined' | 'completed';
+// pending -> approved -> issuing -> completed, or -> declined from pending or
+// approved. `issuing` fixes the grant id and code id before anything is
+// written for them, so a callback that fails part-way and is retried finishes
+// the same grant with the same one-use code instead of minting a second.
+export type TransactionStatus = 'pending' | 'approved' | 'issuing' | 'completed' | 'declined';
+
+export interface Issuance {
+  grant: string;
+  /** jti of the one authorization code this transaction may produce. */
+  code: string;
+  /** sha256 of the upstream token, so a retry must carry the same sign-in. */
+  upstreamHash: string;
+  startedAt: number;
+}
 
 export interface AuthTransaction {
   v: number;
@@ -44,6 +57,9 @@ export interface AuthTransaction {
   createdAt: number;
   expiresAt: number;
   approvedAt?: number;
+  issuance?: Issuance;
+  completedAt?: number;
+  declinedAt?: number;
 }
 
 export interface Grant {
@@ -82,11 +98,13 @@ export interface OAuthStore {
   getTransaction(id: string): Promise<Versioned<AuthTransaction> | null>;
   /** Compare-and-swap; false when the record moved since `etag` was read. */
   updateTransaction(txn: AuthTransaction, etag: string): Promise<boolean>;
-  putGrant(grant: Grant): Promise<void>;
+  /** False when a grant with this id already exists; it is left untouched. */
+  putGrant(grant: Grant): Promise<boolean>;
   getGrant(id: string): Promise<Versioned<Grant> | null>;
   updateGrant(grant: Grant, etag: string): Promise<boolean>;
   /** True exactly once per jti, however many instances race on it. */
   redeemCode(jti: string): Promise<boolean>;
+  isCodeRedeemed(jti: string): Promise<boolean>;
 }
 
 const keys = {
@@ -139,10 +157,10 @@ export class BlobsOAuthStore implements OAuthStore {
     });
   }
 
-  putGrant(grant: Grant): Promise<void> {
+  putGrant(grant: Grant): Promise<boolean> {
     return wrap('putGrant', async () => {
       const { modified } = await this.store.set(keys.grant(grant.id), JSON.stringify(grant), { onlyIfNew: true });
-      if (!modified) throw new Error('grant id already exists');
+      return modified;
     });
   }
 
@@ -165,6 +183,10 @@ export class BlobsOAuthStore implements OAuthStore {
       });
       return modified;
     });
+  }
+
+  isCodeRedeemed(jti: string): Promise<boolean> {
+    return wrap('isCodeRedeemed', async () => (await this.store.get(keys.code(jti))) !== null);
   }
 
   private async read<T>(key: string): Promise<Versioned<T> | null> {
@@ -207,12 +229,11 @@ export class MemoryOAuthStore implements OAuthStore {
   }
   async getTransaction(id: string) { return this.read<AuthTransaction>(keys.transaction(id)); }
   async updateTransaction(txn: AuthTransaction, etag: string) { return this.putIfMatch(keys.transaction(txn.id), JSON.stringify(txn), etag); }
-  async putGrant(grant: Grant): Promise<void> {
-    if (!this.putIfNew(keys.grant(grant.id), JSON.stringify(grant))) throw new OAuthStorageError('grant id already exists');
-  }
+  async putGrant(grant: Grant) { return this.putIfNew(keys.grant(grant.id), JSON.stringify(grant)); }
   async getGrant(id: string) { return this.read<Grant>(keys.grant(id)); }
   async updateGrant(grant: Grant, etag: string) { return this.putIfMatch(keys.grant(grant.id), JSON.stringify(grant), etag); }
   async redeemCode(jti: string) { return this.putIfNew(keys.code(jti), String(Date.now())); }
+  async isCodeRedeemed(jti: string) { return this.records.has(keys.code(jti)); }
 }
 
 let activeStore: OAuthStore | null = null;
