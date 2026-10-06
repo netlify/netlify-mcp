@@ -203,7 +203,9 @@ test('the legacy ChatGPT registration keeps working, on its own redirect only', 
   // The id is the one production requests carry, so it is asserted literally.
   const CHATGPT_ID = '2m93QbON-vPRJMMIGA_MEzG1fkejj4JNAgb97ZC3gPd';
   const CHATGPT_REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect';
-  assert.ok(staticClients.some((c) => c.client_id === CHATGPT_ID && c.redirect_uris.includes(CHATGPT_REDIRECT)));
+  const chatgpt = staticClients.find((c) => c.client_id === CHATGPT_ID);
+  assert.ok(chatgpt);
+  assert.deepEqual(chatgpt.redirect_uris, [CHATGPT_REDIRECT]);
 
   const { verifier, challenge } = pkcePair();
   const ok = await authorize(CHATGPT_ID, CHATGPT_REDIRECT, challenge, 'offline_access');
