@@ -60,7 +60,7 @@ async function register(redirectUris: string[]): Promise<string> {
   return JSON.parse(res.body as string).client_id;
 }
 
-function authorize(clientId: string, redirectUri: string, challenge: string) {
+function authorize(clientId: string, redirectUri: string, challenge: string, scope?: string) {
   const url = new URL(`${ISSUER}/oauth-server/auth`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
@@ -68,6 +68,7 @@ function authorize(clientId: string, redirectUri: string, challenge: string) {
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('state', 'client-state');
+  if (scope) url.searchParams.set('scope', scope);
   return handleAuthStart(new Request(url));
 }
 
@@ -199,10 +200,26 @@ test('authorize: every pre-provisioned static client is bound to its registered 
 test('the legacy ChatGPT registration keeps working, on its own redirect only', async () => {
   // Registered through the pre-stateless dynamic registration and still
   // presented on roughly half of production logins (see oauth-clients.ts).
-  const chatgpt = staticClients.find((c) => c.redirect_uris[0].startsWith('https://chatgpt.com/'));
-  assert.ok(chatgpt);
-  const ok = await authorize(chatgpt.client_id, 'https://chatgpt.com/connector_platform_oauth_redirect', pkcePair().challenge);
+  // The id is the one production requests carry, so it is asserted literally.
+  const CHATGPT_ID = '2m93QbON-vPRJMMIGA_MEzG1fkejj4JNAgb97ZC3gPd';
+  const CHATGPT_REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect';
+  assert.ok(staticClients.some((c) => c.client_id === CHATGPT_ID && c.redirect_uris.includes(CHATGPT_REDIRECT)));
+
+  const { verifier, challenge } = pkcePair();
+  const ok = await authorize(CHATGPT_ID, CHATGPT_REDIRECT, challenge, 'offline_access');
   assert.equal(ok.statusCode, 302);
-  const elsewhere = await authorize(chatgpt.client_id, 'https://chatgpt.com.attacker.example/connector_platform_oauth_redirect', pkcePair().challenge);
+  const elsewhere = await authorize(CHATGPT_ID, 'https://chatgpt.com.attacker.example/connector_platform_oauth_redirect', pkcePair().challenge);
   assertRejectedWithoutRedirect(elsewhere, 'invalid_request');
+
+  // The whole flow, as the connector drives it: code to its redirect, then
+  // exchange and refresh with the pinned id.
+  const redirect = await serverRedirect(location(ok).searchParams.get('state')!);
+  assert.equal(redirect.statusCode, 302);
+  const callback = location(redirect);
+  assert.equal(`${callback.origin}${callback.pathname}`, CHATGPT_REDIRECT);
+  const token = await exchange({ grant_type: 'authorization_code', code: callback.searchParams.get('code')!, client_id: CHATGPT_ID, redirect_uri: CHATGPT_REDIRECT, code_verifier: verifier });
+  assert.equal(token.statusCode, 200);
+  const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: JSON.parse(token.body as string).refresh_token, client_id: CHATGPT_ID });
+  assert.equal(refreshed.statusCode, 200);
+  assert.equal(JSON.parse(refreshed.body as string).token_type, 'Bearer');
 });
