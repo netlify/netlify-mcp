@@ -34,6 +34,9 @@ export type CodingContextResult =
   | { ok: false; error: string };
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
+// Nothing else bounds these requests on stdio, so a hung upstream would hang
+// the tool call instead of failing it.
+const FETCH_TIMEOUT_MS = 10_000;
 const SKILL_FILE = 'SKILL.md';
 const REFERENCES_PREFIX = 'references/';
 
@@ -52,7 +55,9 @@ export async function getSkillManifest(): Promise<SkillManifest | undefined> {
   }
 
   try {
-    const response = await unauthenticatedFetch(`${SKILLS_HOST}/manifest.json`);
+    const response = await unauthenticatedFetch(`${SKILLS_HOST}/manifest.json`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (!response.ok) {
       log.error('Skills manifest request failed', { status: response.status });
       return undefined;
@@ -140,7 +145,9 @@ async function fetchSkillFile(
   const cached = fileCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const response = await unauthenticatedFetch(`${SKILLS_HOST}/v/${version}/skills/${skillName}/${path}`);
+  const response = await unauthenticatedFetch(`${SKILLS_HOST}/v/${version}/skills/${skillName}/${path}`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`Request for ${skillName}/${path} failed with status ${response.status}`);
   }

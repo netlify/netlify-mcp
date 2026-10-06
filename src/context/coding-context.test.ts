@@ -267,3 +267,29 @@ test('a failed manifest request is not cached', async () => {
   globalThis.fetch = (async () => new Response(JSON.stringify(manifest()), { status: 200 })) as typeof fetch;
   assert.ok(await getSkillManifest());
 });
+
+test('every request to the skills host has a timeout signal', async () => {
+  const stubbed = globalThis.fetch;
+  const signals: unknown[] = [];
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    signals.push(init?.signal);
+    return stubbed(input, init);
+  }) as typeof fetch;
+  assert.ok((await getNetlifyCodingContext('netlify-functions')).ok);
+  assert.equal(signals.length, 2);
+  assert.ok(signals.every((s) => s instanceof AbortSignal));
+});
+
+test('a request that times out fails like any other fetch error', async () => {
+  await getSkillManifest();
+  globalThis.fetch = (async () => {
+    throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  }) as typeof fetch;
+
+  assert.deepEqual(await getNetlifyCodingContext('netlify-functions'), {
+    ok: false,
+    error: 'Unable to load context for netlify-functions: The operation was aborted due to timeout',
+  });
+  resetCodingContextCachesForTests();
+  assert.deepEqual(await getCodingContextTopics(), []);
+});
