@@ -29,6 +29,10 @@ const skills = new Map(manifest.skills.map((s) => [s.name, s]));
 const topics = await getCodingContextTopics();
 if (topics.length === 0) fail('no topics returned');
 
+for (const skill of manifest.skills.filter((s) => s.status === 'active')) {
+  if (!topics.includes(skill.name)) fail(`${skill.name}: active manifest skill is not exposed as a topic`);
+}
+
 let filesVerified = 0;
 
 for (const topic of topics) {
