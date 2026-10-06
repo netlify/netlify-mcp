@@ -62,6 +62,10 @@ export async function getSkillManifest(): Promise<SkillManifest | undefined> {
       log.error('Skills manifest has an unsupported shape', { schemaVersion: data?.schema_version });
       return undefined;
     }
+    if (!data.skills.every(isSkillEntryShape)) {
+      log.error('Skills manifest has an invalid skill entry');
+      return undefined;
+    }
     if (!isSafeSegment(data.version)) {
       log.error('Skills manifest has an invalid version');
       return undefined;
@@ -78,6 +82,21 @@ export async function getSkillManifest(): Promise<SkillManifest | undefined> {
 // be plain: no dots-only names, separators, query or fragment characters.
 function isSafeSegment(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Checked before the manifest is cached: one malformed entry would otherwise
+// throw on every topic lookup until the cache expires.
+function isSkillEntryShape(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    typeof value.name === 'string' &&
+    typeof value.status === 'string' &&
+    (value.files === undefined || isPlainObject(value.files))
+  );
 }
 
 function activeSkills(manifest: SkillManifest): Map<string, SkillEntry> {

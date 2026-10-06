@@ -176,6 +176,33 @@ test('a manifest with the wrong schema_version or no skills array is unavailable
   assert.ok(!result.ok);
 });
 
+test('a manifest with a malformed skill entry is unavailable', async () => {
+  const valid = entry('netlify-functions', 'active', ['SKILL.md']);
+  manifestBody = manifest({ skills: [valid, null] });
+  assert.deepEqual(await getCodingContextTopics(), []);
+
+  for (const bad of [
+    null,
+    'netlify-functions',
+    42,
+    [],
+    { ...valid, name: undefined },
+    { ...valid, name: 7 },
+    { ...valid, status: null },
+    { ...valid, files: null },
+    { ...valid, files: [] },
+    { ...valid, files: 'SKILL.md' },
+  ]) {
+    resetCodingContextCachesForTests();
+    manifestBody = manifest({ skills: [valid, bad] });
+    assert.equal(await getSkillManifest(), undefined);
+  }
+
+  resetCodingContextCachesForTests();
+  manifestBody = manifest({ skills: [valid, { ...valid, files: undefined }] });
+  assert.ok(await getSkillManifest());
+});
+
 test('the skills host is pinned', () => {
   assert.equal(SKILLS_HOST, 'https://www.netlify.com/context-files');
 });
