@@ -106,7 +106,7 @@ export class BlobsOAuthStore implements OAuthStore {
   private readonly store: Store;
 
   constructor(store?: Store) {
-    this.store = store ?? getStore({ name: STORE_NAME, consistency: 'strong' });
+    this.store = store ?? getStore({ name: STORE_NAME, consistency: supportsStrongReads() ? 'strong' : 'eventual' });
   }
 
   putTransaction(txn: AuthTransaction): Promise<void> {
@@ -162,7 +162,7 @@ export class BlobsOAuthStore implements OAuthStore {
   }
 
   private async read<T>(key: string): Promise<Versioned<T> | null> {
-    const result = await this.store.getWithMetadata(key, { type: 'json', consistency: 'strong' });
+    const result = await this.store.getWithMetadata(key, { type: 'json' });
     if (!result || result.data === null || result.data === undefined) return null;
     if (!result.etag) throw new Error(`no etag returned for ${key}`);
     return { record: result.data as T, etag: result.etag };
@@ -207,6 +207,27 @@ export class MemoryOAuthStore implements OAuthStore {
   async getGrant(id: string) { return this.read<Grant>(keys.grant(id)); }
   async updateGrant(grant: Grant, etag: string) { return this.putIfMatch(keys.grant(grant.id), JSON.stringify(grant), etag); }
   async redeemCode(jti: string) { return this.putIfNew(keys.code(jti), String(Date.now())); }
+}
+
+/**
+ * Strong reads need the uncached edge URL, which the environment context
+ * carries when Netlify configures Blobs itself but which `connectLambda`
+ * (used by the Lambda-compatibility OAuth function) does not set. Writes are
+ * unaffected: `onlyIfNew` and `onlyIfMatch` are enforced by the service, so
+ * single-use and compare-and-swap hold either way; without strong reads a
+ * stale read only costs a retry (the write is refused), never a double issue.
+ */
+function supportsStrongReads(): boolean {
+  const raw = (globalThis as { netlifyBlobsContext?: string }).netlifyBlobsContext ?? process.env.NETLIFY_BLOBS_CONTEXT;
+  if (!raw) return true;
+  try {
+    const context = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) as { uncachedEdgeURL?: string; edgeURL?: string };
+    if (context.uncachedEdgeURL) return true;
+    log.warn('oauth store: no uncached edge URL in the Blobs context, using eventual reads');
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 let activeStore: OAuthStore | null = null;
