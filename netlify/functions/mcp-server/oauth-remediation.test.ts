@@ -22,6 +22,7 @@ import { SUPPORTED_SCOPES } from './oauth-config.ts';
 import { getBearerCredential, getTokenIdentity, userIsAuthenticated } from '../../../src/utils/api-networking.ts';
 import {
   approve,
+  authorize,
   callback,
   completeFlow,
   consentPage,
@@ -387,7 +388,12 @@ test('refresh rotation invalidates the previous token and reuse revokes the whol
   assert.equal(await userIsAuthenticated(mcpRequest(second.access_token)), true);
   assert.equal(await userIsAuthenticated(mcpRequest(access_token)), true, 'an earlier access token lives until it expires or the grant is revoked');
 
-  // Presenting the rotated-out token is reuse.
+  // Presenting the rotated-out token after the race window is reuse.
+  const store = getOAuthStore();
+  const grantId = (await verifyToken(second.refresh_token, 'refresh')).grant;
+  const found = await store.getGrant(grantId);
+  assert.ok(found?.record.previousRefresh);
+  await store.updateGrant({ ...found.record, previousRefresh: { ...found.record.previousRefresh, at: Date.now() - 60_000 } }, found.etag);
   const reuse = await exchange({ grant_type: 'refresh_token', refresh_token, client_id: clientId });
   assert.equal(reuse.statusCode, 400);
   assert.equal(body(reuse).error, 'invalid_grant');
@@ -399,13 +405,37 @@ test('refresh rotation invalidates the previous token and reuse revokes the whol
   assert.equal(await userIsAuthenticated(mcpRequest(access_token)), false);
 });
 
-test('concurrent refreshes with one token succeed at most once', async () => {
+test('concurrent refreshes with one token succeed exactly once and the winner keeps working', async () => {
   const clientId = await register([REDIRECT_A]);
   const { refresh_token } = await obtainTokens(clientId, REDIRECT_A) as { refresh_token: string };
   const results = await Promise.all(Array.from({ length: 6 }, () => exchange({ grant_type: 'refresh_token', refresh_token, client_id: clientId })));
   const ok = results.filter((r) => r.statusCode === 200);
-  assert.ok(ok.length <= 1, `expected at most one success, got ${ok.length}`);
-  assert.equal(results.length - ok.length, results.filter((r) => r.statusCode === 400).length);
+  assert.equal(ok.length, 1, `expected exactly one success, got ${ok.length}`);
+  assert.equal(results.filter((r) => r.statusCode === 400).length, 5);
+  // Losing the race is not reuse: the winner's tokens are still live.
+  const winner = body(ok[0]) as { access_token: string; refresh_token: string };
+  assert.equal(await userIsAuthenticated(mcpRequest(winner.access_token)), true);
+  const next = await exchange({ grant_type: 'refresh_token', refresh_token: winner.refresh_token, client_id: clientId });
+  assert.equal(next.statusCode, 200);
+});
+
+test('two authorizations in flight in one browser do not interfere', async () => {
+  const clientA = await register([REDIRECT_A], 'Client A');
+  const clientB = await register([REDIRECT_B], 'Client B');
+  const flowA = await startFlow(clientA, REDIRECT_A, pkcePair().challenge);
+  const flowB = await startFlow(clientB, REDIRECT_B, pkcePair().challenge);
+  assert.notEqual(flowA.cookie.split('=')[0], flowB.cookie.split('=')[0], 'each transaction has its own cookie');
+  // The browser sends both cookies; completing B leaves A usable.
+  const both = `${flowA.cookie}; ${flowB.cookie}`;
+  const netlifyB = await decide({ txn: flowB.txn, csrf: flowB.csrf, decision: 'approve' }, both);
+  assert.equal(netlifyB.statusCode, 302);
+  const doneB = await callback({ token: 'tok', state: flowB.txn }, both);
+  assert.equal(doneB.statusCode, 302);
+  const netlifyA = await decide({ txn: flowA.txn, csrf: flowA.csrf, decision: 'approve' }, both);
+  assert.equal(netlifyA.statusCode, 302);
+  const doneA = await callback({ token: 'tok', state: flowA.txn }, both);
+  assert.equal(doneA.statusCode, 302);
+  assert.equal(`${location(doneA).origin}${location(doneA).pathname}`, REDIRECT_A);
 });
 
 test('refresh requires the client the token was issued to', async () => {
@@ -462,8 +492,9 @@ test('a storage failure fails closed at every endpoint that depends on it', asyn
   const { access_token, refresh_token } = await obtainTokens(clientId, REDIRECT_A);
 
   store.fail();
-  const auth = await startFlow(clientId, REDIRECT_A, pkcePair().challenge).catch((e) => e);
-  assert.ok(auth instanceof Error, '/auth cannot proceed without recording the transaction');
+  const auth = await authorize(clientId, REDIRECT_A, pkcePair().challenge);
+  assert.equal(auth.statusCode, 503, '/auth cannot proceed without recording the transaction');
+  assert.equal(auth.headers?.Location, undefined);
   const consent = await consentPage(flow.txn, flow.cookie);
   assert.equal(consent.statusCode, 503);
   const cb = await callback({ token: 'tok', state: flow.txn }, flow.cookie);
@@ -471,7 +502,7 @@ test('a storage failure fails closed at every endpoint that depends on it', asyn
   const code = await exchange({ grant_type: 'authorization_code', code: flow.code, client_id: clientId, redirect_uri: REDIRECT_A, code_verifier: verifier });
   assert.equal(code.statusCode, 503);
   assert.equal(body(code).error, 'temporarily_unavailable');
-  assert.match(body(code).error_description, /blobs down/);
+  assert.doesNotMatch(body(code).error_description, /blobs down/, 'internal detail stays in the log');
   const refresh = await exchange({ grant_type: 'refresh_token', refresh_token: refresh_token as string, client_id: clientId });
   assert.equal(refresh.statusCode, 503);
   await assert.rejects(userIsAuthenticated(mcpRequest(access_token)), (e: any) => e instanceof OAuthStorageError);

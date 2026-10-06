@@ -18,8 +18,10 @@ import { log } from "./logger.ts";
 export const STORE_NAME = 'oauth-grants';
 export const RECORD_VERSION = 1;
 
-export const TRANSACTION_TTL_MS = 10 * 60 * 1000;
-export const CODE_REDEMPTION_TTL_MS = 10 * 60 * 1000;
+// Long enough for a Netlify login with 2FA or SSO after consent.
+export const TRANSACTION_TTL_MS = 20 * 60 * 1000;
+export const CODE_REDEMPTION_TTL_MS = 20 * 60 * 1000;
+export const REFRESH_RACE_GRACE_MS = 30 * 1000;
 
 export type TransactionStatus = 'pending' | 'approved' | 'declined' | 'completed';
 
@@ -55,6 +57,9 @@ export interface Grant {
   createdAt: number;
   /** jti of the refresh token that is currently valid; null once revoked or if none was issued. */
   currentRefresh: string | null;
+  /** The refresh token rotated out most recently and when, so a client's own
+   * parallel refresh inside REFRESH_RACE_GRACE_MS is a lost race, not reuse. */
+  previousRefresh?: { jti: string; at: number };
   revoked: { at: number; reason: string } | null;
 }
 
@@ -208,7 +213,11 @@ let activeStore: OAuthStore | null = null;
 
 function isLocalIssuer(): boolean {
   const issuer = process.env.OAUTH_ISSUER;
-  if (!issuer) return true;
+  if (!issuer) {
+    // A Netlify deploy always has these; a missing OAUTH_ISSUER there is a
+    // misconfiguration, not a local run.
+    return !(process.env.NETLIFY === 'true' || process.env.DEPLOY_ID);
+  }
   try {
     const host = new URL(issuer).hostname;
     return host === 'localhost' || host === '127.0.0.1' || host === '::1';

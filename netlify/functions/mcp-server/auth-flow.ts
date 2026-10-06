@@ -30,6 +30,7 @@ import {
   getOAuthStore,
   OAuthStorageError,
   RECORD_VERSION,
+  REFRESH_RACE_GRACE_MS,
   revokeGrant,
   TRANSACTION_TTL_MS,
   type AuthTransaction,
@@ -167,8 +168,10 @@ function oauthError(
  * §4.1.2.1's authorization-endpoint vocabulary and the closest fit).
  */
 function storageError(op: string, error: unknown): HandlerResponse {
-  const message = error instanceof Error ? error.message : String(error);
-  return oauthError(503, 'temporarily_unavailable', `The authorization server's grant store is unavailable; try again shortly. (${message})`, op, { reason: 'storage_unavailable' });
+  return oauthError(503, 'temporarily_unavailable', 'The authorization server\'s grant store is unavailable; try again shortly', op, {
+    reason: 'storage_unavailable',
+    detail: error instanceof Error ? error.message : String(error),
+  });
 }
 
 function isStorageError(error: unknown): error is OAuthStorageError {
@@ -198,19 +201,23 @@ function isSecureIssuer(): boolean {
 // `__Host-` pins the cookie to this exact origin and path (no Domain, Secure,
 // Path=/), which browsers only honour over https; the dev name is for
 // `netlify dev` on plain http.
-function sessionCookieName(): string {
-  return isSecureIssuer() ? '__Host-netlify_mcp_oauth' : 'netlify_mcp_oauth';
+// One cookie per transaction, so two authorizations in flight in the same
+// browser (two MCP clients, a retry, a double-click) do not overwrite each
+// other and completing one does not end the other.
+function sessionCookieName(transactionId: string): string {
+  const suffix = sha256(`cookie:${transactionId}`).slice(0, 16).replace(/[^A-Za-z0-9]/g, 'x');
+  return `${isSecureIssuer() ? '__Host-' : ''}netlify_mcp_oauth_${suffix}`;
 }
 
-function sessionCookie(value: string, maxAgeSeconds: number): string {
-  const attributes = [`${sessionCookieName()}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
+function sessionCookie(transactionId: string, value: string, maxAgeSeconds: number): string {
+  const attributes = [`${sessionCookieName(transactionId)}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
   if (isSecureIssuer()) attributes.push('Secure');
   return attributes.join('; ');
 }
 
-function readSessionSecret(req: Request): string | null {
+function readSessionSecret(req: Request, transactionId: string): string | null {
   const header = req.headers.get('cookie') ?? '';
-  const wanted = sessionCookieName();
+  const wanted = sessionCookieName(transactionId);
   for (const part of header.split(';')) {
     const [name, ...rest] = part.trim().split('=');
     if (name === wanted) {
@@ -254,9 +261,9 @@ async function loadOwnedTransaction(
   if (!isTransactionId(txnId)) {
     return { error: oauthError(400, 'invalid_request', 'Missing or malformed authorization transaction', op, { reason: 'transaction_malformed' }) };
   }
-  const sessionSecret = readSessionSecret(req);
+  const sessionSecret = readSessionSecret(req, txnId);
   if (!sessionSecret) {
-    return { error: oauthError(400, 'invalid_request', 'This browser did not start this authorization; start again from the application', op, { reason: 'session_cookie_missing' }) };
+    return { error: oauthError(400, 'invalid_request', 'This browser did not start this authorization, or the request expired; start again from the application', op, { reason: 'session_cookie_missing' }) };
   }
   const found = await store.getTransaction(txnId);
   if (!found) {
@@ -346,7 +353,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
     statusCode: 302,
     headers: {
       'Location': consentUrl.toString(),
-      'Set-Cookie': sessionCookie(sessionSecret, Math.ceil(TRANSACTION_TTL_MS / 1000)),
+      'Set-Cookie': sessionCookie(txn.id, sessionSecret, Math.ceil(TRANSACTION_TTL_MS / 1000)),
       'Cache-Control': 'no-store',
     },
     body: '',
@@ -422,7 +429,7 @@ function consentPage(txn: AuthTransaction, csrf: string, origin: string): string
 
   <h2>Where the authorization is sent</h2>
   <p>If you allow it, Netlify MCP will send this application a credential for your account at:</p>
-  <p class="dest"><strong>${escapeHtml(redirect.host)}</strong>${escapeHtml(redirect.pathname)}${escapeHtml(redirect.search)}</p>
+  <p class="dest">${escapeHtml(redirect.protocol)}${redirect.host ? '//' : ''}<strong>${escapeHtml(redirect.host || redirect.pathname)}</strong>${escapeHtml(redirect.host ? redirect.pathname : '')}${escapeHtml(redirect.search)}</p>
   <p class="fine">Only approve if you recognise this destination as the application you are connecting from.</p>
 
   <h2>What it will be able to do</h2>
@@ -698,7 +705,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
         'Location': target.toString(),
         // The session has done its job; drop it so a later page on this origin
         // cannot reuse it.
-        'Set-Cookie': sessionCookie('', 0),
+        'Set-Cookie': sessionCookie(txn.id, '', 0),
         'Cache-Control': 'no-store',
       },
       body: '',
@@ -845,13 +852,19 @@ async function mintTokens(store: OAuthStore, grant: Grant, etag: string, source:
 
   // The grant records which refresh token is current before the new one goes
   // out, so a presentation of the old one is reuse the moment this returns.
-  const rotated = await store.updateGrant({ ...grant, currentRefresh: refreshJti }, etag);
+  const rotated = await store.updateGrant({
+    ...grant,
+    currentRefresh: refreshJti,
+    ...(grant.currentRefresh ? { previousRefresh: { jti: grant.currentRefresh, at: Date.now() } } : {}),
+  }, etag);
   if (!rotated) {
-    // Something else moved the grant between our read and this write — a
-    // concurrent redemption or rotation. Whichever it was, this request lost
-    // and the token it presented is no longer the current one.
-    await revokeGrant(store, grant.id, `concurrent ${op}`);
-    return oauthError(400, 'invalid_grant', 'The grant changed while this request was being processed; reconnect the application', op, { reason: 'grant_conflict', grant: grant.id, client_id: maskToken(source.client_id) });
+    // Something else moved the grant between our read and this write: a
+    // parallel request presenting the same, then-current token (two tabs of
+    // one client refreshing at once), a revocation, or a rotation that has
+    // already happened. The winner's tokens stand; this request simply lost.
+    // Reuse of a token that was already rotated out is detected on the read
+    // above, where it does revoke the family.
+    return oauthError(400, 'invalid_grant', 'The grant changed while this request was being processed; retry with the newest tokens', op, { reason: 'grant_conflict', grant: grant.id, client_id: maskToken(source.client_id) });
   }
 
   const common = {
@@ -1030,6 +1043,13 @@ async function handleRefreshTokenGrant(req: Request, bodyParams: URLSearchParams
       return oauthError(400, 'invalid_grant', 'The grant behind this refresh token has been revoked; reconnect the application', 'token/refresh', { ...logContext, reason: found ? 'grant_revoked' : 'grant_missing', grant: claims.grant });
     }
     if (found.record.currentRefresh !== claims.jti) {
+      const previous = found.record.previousRefresh;
+      if (previous && previous.jti === claims.jti && Date.now() - previous.at < REFRESH_RACE_GRACE_MS) {
+        // The same client refreshing from two places at once: the first
+        // request already rotated this token moments ago. That is a lost
+        // race, and the tokens it was given stand.
+        return oauthError(400, 'invalid_grant', 'This refresh token was just rotated by a parallel request; use the tokens that request received', 'token/refresh', { ...logContext, reason: 'refresh_race', grant: claims.grant });
+      }
       // RFC 6749 §10.4 / OAuth 2.1 §6.1: a rotated-out refresh token being
       // presented means it leaked (or the legitimate client lost the race to a
       // thief); the whole family stops working.

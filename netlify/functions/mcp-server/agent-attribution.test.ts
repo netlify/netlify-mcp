@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { attributionParams, canonicalAgent, cleanClientName } from './agent-attribution.ts';
 import { handleAuthStart, handleClientRegistration, handleConsentDecision, handleConsentPage } from './auth-flow.ts';
 
+process.env.OAUTH_ISSUER = 'http://localhost:8888';
 process.env.OAUTH_STORE = 'memory';
 import { staticClients } from './oauth-clients.ts';
 
@@ -146,7 +147,7 @@ async function netlifyRedirectFor(clientId: string): Promise<string> {
 test('consent approval: the Netlify redirect carries utm_content and utm_term for client_name: Claude', async () => {
   const clientId = await registerClientId('Claude');
   const location = await netlifyRedirectFor(clientId);
-  assert.ok(location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name%3AClaude') || location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name:Claude'), location);
+  assert.ok(location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name:Claude'), location);
 });
 
 test('consent approval: the Netlify redirect for a registration with no client_name omits attribution params', async () => {

@@ -1,4 +1,5 @@
 import type { Handler, HandlerResponse } from "@netlify/functions";
+import { connectLambda } from "@netlify/blobs";
 import {
   handleAuthStart,
   handleClientRegistration,
@@ -139,6 +140,17 @@ const oAuthHandler: Handler = async (req) => {
 
 
 export const handler: Handler = async (req, context) => {
+  // This is a Lambda-compatibility handler, so Netlify Blobs does not learn
+  // its site, deploy and token from the environment: they ride on the event
+  // and must be handed over before the grant store is opened. Absent (local
+  // runs, tests) the store falls back as oauth-store.ts allows.
+  if ((req as { blobs?: string }).blobs) {
+    try {
+      connectLambda(req as unknown as Parameters<typeof connectLambda>[0]);
+    } catch (error) {
+      log.error('oauth: could not connect Netlify Blobs from the event', { err: error });
+    }
+  }
   // Establish request-scoped log context for the whole OAuth request so every
   // line from oAuthHandler and the auth-flow handlers it calls is correlated.
   return withLogContext(
