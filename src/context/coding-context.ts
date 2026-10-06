@@ -108,7 +108,10 @@ function activeSkills(manifest: SkillManifest): Map<string, SkillEntry> {
         {
           ...s,
           files: Object.fromEntries(
-            Object.entries(s.files ?? {}).filter(([path]) => path.split('/').every(isSafeSegment)),
+            Object.entries(isPlainObject(s.files) ? s.files : {}).filter(
+              ([path, hash]) =>
+                typeof hash === 'string' && hash.startsWith('sha256:') && path.split('/').every(isSafeSegment),
+            ),
           ),
         },
       ]),

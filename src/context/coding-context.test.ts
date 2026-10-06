@@ -244,6 +244,23 @@ test('a reference path with unsafe segments is neither listed nor selectable', a
   assert.deepEqual(requested.filter((u) => u.includes('/skills/')), []);
 });
 
+test('a reference whose hash is not a sha256 string is neither listed nor selectable', async () => {
+  const skill = entry('netlify-database', 'active', ['SKILL.md', 'references/migrations.md']);
+  const files = { ...skill.files, 'references/numeric.md': 42, 'references/md5.md': 'md5:abc' };
+  manifestBody = manifest({ skills: [{ ...skill, files }] });
+
+  const result = await getNetlifyCodingContext('netlify-database');
+  assert.ok(result.ok);
+  assert.ok(result.text.endsWith('\n- references/migrations.md'));
+
+  requested = [];
+  for (const reference of ['references/numeric.md', 'references/md5.md']) {
+    const selected = await getNetlifyCodingContext('netlify-database', reference);
+    assert.ok(!selected.ok);
+  }
+  assert.deepEqual(requested.filter((u) => u.includes('/skills/')), []);
+});
+
 test('a failed manifest request is not cached', async () => {
   globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
   assert.equal(await getSkillManifest(), undefined);
