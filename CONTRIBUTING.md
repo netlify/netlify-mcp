@@ -52,7 +52,6 @@ this repo.
 | `JWE_SECRET` | yes (deployed) | Seals OAuth access/refresh tokens, the authorization code, the stateless DCR `client_id`, and the `/proxy/:token` JWE. Min 32 chars. Fails closed on any non-localhost issuer. |
 | `EVENTS_RELAY_JWE_SECRET` | only for event subscriptions | Seals event notification relay tokens. Min 32 chars, and it must not derive to the same key as `JWE_SECRET` (only the first 32 characters are used, so a shared prefix collides). **Without it the server does not advertise the `events` capability at all** — subscriptions could not work, so they are not offered. |
 | `NTL_AUTH_CLIENT_ID` | yes (deployed) | The Netlify OAuth application the authorize redirect uses. |
-| `DCR_REJECT_UNKNOWN_CLIENTS` | no (default false) | Turns dynamic-client-registration redirect warnings into hard rejections. |
 | `MCP_VERBOSE_LOGGING` | no | Enables the catch-all request/response body logger. |
 
 Generate the secrets with `openssl rand -base64 48`.

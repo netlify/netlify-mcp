@@ -41,6 +41,21 @@ export const staticClients: StaticClient[] = [
     response_types: ["code"],
     token_endpoint_auth_method: "client_secret_post",
   },
+  // ChatGPT registered once, through the dynamic registration that predates the
+  // stateless client_id (2e5b221), and reuses that client_id for every user
+  // (OpenAI runs DCR once per MCP server connection and keeps the client). The
+  // server cannot resolve it any more, yet it carried about half of all
+  // production logins in Sep-Oct 2026, so it is pinned here with the one
+  // redirect_uri those requests carry (OpenAI's stable connector redirect).
+  // Public PKCE client: no secret was ever issued.
+  {
+    // ChatGPT connector ("Netlify" MCP server)
+    client_id: "2m93QbON-vPRJMMIGA_MEzG1fkejj4JNAgb97ZC3gPd",
+    redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  },
 ];
 
 export function getClientById(id: string | null | undefined): StaticClient | undefined {
