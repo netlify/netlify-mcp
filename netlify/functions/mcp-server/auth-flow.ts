@@ -382,7 +382,10 @@ const CONSENT_SECURITY_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'no-store',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+  // No form-action: Chrome applies it to the 302 a form post is answered
+  // with, and both pages legitimately redirect off-origin (to Netlify, and to
+  // the client's registered callback). CSRF is the cookie-derived token.
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
 };
@@ -613,7 +616,7 @@ const CLIENT_REDIRECT_PAGE = `<!DOCTYPE html>
 
 // The hash is computed from the literal script so the CSP stays exact if the
 // script changes.
-const CLIENT_REDIRECT_CSP = `default-src 'none'; script-src '${scriptHash(CLIENT_REDIRECT_SCRIPT)}'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`;
+const CLIENT_REDIRECT_CSP = `default-src 'none'; script-src '${scriptHash(CLIENT_REDIRECT_SCRIPT)}'; frame-ancestors 'none'; base-uri 'none'`;
 
 export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
   if (req.method !== 'POST') {
