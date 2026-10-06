@@ -17,21 +17,6 @@ import { attributionParams } from "./agent-attribution.ts";
 // metadata so registration validation and what we advertise can't drift apart.
 import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
 
-/**
- * When true, any request whose redirect_uri we can't match to a registration is
- * rejected — a stateless client presenting a redirect it didn't register, a
- * static client whose exact redirect string we haven't verified, or a
- * legacy/foreign `client_id` we can't resolve. Defaults to FALSE so deploying
- * this introduces no breaking change for any existing client: every such case
- * is logged (see the always-on warn below) but allowed. Flip
- * DCR_REJECT_UNKNOWN_CLIENTS=true to turn those warnings into hard rejections
- * once the logs show it's safe to enforce.
- */
-function rejectUnknownClients(): boolean {
-  const v = (process.env.DCR_REJECT_UNKNOWN_CLIENTS ?? '').trim().toLowerCase();
-  return v === 'true' || v === '1' || v === 'yes';
-}
-
 /** Host of a redirect_uri for logging, without leaking the full URI. */
 function redirectHostForLog(redirectUri: string): string {
   try {
@@ -48,11 +33,13 @@ function redirectHostForLog(redirectUri: string): string {
  * caller that needs it (e.g. for its `client_name`) doesn't have to resolve
  * it again.
  *
- * Log-only by default: a request that matches a registration proceeds quietly;
- * anything else (a stateless/static client whose redirect doesn't match, or an
- * unresolvable client_id) is ALLOWED but recorded via an always-on warning, so
- * deploying this can't break any existing client. Setting
- * DCR_REJECT_UNKNOWN_CLIENTS=true turns those warnings into hard rejections.
+ * Fails closed: a redirect_uri the client did not register, or a client_id
+ * this server cannot resolve, gets a 400 and is never redirected to (RFC 6749
+ * §4.1.2.1 forbids redirecting on an invalid redirect_uri). The 400 lands in
+ * the user's browser, not at the client, so a client with an id this server
+ * no longer knows (a legacy opaque id, or a stateless id from before a
+ * JWE_SECRET rotation) only recovers when it registers again; a client that
+ * must keep working with such an id is pinned in oauth-clients.ts.
  */
 async function validateClientRedirect(
   clientId: string,
@@ -62,34 +49,28 @@ async function validateClientRedirect(
   const { client, source } = await resolveClient(clientId);
 
   if (client && isRedirectUriAllowed(client, redirectUri)) {
-    log.debug(`${op}: redirect_uri validated`, { client_id: clientId, source });
+    log.debug(`${op}: redirect_uri validated`, { client_id: maskToken(clientId), source });
     return { error: null, client };
   }
 
-  if (rejectUnknownClients()) {
-    const [error, description] = client
-      ? ['invalid_request', 'redirect_uri does not match a registered redirect URI for this client']
-      : ['invalid_client', 'Unregistered client_id or redirect_uri'];
-    return { error: oauthError(400, error, description, op, { client_id: clientId, source, redirect_uri: redirectUri }), client };
-  }
-
-  // Log-only mode: surface unconditionally (not log.debug) so operators can see
-  // this traffic in steady state and decide when it's safe to enforce.
-  //
-  // `reason` distinguishes WHY it wasn't validated, since `source: unknown` alone
-  // conflates several different situations that call for different fixes:
+  // `reason` says WHY the request failed, since `source: unknown` alone
+  // conflates several situations that call for different fixes:
   //  - 'redirect_mismatch': the client resolved fine (static or stateless) but
-  //    this redirect_uri isn't one it registered — the most attack-relevant case.
+  //    this redirect_uri isn't one it registered — the attack-relevant case.
   //  - 'jwe-like' / 'opaque' / 'empty': the client_id itself couldn't be
   //    resolved at all — see classifyUnresolvedClientId for what each implies.
-  log.warn('[oauth] redirect_uri not validated (allowed; set DCR_REJECT_UNKNOWN_CLIENTS=true to enforce)', {
-    op,
-    source,
-    reason: client ? 'redirect_mismatch' : classifyUnresolvedClientId(clientId),
-    client_id: maskToken(clientId),
-    redirect_host: redirectHostForLog(redirectUri),
-  });
-  return { error: null, client };
+  const [error, description] = client
+    ? ['invalid_request', 'redirect_uri does not match a registered redirect URI for this client']
+    : ['invalid_client', 'This server does not know this client_id; the client must register with it again'];
+  return {
+    error: oauthError(400, error, description, op, {
+      source,
+      reason: client ? 'redirect_mismatch' : classifyUnresolvedClientId(clientId),
+      client_id: maskToken(clientId),
+      redirect_host: redirectHostForLog(redirectUri),
+    }),
+    client,
+  };
 }
 
 
