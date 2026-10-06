@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { attributionParams, canonicalAgent, cleanClientName } from './agent-attribution.ts';
-import { handleAuthStart, handleClientRegistration } from './auth-flow.ts';
+import { handleAuthStart, handleClientRegistration, handleConsentDecision, handleConsentPage } from './auth-flow.ts';
+
+process.env.OAUTH_STORE = 'memory';
 import { staticClients } from './oauth-clients.ts';
 
 // One test per seed row, generated in a loop so each row is its own named
@@ -121,18 +123,35 @@ function authStartRequest(clientId: string, redirectUri: string): Request {
   return new Request(`http://localhost:8888/oauth-server/authorize?${params.toString()}`);
 }
 
-test('handleAuthStart: redirect carries utm_content and utm_term for client_name: Claude', async () => {
+// The Netlify redirect now happens when the user approves consent, so the
+// attribution is read off that redirect: /auth itself only sends the browser
+// to the consent page.
+async function netlifyRedirectFor(clientId: string): Promise<string> {
+  const start = await handleAuthStart(authStartRequest(clientId, REDIRECT_URI));
+  assert.equal(start.statusCode, 302);
+  const txn = new URL(String(start.headers?.Location)).searchParams.get('txn') as string;
+  const cookie = String(start.headers?.['Set-Cookie']).split(';')[0];
+  const page = await handleConsentPage(new Request(`http://localhost:8888/oauth-server/consent?txn=${txn}`, { headers: { cookie } }));
+  assert.equal(page.statusCode, 200);
+  const csrf = (String(page.body).match(/name="csrf" value="([^"]+)"/) as RegExpMatchArray)[1];
+  const decision = await handleConsentDecision(new Request('http://localhost:8888/oauth-server/consent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', cookie },
+    body: new URLSearchParams({ txn, csrf, decision: 'approve' }).toString(),
+  }));
+  assert.equal(decision.statusCode, 302);
+  return String(decision.headers?.Location);
+}
+
+test('consent approval: the Netlify redirect carries utm_content and utm_term for client_name: Claude', async () => {
   const clientId = await registerClientId('Claude');
-  const response = await handleAuthStart(authStartRequest(clientId, REDIRECT_URI));
-  assert.equal(response.statusCode, 302);
-  const location = String(response.headers?.Location);
-  assert.ok(location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name:Claude'));
+  const location = await netlifyRedirectFor(clientId);
+  assert.ok(location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name%3AClaude') || location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name:Claude'), location);
 });
 
-test('handleAuthStart: redirect for a registration with no client_name omits attribution params', async () => {
+test('consent approval: the Netlify redirect for a registration with no client_name omits attribution params', async () => {
   const clientId = await registerClientId();
-  const response = await handleAuthStart(authStartRequest(clientId, REDIRECT_URI));
-  const location = String(response.headers?.Location);
+  const location = await netlifyRedirectFor(clientId);
   assert.ok(location.includes('utm_campaign=integrations'));
   assert.ok(!location.includes('utm_content'));
   assert.ok(!location.includes('utm_term'));

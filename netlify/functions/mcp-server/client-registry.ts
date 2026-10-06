@@ -96,6 +96,40 @@ function isNativeRedirect(uri: string): boolean {
   return isLoopbackHost(parsed.hostname);
 }
 
+const MAX_REDIRECT_URI_LENGTH = 2048;
+// Schemes that run or read something in the browser rather than hand control
+// to a client. Everything else that is not http(s) is treated as a native
+// app's private scheme (RFC 8252 §7.1).
+const FORBIDDEN_SCHEMES = new Set(['javascript:', 'data:', 'blob:', 'file:', 'vbscript:', 'about:', 'ftp:', 'ws:', 'wss:']);
+
+/**
+ * Why a redirect_uri may not be registered, or null when it may. Accepts the
+ * three shapes OAuth clients legitimately use — an https URL on a real host, an
+ * http(s) loopback URL (RFC 8252 §7.3) and a private-use scheme (§7.1) — and
+ * refuses the rest: plain http to a remote host, fragments (RFC 6749 §3.1.2),
+ * embedded credentials and browser-executable schemes.
+ */
+export function validateRegisteredRedirectUri(uri: string): string | null {
+  if (uri.length > MAX_REDIRECT_URI_LENGTH) return 'too long';
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return 'not an absolute URI';
+  }
+  if (parsed.hash || uri.includes('#')) return 'must not contain a fragment';
+  if (parsed.username || parsed.password) return 'must not contain credentials';
+  if (parsed.protocol === 'https:') {
+    return parsed.hostname ? null : 'https redirect needs a host';
+  }
+  if (parsed.protocol === 'http:') {
+    return isLoopbackHost(parsed.hostname) ? null : 'http is only allowed for loopback addresses';
+  }
+  if (FORBIDDEN_SCHEMES.has(parsed.protocol)) return `scheme ${parsed.protocol} is not allowed`;
+  if (!/^[a-z][a-z0-9+.-]*:$/i.test(parsed.protocol)) return 'invalid scheme';
+  return null;
+}
+
 /**
  * Classify a client per the 2026-07-28 spec's `application_type`. We lean
  * toward `native`: if ANY redirect URI is a custom scheme or a loopback
@@ -143,6 +177,7 @@ export async function resolveClient(clientId: string | null | undefined): Promis
         token_endpoint_auth_method: staticClient.token_endpoint_auth_method ?? 'client_secret_post',
         application_type: inferApplicationType(staticClient.redirect_uris ?? []),
         scope: typeof staticClient.scope === 'string' ? staticClient.scope : undefined,
+        ...(staticClient.client_name ? { client_name: staticClient.client_name } : {}),
       },
       source: 'static',
     };

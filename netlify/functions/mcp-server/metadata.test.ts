@@ -30,6 +30,7 @@ test('AS metadata: all endpoints are absolute and share the issuer origin', () =
   assert.equal(md.authorization_endpoint, `${CANONICAL_ISSUER}oauth-server/auth`);
   assert.equal(md.token_endpoint, `${CANONICAL_ISSUER}oauth-server/token`);
   assert.equal(md.registration_endpoint, `${CANONICAL_ISSUER}oauth-server/reg`);
+  assert.equal(md.revocation_endpoint, `${CANONICAL_ISSUER}oauth-server/revoke`);
 });
 
 test('AS metadata: PKCE S256 is the only advertised challenge method', () => {
@@ -65,7 +66,6 @@ test('AS metadata: advertises no OIDC-only or unimplemented endpoints/fields', (
     'claims_supported',
     'subject_types_supported',
     // Endpoints we deliberately do not implement or advertise.
-    'revocation_endpoint',
     'introspection_endpoint',
     'device_authorization_endpoint',
     'pushed_authorization_request_endpoint',

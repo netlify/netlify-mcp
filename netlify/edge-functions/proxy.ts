@@ -1,4 +1,4 @@
-import { decryptJWE } from "../functions/mcp-server/utils.ts";
+import { TokenError, verifyToken, type ProxyClaims } from "../functions/mcp-server/tokens.ts";
 import { log, withLogContext, addLogContext, getRequestId, getDeployId, truncateForLog } from "../functions/mcp-server/logger.ts";
 import type {Config, Context} from '@netlify/edge-functions';
 
@@ -8,9 +8,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// The proxy is called with a JWE that has a accessToken inside.
-// This is to allow us to give a short lived token to something external to
-// the MCP server and use it to enrich requests
+// The proxy is called with a proxy token (see tokens.ts) that seals the
+// Netlify access token and the exact API calls it may make. It lets us hand a
+// short-lived, narrowly scoped credential to something outside the MCP server
+// — the CLI deploy command — without ever giving it the Netlify token itself.
 export default async (req: Request, ctx: Context) => {
   const token = ctx.params?.token as string;
 
@@ -33,21 +34,25 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
   }
-  let decryptedToken: Record<string, any> | undefined;
+
+  // Only a proxy token opens this door. An access token, a code, a refresh
+  // token or a client registration decrypts under the same key but is a
+  // different purpose, and is refused before the request is looked at.
+  let claims: ProxyClaims;
   try {
-    decryptedToken = await decryptJWE(token);
-  } catch {
-    return new Response('Unauthorized', { status: 401 });
-  }
-  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string') {
-    return new Response('Unauthorized', { status: 401 });
+    claims = await verifyToken(token, 'proxy');
+  } catch (error) {
+    if (error instanceof TokenError) {
+      log.warn('proxy token rejected', { reason: error.reason, presented: error.presented });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    throw error;
   }
 
-  // Attribute the proxied call to the user (identity is embedded in the JWE at
-  // token-issue time; absent on raw PATs and pre-identity tokens).
-  if (decryptedToken.identity && typeof decryptedToken.identity === 'object') {
-    const { userId, teamId } = decryptedToken.identity as { userId?: string; teamId?: string };
-    addLogContext({ userId, teamId });
+  // Attribute the proxied call to the user (identity is embedded in the token
+  // at issue time; absent on tokens minted from a raw PAT).
+  if (claims.identity) {
+    addLogContext({ userId: claims.identity.userId, teamId: claims.identity.teamId, grant: claims.grant ?? undefined });
   }
 
   const requestedPath = req.url.split(token)[1];
@@ -66,30 +71,29 @@ export async function handleProxy(req: Request, token: string): Promise<Response
 
   const normalizedPath = url.pathname;
 
-  if (Array.isArray(decryptedToken.apisAllowed)) {
-    const isAllowed = decryptedToken.apisAllowed.some(({ path, method }: { path: string; method: string; }) => {
-      // Escape regex metacharacters in the allowed path, then turn `:param`
-      // placeholders into a bounded segment matcher, and anchor with ^...$ so
-      // the whole normalized path must match — not just a substring of it.
-      const pattern = '^' + escapeRegExp(path).replace(/:\w+/g, '[\\w\\-]+') + '$';
-      const pathMatches = new RegExp(pattern).test(normalizedPath);
-      return pathMatches && method === req.method;
-    });
+  // The allowlist is mandatory (verifyToken refuses a token without one) and
+  // is checked against the method actually being forwarded.
+  const isAllowed = claims.apisAllowed.some(({ path, method }) => {
+    // Escape regex metacharacters in the allowed path, then turn `:param`
+    // placeholders into a bounded segment matcher, and anchor with ^...$ so
+    // the whole normalized path must match — not just a substring of it.
+    const pattern = '^' + escapeRegExp(path).replace(/:\w+/g, '[\\w\\-]+') + '$';
+    return new RegExp(pattern).test(normalizedPath) && method.toUpperCase() === req.method.toUpperCase();
+  });
 
-    if (!isAllowed) {
-      // Expected access-control enforcement (the token requested a path outside
-      // its scope), not a server error — warn so it stays a security signal
-      // without inflating error metrics.
-      log.warn('proxy denied out-of-scope path', { normalizedPath, apisAllowed: decryptedToken.apisAllowed });
-      return new Response('Forbidden', { status: 403 });
-    }
+  if (!isAllowed) {
+    // Expected access-control enforcement (the token requested a path outside
+    // its scope), not a server error — warn so it stays a security signal
+    // without inflating error metrics.
+    log.warn('proxy denied out-of-scope path', { normalizedPath, method: req.method, apisAllowed: claims.apisAllowed });
+    return new Response('Forbidden', { status: 403 });
   }
 
-  req.headers.set('Authorization', `Bearer ${decryptedToken.accessToken}`);
+  req.headers.set('Authorization', `Bearer ${claims.accessToken}`);
   req.headers.delete('host');
 
   const updatedReq = new Request(url, {
-    method: decryptedToken.apiMethod as string | undefined || req.method,
+    method: req.method,
     headers: req.headers,
     body: req.body,
     redirect: 'manual', // prevent automatic redirects

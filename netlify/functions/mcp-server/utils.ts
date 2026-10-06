@@ -318,6 +318,7 @@ export async function createJWE(
   payload: Record<string, any>,
   expiresIn: string | null = '1h',
   key?: Uint8Array,
+  registered?: { issuer?: string; audience?: string },
 ): Promise<string> {
   const secret = key ?? getSecretKey()
 
@@ -327,6 +328,12 @@ export async function createJWE(
 
   if (expiresIn !== null) {
     builder.setExpirationTime(expiresIn)
+  }
+  if (registered?.issuer) {
+    builder.setIssuer(registered.issuer)
+  }
+  if (registered?.audience) {
+    builder.setAudience(registered.audience)
   }
 
   return builder.encrypt(secret)

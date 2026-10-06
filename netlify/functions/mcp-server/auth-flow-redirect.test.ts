@@ -1,22 +1,27 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
 
-import {
-  handleAuthStart,
-  handleClientRegistration,
-  handleCodeExchange,
-  handleServerSideAuthRedirect,
-} from './auth-flow.ts';
 import { staticClients } from './oauth-clients.ts';
-import { SUPPORTED_SCOPES } from './oauth-config.ts';
+import {
+  approve,
+  authorize,
+  callback,
+  completeFlow,
+  exchange,
+  finish,
+  location,
+  pkcePair,
+  register,
+  startFlow,
+} from './oauth-test-flow.ts';
 
 // Pin the dev-key path regardless of ambient env: a localhost issuer with no
-// JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
+// JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key, and the
+// in-memory grant store stands in for Netlify Blobs.
 process.env.OAUTH_ISSUER = 'http://localhost:8888';
+process.env.OAUTH_STORE = 'memory';
 delete process.env.JWE_SECRET;
 
-const ISSUER = 'http://localhost:8888';
 const REGISTERED_REDIRECT = 'https://client.example.com/callback';
 const ATTACKER_REDIRECT = 'https://attacker.example.net/callback';
 
@@ -42,69 +47,6 @@ after(() => {
   globalThis.fetch = origFetch;
 });
 
-function pkcePair() {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
-}
-
-async function register(redirectUris: string[]): Promise<string> {
-  const res = await handleClientRegistration(
-    new Request(`${ISSUER}/oauth-server/reg`, {
-      method: 'POST',
-      body: JSON.stringify({ redirect_uris: redirectUris, client_name: 'Redirect binding test' }),
-    }),
-    SUPPORTED_SCOPES,
-  );
-  assert.equal(res.statusCode, 201);
-  return JSON.parse(res.body as string).client_id;
-}
-
-function authorize(clientId: string, redirectUri: string, challenge: string, scope?: string) {
-  const url = new URL(`${ISSUER}/oauth-server/auth`);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('code_challenge', challenge);
-  url.searchParams.set('code_challenge_method', 'S256');
-  url.searchParams.set('state', 'client-state');
-  if (scope) url.searchParams.set('scope', scope);
-  return handleAuthStart(new Request(url));
-}
-
-// The init-state the browser hands back to server-redirect is a base64 JSON
-// blob the attacker can author directly, so build it the way they would.
-function initState(fields: Record<string, string>): string {
-  return Buffer.from(JSON.stringify({
-    response_type: 'code',
-    code_challenge_method: 'S256',
-    ...fields,
-  })).toString('base64');
-}
-
-function serverRedirect(state: string) {
-  const url = new URL(`${ISSUER}/oauth-server/server-redirect`);
-  url.searchParams.set('token', 'netlify-token-from-browser');
-  url.searchParams.set('init-state', state);
-  return handleServerSideAuthRedirect(new Request(url));
-}
-
-function exchange(form: Record<string, string>) {
-  return handleCodeExchange(
-    new Request(`${ISSUER}/oauth-server/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(form).toString(),
-    }),
-  );
-}
-
-function location(res: { headers?: Record<string, unknown> }): URL {
-  const value = res.headers?.Location;
-  assert.equal(typeof value, 'string', 'expected a Location header');
-  return new URL(value as string);
-}
-
 function assertRejectedWithoutRedirect(res: any, error: string) {
   assert.equal(res.statusCode, 400);
   assert.equal(res.headers?.Location, undefined, 'a rejected redirect_uri must never be redirected to');
@@ -122,40 +64,35 @@ test('authorize: a client_id this server cannot resolve is rejected', async () =
   assertRejectedWithoutRedirect(res, 'invalid_client');
 });
 
-test('server-redirect: a tampered init-state cannot send the code to an unregistered redirect_uri', async () => {
-  // SEC-691 / SEC-790: the attacker never calls /auth. They hand the victim an
-  // app.netlify.com/authorize link whose state names a real client_id but
-  // their own redirect_uri, and the code must not follow it.
-  const clientId = await register([REGISTERED_REDIRECT]);
-  const res = await serverRedirect(initState({
-    client_id: clientId,
-    redirect_uri: ATTACKER_REDIRECT,
-    code_challenge: pkcePair().challenge,
-  }));
+test('server-redirect: a callback that never went through /auth cannot send a code anywhere', async () => {
+  // SEC-691 / SEC-790: the attacker never calls /auth. They used to hand the
+  // victim an app.netlify.com/authorize link whose state named a real
+  // client_id but their own redirect_uri. State is now an opaque transaction
+  // id resolved server-side, so a made-up one, with or without a cookie,
+  // mints nothing.
+  const forged = Buffer.from(JSON.stringify({ client_id: 'x', redirect_uri: ATTACKER_REDIRECT })).toString('base64');
+  const res = await callback({ token: 'netlify-token-from-browser', state: forged }, null);
   assertRejectedWithoutRedirect(res, 'invalid_request');
+  const random = await callback({ token: 'netlify-token-from-browser', state: 'A'.repeat(43) }, 'netlify_mcp_oauth=' + 'B'.repeat(43));
+  assertRejectedWithoutRedirect(random, 'invalid_request');
 });
 
-test('server-redirect: an unresolvable client_id in init-state is rejected', async () => {
-  const res = await serverRedirect(initState({
-    client_id: 'legacy-opaque-random-id-1234567890',
-    redirect_uri: ATTACKER_REDIRECT,
-    code_challenge: pkcePair().challenge,
-  }));
-  assertRejectedWithoutRedirect(res, 'invalid_client');
+test('server-redirect: the Netlify token is only accepted in a POST body, never a query string', async () => {
+  const res = await callback({}, null, 'GET');
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.headers?.Location, undefined);
 });
 
 test('the registered redirect_uri still completes the whole flow and binds the code to it', async () => {
   const clientId = await register([REGISTERED_REDIRECT]);
   const { verifier, challenge } = pkcePair();
 
-  const start = await authorize(clientId, REGISTERED_REDIRECT, challenge);
-  assert.equal(start.statusCode, 302);
-  const netlifyAuthorize = location(start);
-  assert.equal(netlifyAuthorize.origin, 'https://app.netlify.com');
-  const state = netlifyAuthorize.searchParams.get('state');
-  assert.ok(state);
+  const flow = await startFlow(clientId, REGISTERED_REDIRECT, challenge);
+  const netlifyAuthorize = await approve(flow);
+  // The upstream state is the transaction id, not the client's request.
+  assert.equal(netlifyAuthorize.searchParams.get('state'), flow.txn);
 
-  const redirect = await serverRedirect(state);
+  const redirect = await finish(flow, netlifyAuthorize);
   assert.equal(redirect.statusCode, 302);
   const clientCallback = location(redirect);
   assert.equal(`${clientCallback.origin}${clientCallback.pathname}`, REGISTERED_REDIRECT);
@@ -208,18 +145,16 @@ test('the legacy ChatGPT registration keeps working, on its own redirect only', 
   assert.deepEqual(chatgpt.redirect_uris, [CHATGPT_REDIRECT]);
 
   const { verifier, challenge } = pkcePair();
-  const ok = await authorize(CHATGPT_ID, CHATGPT_REDIRECT, challenge, 'offline_access');
-  assert.equal(ok.statusCode, 302);
   const elsewhere = await authorize(CHATGPT_ID, 'https://chatgpt.com.attacker.example/connector_platform_oauth_redirect', pkcePair().challenge);
   assertRejectedWithoutRedirect(elsewhere, 'invalid_request');
 
   // The whole flow, as the connector drives it: code to its redirect, then
   // exchange and refresh with the pinned id.
-  const redirect = await serverRedirect(location(ok).searchParams.get('state')!);
-  assert.equal(redirect.statusCode, 302);
-  const callback = location(redirect);
-  assert.equal(`${callback.origin}${callback.pathname}`, CHATGPT_REDIRECT);
-  const token = await exchange({ grant_type: 'authorization_code', code: callback.searchParams.get('code')!, client_id: CHATGPT_ID, redirect_uri: CHATGPT_REDIRECT, code_verifier: verifier });
+  const flow = await completeFlow(CHATGPT_ID, CHATGPT_REDIRECT, challenge, 'offline_access');
+  assert.match(flow.consentHtml, /Verified application/);
+  assert.match(flow.consentHtml, /ChatGPT/);
+  assert.equal(`${flow.clientCallback.origin}${flow.clientCallback.pathname}`, CHATGPT_REDIRECT);
+  const token = await exchange({ grant_type: 'authorization_code', code: flow.code, client_id: CHATGPT_ID, redirect_uri: CHATGPT_REDIRECT, code_verifier: verifier });
   assert.equal(token.statusCode, 200);
   const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: JSON.parse(token.body as string).refresh_token, client_id: CHATGPT_ID });
   assert.equal(refreshed.statusCode, 200);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { handleProxy } from '../../edge-functions/proxy.ts';
-import { createJWE } from './utils.ts';
+import { issueToken } from './tokens.ts';
 
 // Pin the dev-key path regardless of ambient env: a localhost issuer with no
 // JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
@@ -9,7 +9,7 @@ process.env.OAUTH_ISSUER = 'http://localhost:8888';
 delete process.env.JWE_SECRET;
 
 async function tokenFor(apisAllowed: Array<{ path: string; method: string }>): Promise<string> {
-  return createJWE({ accessToken: 'nfp_test_token', apisAllowed }, '1h');
+  return issueToken<'proxy'>({ typ: 'proxy', grant: null, client_id: null, accessToken: 'nfp_test_token', apisAllowed });
 }
 
 const allow = [{ path: '/api/v1/sites/:id/builds', method: 'POST' }];

@@ -9,6 +9,8 @@ export interface StaticClient {
   response_types: string[];
   token_endpoint_auth_method: string;
   scope?: string;
+  /** Shown on the consent screen as a verified name; pre-provisioned here, so it is ours to assert. */
+  client_name?: string;
 }
 
 // Static OAuth clients - add your pre-configured clients here
@@ -22,6 +24,7 @@ export const staticClients: StaticClient[] = [
   {
     // oauth app name "Azure AI Foundry"
     client_id: "yncg92fdmoCfvrPSIbNH9ihx9oI5iFFoKqTY7sVQkEA",
+    client_name: "Azure AI Foundry",
     client_secret:
       process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY ||
       "supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8",
@@ -33,6 +36,7 @@ export const staticClients: StaticClient[] = [
   {
     // oauth app name "Azure AI Foundry Testing"
     client_id: "BHsAsy2hsx4NLRthhSVAA2IQ0W7d72H8o2fevaVqyaE",
+    client_name: "Azure AI Foundry (testing)",
     client_secret:
       process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY_TESTING ||
       "supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8",
@@ -51,6 +55,7 @@ export const staticClients: StaticClient[] = [
   {
     // ChatGPT connector ("Netlify" MCP server)
     client_id: "2m93QbON-vPRJMMIGA_MEzG1fkejj4JNAgb97ZC3gPd",
+    client_name: "ChatGPT",
     redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],

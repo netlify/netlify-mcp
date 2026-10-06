@@ -21,9 +21,9 @@ function abs(path: string): string {
  *
  * Hand-built (no OIDC library): this is a plain OAuth 2.1 AS. We advertise ONLY
  * the endpoints the MCP auth spec requires and that we actually implement —
- * authorize, token, registration, plus PKCE. There is deliberately no
- * revocation / introspection / userinfo / jwks / device-flow / PAR endpoint, so
- * none are advertised here.
+ * authorize, token, registration, RFC 7009 revocation, plus PKCE. There is
+ * deliberately no introspection / userinfo / jwks / device-flow / PAR
+ * endpoint, so none are advertised here.
  *
  * `authorization_response_iss_parameter_supported` is intentionally omitted (not
  * set false): we still EMIT `iss` on the authorization redirect
@@ -36,6 +36,7 @@ export function buildAuthServerMetadata() {
     issuer: getOAuthIssuer(),
     authorization_endpoint: abs(OAUTH_ROUTES.authorization),
     token_endpoint: abs(OAUTH_ROUTES.token),
+    revocation_endpoint: abs(OAUTH_ROUTES.revocation),
     registration_endpoint: abs(OAUTH_ROUTES.registration),
     scopes_supported: [...SUPPORTED_SCOPES],
     response_types_supported: ['code'],

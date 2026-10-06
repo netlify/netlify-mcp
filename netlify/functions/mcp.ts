@@ -18,6 +18,7 @@ import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signa
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
+import { OAuthStorageError } from "./mcp-server/oauth-store.ts";
 // `import type`, not a value import: these are type-only exports, so a value
 // import survives type-stripping and fails to resolve at load time. Netlify's
 // bundler erases it in a real deploy, which is why this was invisible — but it
@@ -78,6 +79,20 @@ export default async (req: Request, context: Context) => {
         }
 
       } catch (error) {
+
+        // The grant store decides whether a revoked token is still honoured;
+        // without it the request is refused rather than let through.
+        if (error instanceof OAuthStorageError) {
+          log.error("MCP auth store unavailable", { err: error });
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              error: { code: -32603, message: "Authorization store unavailable; retry shortly" },
+              id: null,
+            }),
+            { status: 503, headers: { "Content-Type": "application/json", "Retry-After": "5" } }
+          );
+        }
 
         log.error("MCP error", { err: error });
         return new Response(

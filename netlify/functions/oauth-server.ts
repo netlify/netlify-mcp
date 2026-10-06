@@ -1,5 +1,14 @@
 import type { Handler, HandlerResponse } from "@netlify/functions";
-import { handleAuthStart, handleClientRegistration, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
+import {
+  handleAuthStart,
+  handleClientRegistration,
+  handleClientSideAuthExchange,
+  handleCodeExchange,
+  handleConsentDecision,
+  handleConsentPage,
+  handleRevocation,
+  handleServerSideAuthRedirect,
+} from "./mcp-server/auth-flow.ts";
 import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
 import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
@@ -29,8 +38,9 @@ installProcessGuards();
  *   - RFC 8414 authorization-server metadata
  *   - RFC 7591 dynamic client registration
  *   - OAuth 2.1 authorization + token endpoints (PKCE S256 required)
- * There is deliberately no revocation / introspection / userinfo / jwks /
- * device-flow / PAR endpoint; any other path returns a clean 404.
+ *   - RFC 7009 revocation
+ * There is deliberately no introspection / userinfo / jwks / device-flow / PAR
+ * endpoint; any other path returns a clean 404.
  */
 
 function jsonResponse(statusCode: number, body: unknown): HandlerResponse {
@@ -54,10 +64,13 @@ const oAuthHandler: Handler = async (req) => {
 
   const parsedUrl = getParsedUrl(req);
   const pathname = parsedUrl.pathname;
+  // Form posts can reach a Lambda-style handler base64-encoded; decode so the
+  // consent and callback handlers read the real body.
+  const rawBody = req.body && req.isBase64Encoded ? Buffer.from(req.body, 'base64').toString('utf8') : req.body;
   const reqObj = new Request(req.rawUrl, {
     method: req.httpMethod,
     headers: headersToHeadersObject(req.headers as Record<string, string>),
-    body: req.body || null,
+    body: rawBody || null,
   });
 
   // RFC 9728 Protected Resource Metadata. Clients derive the PRM URL from the
@@ -89,9 +102,18 @@ const oAuthHandler: Handler = async (req) => {
     return await handleClientRegistration(reqObj, SUPPORTED_SCOPES);
   }
 
-  // The interactive authorization flow, handled directly.
+  // The interactive authorization flow, handled directly: /auth records the
+  // request and shows consent; consent approval sends the browser to Netlify;
+  // Netlify returns to client-redirect, which posts the token to
+  // server-redirect, which mints the code.
   if (pathname.endsWith(OAUTH_ROUTES.authorization)) {
     return await handleAuthStart(reqObj);
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.consent)) {
+    if (req.httpMethod === 'POST') {
+      return await handleConsentDecision(reqObj);
+    }
+    return await handleConsentPage(reqObj);
   }
   if (pathname.endsWith(OAUTH_ROUTES.clientRedirect)) {
     return await handleClientSideAuthExchange();
@@ -101,6 +123,9 @@ const oAuthHandler: Handler = async (req) => {
   }
   if (pathname.endsWith(OAUTH_ROUTES.token)) {
     return await handleCodeExchange(reqObj);
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.revocation) && req.httpMethod === 'POST') {
+    return await handleRevocation(reqObj);
   }
 
   // No other OAuth endpoints exist on this server. Return a clean OAuth-style

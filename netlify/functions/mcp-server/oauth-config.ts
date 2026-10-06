@@ -33,11 +33,23 @@ export const TOKEN_ENDPOINT_AUTH_METHODS = ['none', 'client_secret_post', 'clien
 // resolves them against the issuer to advertise absolute URLs.
 export const OAUTH_ROUTES = {
   authorization: '/oauth-server/auth',
+  consent: '/oauth-server/consent',
   token: '/oauth-server/token',
+  revocation: '/oauth-server/revoke',
   registration: '/oauth-server/reg',
   clientRedirect: '/oauth-server/client-redirect',
   serverRedirect: '/oauth-server/server-redirect',
 } as const;
+
+// What the consent screen says each scope means. Kept honest: the upstream
+// Netlify token is the user's full login, and the tools do not narrow it by
+// scope, so these describe what the client asked for, not a boundary.
+export const SCOPE_DESCRIPTIONS: Record<string, string> = {
+  read: 'read your projects, deploys, forms, environment variables and team details',
+  write: 'create and change projects, deploys, environment variables, DNS and team settings',
+  offline_access: 'stay connected without signing in again (a refresh token valid for up to 7 days at a time)',
+  claudeai: 'a marker scope Claude sends; it grants nothing additional',
+};
 
 // The protected resource this AS guards (the MCP server). Advertised as the
 // `resource` in the RFC 9728 protected-resource metadata.

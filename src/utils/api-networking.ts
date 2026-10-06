@@ -4,8 +4,9 @@ import envPaths from 'env-paths';
 import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { loginSpawnEnv } from './login-attribution.ts';
-import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
+import { TokenError, verifyToken, type AccessClaims } from '../../netlify/functions/mcp-server/tokens.ts';
+import { getOAuthStore } from '../../netlify/functions/mcp-server/oauth-store.ts';
 import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
@@ -63,8 +64,74 @@ const readTokenFromEnv = async () => {
   return '';
 }
 
+const PAT_PREFIXES = ['nfu', 'nfp', 'nfo'];
+
+/** A raw Netlify personal access token, which the MCP server accepts as-is. */
+function isNetlifyPAT(bearer: string): boolean {
+  return PAT_PREFIXES.some((prefix) => bearer.startsWith(prefix));
+}
+
+export type BearerCredential =
+  | { kind: 'pat'; accessToken: string }
+  | { kind: 'oauth'; accessToken: string; claims: AccessClaims };
+
+/**
+ * The credential behind a request's Authorization header: a Netlify PAT used
+ * directly, or an access token this server issued. Anything else — an
+ * authorization code, a refresh token, a proxy token, a client registration, a
+ * token for another issuer — is refused here, before any Netlify API call.
+ * Throws NetlifyUnauthError; never falls back to decrypting the payload.
+ */
+export const getBearerCredential = async (request: Request): Promise<BearerCredential> => {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new NetlifyUnauthError('no Bearer token found in Authorization header');
+  }
+  const bearer = authHeader.slice(7);
+  if (isNetlifyPAT(bearer)) {
+    return { kind: 'pat', accessToken: bearer };
+  }
+  try {
+    const claims = await verifyToken(bearer, 'access');
+    return { kind: 'oauth', accessToken: claims.accessToken, claims };
+  } catch (error) {
+    if (error instanceof TokenError) {
+      log.warn('mcp bearer rejected', { reason: error.reason, presented: error.presented });
+      throw new NetlifyUnauthError(error.reason === 'legacy_expired'
+        ? 'Bearer token predates the current token format; reconnect the application'
+        : 'Bearer token is invalid, expired, or not an access token');
+    }
+    throw error;
+  }
+};
+
+/**
+ * Whether the grant behind an OAuth access token is still live. Revocation
+ * (RFC 7009, code replay, refresh reuse) takes effect here, on the next /mcp
+ * request. A store failure propagates as OAuthStorageError so the caller
+ * answers 503 rather than letting the request through unchecked.
+ */
+const grantIsActive = async (claims: AccessClaims): Promise<boolean> => {
+  if (!claims.grant) {
+    // A legacy token (no grant record) inside its sunset window.
+    return true;
+  }
+  const found = await getOAuthStore().getGrant(claims.grant);
+  if (!found || found.record.revoked) {
+    log.warn('mcp bearer rejected', { reason: found ? 'grant_revoked' : 'grant_missing', grant: claims.grant });
+    return false;
+  }
+  return true;
+};
+
 export const userIsAuthenticated = async (request?: Request): Promise<boolean> => {
   try {
+    if (request) {
+      const credential = await getBearerCredential(request);
+      if (credential.kind === 'oauth' && !(await grantIsActive(credential.claims))) {
+        return false;
+      }
+    }
     const token = await getNetlifyAccessToken(request);
     if (!token) {
       return false;
@@ -93,16 +160,10 @@ export const getTokenIdentity = async (request?: Request): Promise<TokenIdentity
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
 
-  const bearer = authHeader.slice(7);
-  // Raw PATs are used directly and carry no embedded identity.
-  if (bearer.startsWith('nfu') || bearer.startsWith('nfp') || bearer.startsWith('nfo')) {
-    return null;
-  }
-
   try {
-    const decrypted = await decryptJWE(bearer);
-    const identity = (decrypted as any)?.identity;
-    return identity && typeof identity === 'object' ? (identity as TokenIdentity) : null;
+    const credential = await getBearerCredential(request);
+    // Raw PATs are used directly and carry no embedded identity.
+    return credential.kind === 'oauth' ? credential.claims.identity ?? null : null;
   } catch {
     return null;
   }
@@ -116,32 +177,7 @@ const LOGIN_TIMEOUT_MS = 6 * 60 * 1000;
 export const getNetlifyAccessToken = async (request?: Request): Promise<string> => {
 
   if (request) {
-    const authHeader = request.headers.get('Authorization');
-    let token = '';
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const bearerToken = authHeader.slice(7);
-      if(bearerToken.startsWith('nfu') || bearerToken.startsWith('nfp') || bearerToken.startsWith('nfo')){
-        token = bearerToken;
-      }else {
-        let decrypted: Record<string, any> | undefined;
-        try {
-          decrypted = await decryptJWE(bearerToken);
-        } catch {
-          throw new NetlifyUnauthError('Bearer token is invalid or expired');
-        }
-        if(decrypted && typeof decrypted.accessToken === 'string') {
-          token = decrypted.accessToken;
-        } else {
-          log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted ?? {}) });
-        }
-      }
-
-    }
-
-    if(!token) {
-      throw new NetlifyUnauthError('no Bearer token found in Authorization header');
-    }
-    return token;
+    return (await getBearerCredential(request)).accessToken;
   }
 
   let token = '';
