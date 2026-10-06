@@ -502,3 +502,22 @@ test('an unknown transaction opened without a cookie says it cannot be found', a
   const res = await htmlConsent('A'.repeat(43), null);
   assert.equal(stateOf(res), 'unknown');
 });
+
+test('one lagging read of the grant does not get a freshly rotated refresh token family revoked', async () => {
+  const { clientId, verifier, flow, netlify } = await approvedFlow();
+  const code = location(await finish(flow, netlify)).searchParams.get('code') as string;
+  const first = JSON.parse((await exchange({ grant_type: 'authorization_code', code, client_id: clientId, redirect_uri: REDIRECT, code_verifier: verifier })).body as string);
+  const grantId = (await verifyToken(first.access_token, 'access')).grant as string;
+  const before = await store.inner.getGrant(grantId);
+  const rotated = JSON.parse((await exchange({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: clientId })).body as string);
+
+  const realGetGrant = store.getGrant.bind(store);
+  let lagOnce = true;
+  store.getGrant = async (id: string) => {
+    if (lagOnce && id === grantId) { lagOnce = false; return structuredClone(before); }
+    return realGetGrant(id);
+  };
+  const res = await exchange({ grant_type: 'refresh_token', refresh_token: rotated.refresh_token, client_id: clientId });
+  assert.equal(res.statusCode, 200, res.body as string);
+  assert.equal((await store.inner.getGrant(grantId))?.record.revoked, null);
+});

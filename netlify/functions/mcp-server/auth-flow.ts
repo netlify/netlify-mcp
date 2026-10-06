@@ -1196,9 +1196,17 @@ async function handleRefreshTokenGrant(req: Request, bodyParams: URLSearchParams
   }
 
   try {
-    const found = await store.getGrant(claims.grant);
+    let found = await store.getGrant(claims.grant);
     if (!found || found.record.revoked) {
       return oauthError(400, 'invalid_grant', 'The grant behind this refresh token has been revoked; reconnect the application', 'token/refresh', { ...logContext, reason: found ? 'grant_revoked' : 'grant_missing', grant: claims.grant });
+    }
+    if (found.record.currentRefresh !== claims.jti) {
+      // Revoking a whole family is not undone by a later read, so the verdict
+      // rests on a second read rather than on one that might lag a rotation.
+      const confirmed = await store.getGrant(claims.grant);
+      if (confirmed && !confirmed.record.revoked && confirmed.record.currentRefresh === claims.jti) {
+        found = confirmed;
+      }
     }
     if (found.record.currentRefresh !== claims.jti) {
       const previous = found.record.previousRefresh;

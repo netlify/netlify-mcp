@@ -188,11 +188,13 @@ export class BlobsOAuthStore implements OAuthStore {
   }
 
   isCodeRedeemed(jti: string): Promise<boolean> {
-    return wrap('isCodeRedeemed', async () => (await this.store.get(keys.code(jti))) !== null);
+    return wrap('isCodeRedeemed', async () => (await this.store.get(keys.code(jti), { consistency: 'strong' })) !== null);
   }
 
   private async read<T>(key: string): Promise<Versioned<T> | null> {
-    const result = await this.store.getWithMetadata(key, { type: 'json' });
+    // Asked for on each read as well as on the store, so the guarantee holds
+    // for a store handed in from elsewhere.
+    const result = await this.store.getWithMetadata(key, { type: 'json', consistency: 'strong' });
     if (!result || result.data === null || result.data === undefined) return null;
     if (!result.etag) throw new Error(`no etag returned for ${key}`);
     return { record: result.data as T, etag: result.etag };
