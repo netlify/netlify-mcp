@@ -8,7 +8,7 @@ process.env.NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || 'test-ntl-cli
 // registration to mint a stateless client_id.
 process.env.JWE_SECRET = 'a'.repeat(32);
 
-const { handler }: any = await import('../oauth-server.ts');
+const { default: handler }: any = await import('../oauth-server.ts');
 
 // Importing oauth-server re-points the global logger at the system-log forwarder
 // and it writes warn/error to the console. This is a router test, not a logging
@@ -26,24 +26,27 @@ after(() => {
 
 function mkEvent(method: string, path: string, body: string | null = null) {
   return {
-    rawUrl: `https://mcp.netlify.example.com${path}`,
-    path,
-    rawQuery: '',
-    httpMethod: method,
-    headers: { host: 'mcp.netlify.example.com' },
-    queryStringParameters: {},
+    url: `https://mcp.netlify.example.com${path}`,
+    method,
+    headers: { host: 'mcp.netlify.example.com' } as Record<string, string>,
     body,
-    isBase64Encoded: false,
-  } as any;
+  };
+}
+
+function toRequest(event: ReturnType<typeof mkEvent>): Request {
+  return new Request(event.url, {
+    method: event.method,
+    headers: event.headers,
+    body: event.method === 'GET' || event.method === 'OPTIONS' ? null : event.body,
+  });
 }
 
 async function call(method: string, path: string, body: string | null = null) {
-  const r: any = await handler(mkEvent(method, path, body), {} as any, () => {});
-  const headers: Record<string, string> = r.headers || {};
-  const contentType = headers['Content-Type'] || headers['content-type'];
+  const r: Response = await handler(toRequest(mkEvent(method, path, body)), {} as any);
+  const text = await r.text();
   let json: any = undefined;
-  try { json = JSON.parse(r.body); } catch {}
-  return { status: r.statusCode, contentType, body: r.body as string, json };
+  try { json = JSON.parse(text); } catch {}
+  return { status: r.status, contentType: r.headers.get('content-type') ?? '', body: text, json, headers: r.headers };
 }
 
 test('serves RFC 8414 AS metadata as JSON', async () => {
@@ -93,6 +96,25 @@ test('authorize and token endpoints are still routed to their handlers', async (
   assert.equal(token.json.error, 'invalid_request');
 });
 
+test('the bare /authorize and /token aliases reach the same handlers', async () => {
+  // These paths are declared on the function itself rather than rewritten in
+  // netlify.toml, so the router has to map them.
+  const auth = await call('GET', '/authorize');
+  assert.equal(auth.status, 400);
+  assert.equal(auth.json.error, 'invalid_request');
+
+  const token = await call('POST', '/token', 'grant_type=authorization_code');
+  assert.equal(token.status, 400);
+  assert.equal(token.json.error, 'invalid_request');
+});
+
+test('the function declares every public OAuth path', async () => {
+  const { config }: any = await import('../oauth-server.ts');
+  for (const path of ['/oauth-server/*', '/token', '/authorize', '/register', '/.well-known/oauth-authorization-server', '/.well-known/openid-configuration', '/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/*']) {
+    assert.ok(config.path.includes(path), `${path} is routed to the OAuth server`);
+  }
+});
+
 test('removed endpoints return a clean 404 invalid_request', async () => {
   // Everything that used to be served by the OIDC provider catch-all is gone.
   for (const path of [
@@ -125,7 +147,7 @@ async function callCapturingRegisterLog(event: any): Promise<{ r: any; parsed: a
   };
   let r: any;
   try {
-    r = await handler(event, {} as any, () => {});
+    r = await handler(toRequest(event), {} as any);
   } finally {
     console.log = origLog;
   }
@@ -153,7 +175,7 @@ test('register: request-context userAgent is bounded on the always-on log line',
 
   const { r, parsed } = await callCapturingRegisterLog(event);
 
-  assert.equal(r.statusCode, 201);
+  assert.equal(r.status, 201);
   assert.ok(parsed);
   assert.equal(parsed.userAgent.length, 200);
   assert.equal(parsed.client_name, 'Claude Code');
@@ -168,7 +190,7 @@ test('register: request-context path is bounded on the always-on log line', asyn
 
   const { r, parsed } = await callCapturingRegisterLog(event);
 
-  assert.equal(r.statusCode, 201);
+  assert.equal(r.status, 201);
   assert.ok(parsed);
   assert.equal(parsed.path.length, 200);
 });

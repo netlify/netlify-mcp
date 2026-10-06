@@ -1,5 +1,4 @@
-import type { Handler, HandlerResponse } from "@netlify/functions";
-import { connectLambda } from "@netlify/blobs";
+import type { Config, Context, HandlerResponse } from "@netlify/functions";
 import {
   handleAuthStart,
   handleClientRegistration,
@@ -12,7 +11,7 @@ import {
 } from "./mcp-server/auth-flow.ts";
 import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
-import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
+import { addCommonHeadersToHandlerResp } from "./mcp-server/utils.ts";
 import { safeBodySummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
@@ -52,27 +51,18 @@ function jsonResponse(statusCode: number, body: unknown): HandlerResponse {
   };
 }
 
-const oAuthHandler: Handler = async (req) => {
-  log.debug('oauth request', { url: req.rawUrl });
+async function oAuthHandler(reqObj: Request): Promise<HandlerResponse> {
+  log.debug('oauth request', { url: reqObj.url });
 
   // Handle CORS preflight requests
-  if (req.httpMethod === 'OPTIONS') {
+  if (reqObj.method === 'OPTIONS') {
     return {
       statusCode: 204,
       body: '',
     };
   }
 
-  const parsedUrl = getParsedUrl(req);
-  const pathname = parsedUrl.pathname;
-  // Form posts can reach a Lambda-style handler base64-encoded; decode so the
-  // consent and callback handlers read the real body.
-  const rawBody = req.body && req.isBase64Encoded ? Buffer.from(req.body, 'base64').toString('utf8') : req.body;
-  const reqObj = new Request(req.rawUrl, {
-    method: req.httpMethod,
-    headers: headersToHeadersObject(req.headers as Record<string, string>),
-    body: rawBody || null,
-  });
+  const pathname = new URL(reqObj.url).pathname;
 
   // RFC 9728 Protected Resource Metadata. Clients derive the PRM URL from the
   // resource path, so for a resource at /mcp they request
@@ -98,8 +88,8 @@ const oAuthHandler: Handler = async (req) => {
   // is persisted. Some clients POST to the conventional /register path instead
   // of the advertised registration_endpoint; accept both.
   const isRegistration = pathname.endsWith(OAUTH_ROUTES.registration) || pathname.endsWith('/register');
-  if (isRegistration && req.httpMethod === 'POST') {
-    log.debug('registration request', { body: safeBodySummary(req.body) });
+  if (isRegistration && reqObj.method === 'POST') {
+    log.debug('registration request', { body: safeBodySummary(await reqObj.clone().text()) });
     return await handleClientRegistration(reqObj, SUPPORTED_SCOPES);
   }
 
@@ -111,7 +101,7 @@ const oAuthHandler: Handler = async (req) => {
     return await handleAuthStart(reqObj);
   }
   if (pathname.endsWith(OAUTH_ROUTES.consent)) {
-    if (req.httpMethod === 'POST') {
+    if (reqObj.method === 'POST') {
       return await handleConsentDecision(reqObj);
     }
     return await handleConsentPage(reqObj);
@@ -125,7 +115,7 @@ const oAuthHandler: Handler = async (req) => {
   if (pathname.endsWith(OAUTH_ROUTES.token)) {
     return await handleCodeExchange(reqObj);
   }
-  if (pathname.endsWith(OAUTH_ROUTES.revocation) && req.httpMethod === 'POST') {
+  if (pathname.endsWith(OAUTH_ROUTES.revocation) && reqObj.method === 'POST') {
     return await handleRevocation(reqObj);
   }
 
@@ -136,39 +126,66 @@ const oAuthHandler: Handler = async (req) => {
     error: 'invalid_request',
     error_description: `No such endpoint: ${pathname}`,
   });
+}
+
+// Some clients assume the conventional bare paths; they are served by the
+// same handlers as the advertised ones.
+const PATH_ALIASES: Record<string, string> = {
+  '/token': OAUTH_ROUTES.token,
+  '/authorize': OAUTH_ROUTES.authorization,
 };
 
+function withCanonicalPath(req: Request): Request {
+  const url = new URL(req.url);
+  const canonical = PATH_ALIASES[url.pathname];
+  if (!canonical) return req;
+  url.pathname = canonical;
+  return new Request(url, req);
+}
 
-export const handler: Handler = async (req, context) => {
-  // This is a Lambda-compatibility handler, so Netlify Blobs does not learn
-  // its site, deploy and token from the environment: they ride on the event
-  // and must be handed over before the grant store is opened. Absent (local
-  // runs, tests) the store falls back as oauth-store.ts allows.
-  if ((req as { blobs?: string }).blobs) {
-    try {
-      connectLambda(req as unknown as Parameters<typeof connectLambda>[0]);
-    } catch (error) {
-      log.error('oauth: could not connect Netlify Blobs from the event', { err: error });
-    }
+function toResponse(resp: HandlerResponse): Response {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(resp.headers ?? {})) {
+    headers.set(key, String(value));
   }
+  // 204 and 304 must not carry a body.
+  const body = resp.statusCode === 204 || resp.statusCode === 304 ? null : resp.body ?? '';
+  return new Response(body, { status: resp.statusCode, headers });
+}
+
+
+// A modern (Request => Response) function, so Netlify configures Blobs for it
+// from the environment, including the uncached edge URL that strong reads
+// need. The Lambda-compatibility form only receives Blobs credentials on the
+// event, without that URL, and could only read the grant store eventually.
+export default async (req: Request, context: Context): Promise<Response> => {
   // Establish request-scoped log context for the whole OAuth request so every
   // line from oAuthHandler and the auth-flow handlers it calls is correlated.
   return withLogContext(
     {
       service: 'oauth',
-      requestId: getRequestId(req.headers as Record<string, string | undefined>),
-      deployId: getDeployId(req.headers as Record<string, string | undefined>),
-      httpMethod: req.httpMethod,
-      path: truncateForLog(req.path),
-      userAgent: truncateForLog((req.headers as Record<string, string | undefined>)['user-agent']),
+      requestId: getRequestId(req.headers),
+      deployId: getDeployId(context?.deploy ? context : req.headers),
+      httpMethod: req.method,
+      path: truncateForLog(new URL(req.url).pathname),
+      userAgent: truncateForLog(req.headers.get('user-agent')),
     },
     async () => {
-      const resp = await oAuthHandler(req, context);
-      return resp ? addCommonHeadersToHandlerResp(resp) : {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'Internal Server Error' }),
-        headers: { 'Content-Type': 'application/json' },
-      };
+      const resp = await oAuthHandler(withCanonicalPath(req));
+      return toResponse(addCommonHeadersToHandlerResp(resp));
     }
   );
-}
+};
+
+export const config: Config = {
+  path: [
+    '/oauth-server/*',
+    '/token',
+    '/authorize',
+    '/register',
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/*',
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/openid-configuration',
+  ],
+};

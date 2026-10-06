@@ -18,42 +18,7 @@
   to = ".netlify/functions/mcp/:splat"
   status = 200
 
-[[redirects]]
-  from = "/oauth-server/*"
-  to = ".netlify/functions/oauth-server/:splat"
-  status = 200
-
-# just in case some client assumes these common defaults
-[[redirects]]
-  from = "/token"
-  to = ".netlify/functions/oauth-server/token"
-  status = 200
-[[redirects]]
-  from = "/authorize"
-  to = ".netlify/functions/oauth-server/auth"
-  status = 200
-[[redirects]]
-  from = "/register"
-  to = ".netlify/functions/oauth-server/register"
-  status = 200
-
-[[redirects]]
-  from = "/.well-known/oauth-protected-resource"
-  to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
-  status = 200
-# RFC 9728 path-based PRM: clients request this for a resource at /mcp.
-[[redirects]]
-  from = "/.well-known/oauth-protected-resource/*"
-  to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
-  status = 200
-[[redirects]]
-  from = "/.well-known/oauth-authorization-server"
-  to = ".netlify/functions/oauth-server/.well-known/oauth-authorization-server"
-  status = 200
-[[redirects]]
-  from = "/.well-known/openid-configuration"
-  to = ".netlify/functions/oauth-server/openid-configuration"
-  status = 200
+# The OAuth server declares its own paths (netlify/functions/oauth-server.ts).
 
 # Domain ownership proof for the OpenAI apps/plugin directory. The file is a
 # static asset at the repo root (this site publishes the root, so no build step
