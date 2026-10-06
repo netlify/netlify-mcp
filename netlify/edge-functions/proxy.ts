@@ -1,4 +1,5 @@
 import { TokenError, verifyToken, type ProxyClaims } from "../functions/mcp-server/tokens.ts";
+import { getOAuthStore, OAuthStorageError } from "../functions/mcp-server/oauth-store.ts";
 import { log, withLogContext, addLogContext, getRequestId, getDeployId, truncateForLog } from "../functions/mcp-server/logger.ts";
 import type {Config, Context} from '@netlify/edge-functions';
 
@@ -47,6 +48,14 @@ export async function handleProxy(req: Request, token: string): Promise<Response
       return new Response('Unauthorized', { status: 401 });
     }
     throw error;
+  }
+
+  // A proxy token minted from an OAuth access token lives up to 30 minutes,
+  // so revoking the grant (RFC 7009, a replayed code, a reused refresh token)
+  // must end it too. A token minted from a PAT has no grant and is unchanged.
+  if (claims.grant) {
+    const refusal = await grantRefusal(claims.grant);
+    if (refusal) return refusal;
   }
 
   // Attribute the proxied call to the user (identity is embedded in the token
@@ -100,6 +109,23 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   });
   log.debug('proxy forwarding', { to: url.toString(), method: updatedReq.method });
   return fetch(updatedReq);
+}
+
+async function grantRefusal(grantId: string): Promise<Response | null> {
+  try {
+    const found = await getOAuthStore().getGrant(grantId);
+    if (!found || found.record.revoked) {
+      log.warn('proxy token rejected', { reason: found ? 'grant_revoked' : 'grant_missing', grant: grantId });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    return null;
+  } catch (error) {
+    if (error instanceof OAuthStorageError) {
+      log.error('proxy grant store unavailable', { grant: grantId, err: error });
+      return new Response('Authorization store unavailable; retry shortly', { status: 503, headers: { 'Retry-After': '5' } });
+    }
+    throw error;
+  }
 }
 
 export const config: Config = {

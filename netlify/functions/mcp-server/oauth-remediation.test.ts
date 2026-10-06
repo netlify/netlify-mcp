@@ -159,6 +159,7 @@ test('/mcp keeps accepting a raw Netlify personal access token as-is', async () 
 });
 
 test('/proxy accepts only proxy tokens', async () => {
+  await getOAuthStore().putGrant({ v: 1, id: 'grant-x', client_id: 'client-x', redirect_uri: REDIRECT_A, transaction: 't', createdAt: Date.now(), currentRefresh: null, revoked: null });
   const tokens = await oneOfEach();
   for (const [type, token] of Object.entries(tokens)) {
     upstreamCalls = [];
@@ -190,6 +191,88 @@ test('/proxy enforces the token allowlist against the forwarded path and method'
   // The forwarded request uses the real method; nothing in the token can override it.
   const forwarded = upstreamCalls.length;
   assert.ok(forwarded >= 2);
+});
+
+/** A proxy token minted the way the deploy tool mints one from an access token. */
+async function proxyTokenFor(accessToken: string) {
+  const claims = await verifyToken(accessToken, 'access');
+  return issueToken<'proxy'>({
+    typ: 'proxy', grant: claims.grant, client_id: claims.client_id, accessToken: claims.accessToken,
+    apisAllowed: [{ path: '/api/v1/sites/abc/builds', method: 'POST' }],
+  });
+}
+
+test('/proxy refuses a proxy token once its grant is revoked, without calling upstream', async () => {
+  const clientId = await register([REDIRECT_A]);
+  const { access_token } = await obtainTokens(clientId, REDIRECT_A);
+  const proxy = await proxyTokenFor(access_token);
+
+  upstreamCalls = [];
+  assert.equal((await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy)).status, 200);
+  assert.equal(upstreamCalls.length, 1);
+
+  assert.equal((await revoke({ token: access_token, client_id: clientId })).statusCode, 200);
+  upstreamCalls = [];
+  const res = await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy);
+  assert.equal(res.status, 401);
+  assert.deepEqual(upstreamCalls, [], 'a revoked grant forwards nothing');
+});
+
+test('/proxy refuses a proxy token whose grant was revoked by refresh-token reuse', async () => {
+  const clientId = await register([REDIRECT_A]);
+  const { access_token, refresh_token } = await obtainTokens(clientId, REDIRECT_A);
+  const proxy = await proxyTokenFor(access_token);
+  const first = await exchange({ grant_type: 'refresh_token', refresh_token: refresh_token as string, client_id: clientId });
+  assert.equal(first.statusCode, 200);
+  // Outside the race grace window, presenting the rotated-out token is reuse.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 60_000;
+  try {
+    const reuse = await exchange({ grant_type: 'refresh_token', refresh_token: refresh_token as string, client_id: clientId });
+    assert.equal(reuse.statusCode, 400);
+  } finally {
+    Date.now = realNow;
+  }
+  upstreamCalls = [];
+  assert.equal((await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy)).status, 401);
+  assert.deepEqual(upstreamCalls, []);
+});
+
+test('/proxy refuses a proxy token whose grant does not exist', async () => {
+  const proxy = await issueToken<'proxy'>({
+    typ: 'proxy', grant: 'no-such-grant', client_id: 'client-x', accessToken: 'nf-upstream-token',
+    apisAllowed: [{ path: '/api/v1/sites/abc/builds', method: 'POST' }],
+  });
+  upstreamCalls = [];
+  assert.equal((await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy)).status, 401);
+  assert.deepEqual(upstreamCalls, []);
+});
+
+test('/proxy answers 503 when the grant store cannot be read, and forwards nothing', async () => {
+  const store = new FailingStore(new MemoryOAuthStore());
+  setOAuthStore(store);
+  const clientId = await register([REDIRECT_A]);
+  const { access_token } = await obtainTokens(clientId, REDIRECT_A);
+  const proxy = await proxyTokenFor(access_token);
+  store.fail();
+  upstreamCalls = [];
+  const res = await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy);
+  assert.equal(res.status, 503);
+  assert.equal(res.headers.get('retry-after'), '5');
+  assert.deepEqual(upstreamCalls, []);
+});
+
+test('/proxy keeps forwarding a PAT-minted proxy token, which has no grant, even with the store down', async () => {
+  const store = new FailingStore(new MemoryOAuthStore());
+  setOAuthStore(store);
+  store.fail();
+  const proxy = await issueToken<'proxy'>({
+    typ: 'proxy', grant: null, client_id: null, accessToken: 'nfp_pat',
+    apisAllowed: [{ path: '/api/v1/sites/abc/builds', method: 'POST' }],
+  });
+  upstreamCalls = [];
+  assert.equal((await handleProxy(proxyRequest(proxy, '/api/v1/sites/abc/builds'), proxy)).status, 200);
+  assert.equal(upstreamCalls.length, 1);
 });
 
 test('/proxy refuses a proxy-shaped token that has no allowlist', async () => {
