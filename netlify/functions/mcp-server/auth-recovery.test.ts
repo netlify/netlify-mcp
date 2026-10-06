@@ -1,5 +1,6 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 
 import {
   MemoryOAuthStore,
@@ -283,10 +284,30 @@ test('an upstream error from another browser is refused without touching the tra
   assert.equal((await store.inner.getTransaction(flow.txn))?.record.status, 'approved');
 });
 
-test('the handoff page forwards an upstream error from the fragment or the query', async () => {
+/** Run the handoff page's script against a stand-in browser and return what it would post. */
+async function handoff(hash: string, search = '') {
   const page = await imports.handleClientSideAuthExchange();
-  assert.match(page.body as string, /name="error"/);
-  assert.match(page.body as string, /params\.get\('error'\) \|\| query\.get\('error'\)/);
+  const script = (page.body as string).match(/<script>([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script, 'the handoff page carries its script');
+  const fields: Record<string, { value: string }> = { token: { value: '' }, state: { value: '' }, error: { value: '' } };
+  let submitted = false;
+  const context = {
+    URLSearchParams,
+    window: { location: { hash, search, pathname: '/oauth-server/client-redirect' } },
+    history: { replaceState() {} },
+    document: { getElementById: () => ({ elements: fields, submit() { submitted = true; } }) },
+  };
+  runInNewContext(script, context);
+  return { submitted, token: fields.token.value, state: fields.state.value, error: fields.error.value };
+}
+
+test('the handoff page posts the token, or Netlify\'s error, from the fragment', async () => {
+  assert.deepEqual(await handoff('#access_token=tok&state=txn1'), { submitted: true, token: 'tok', state: 'txn1', error: '' });
+  assert.deepEqual(await handoff('#error=access_denied&state=txn1'), { submitted: true, token: '', state: 'txn1', error: 'access_denied' });
+});
+
+test('the handoff page ignores a query string, so a link cannot cancel someone\'s sign-in', async () => {
+  assert.deepEqual(await handoff('', '?error=access_denied&state=txn1'), { submitted: true, token: '', state: '', error: '' });
 });
 
 // ---------------------------------------------------------------------------
@@ -412,3 +433,72 @@ function contrast(a: string, b: string): number {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
+
+// ---------------------------------------------------------------------------
+// Interrupted sign-ins and the token exchange
+// ---------------------------------------------------------------------------
+
+test('an interrupted sign-in with no grant yet can be finished by signing in to Netlify again', async () => {
+  const { flow, netlify } = await approvedFlow();
+  // Fails right after issuance was recorded, before any grant exists.
+  store.failOnce('getTransaction', 1);
+  assert.equal((await finish(flow, netlify, 'netlify-token-a')).statusCode, 503);
+
+  const page = await htmlConsent(flow.txn, flow.cookie);
+  assert.equal(page.statusCode, 200);
+  assert.match(page.body as string, /Continue to Netlify login/);
+  const again = await decide({ txn: flow.txn, csrf: csrfFrom(page.body as string), decision: 'approve' }, flow.cookie);
+  assert.equal(location(again).origin, 'https://app.netlify.com');
+
+  const done = await finish(flow, netlify, 'netlify-token-b');
+  assert.equal(done.statusCode, 302, done.body as string);
+  assert.equal(store.grantsCreated.length, 1);
+});
+
+test('an interrupted sign-in whose grant exists says so instead of claiming it finished', async () => {
+  const { flow, netlify } = await approvedFlow();
+  store.failOnce('updateTransaction', 1);
+  assert.equal((await finish(flow, netlify, 'netlify-token-a')).statusCode, 503);
+  const other = await htmlCallback({ token: 'netlify-token-b', state: flow.txn }, flow.cookie);
+  assert.equal(other.statusCode, 400);
+  assert.equal(stateOf(other), 'interrupted');
+});
+
+test('cancelling an interrupted sign-in revokes the grant it had created', async () => {
+  const { flow, netlify } = await approvedFlow();
+  store.failOnce('updateTransaction', 1);
+  assert.equal((await finish(flow, netlify)).statusCode, 503);
+  const grantId = store.grantsCreated[0];
+  const res = await decide({ txn: flow.txn, csrf: flow.csrf, decision: 'deny' }, flow.cookie);
+  assert.equal(res.statusCode, 302);
+  assert.equal(location(res).searchParams.get('error'), 'access_denied');
+  assert.ok((await store.inner.getGrant(grantId))?.record.revoked);
+  const late = await finish(flow, netlify);
+  assert.equal(late.statusCode, 400);
+  assert.equal(late.headers?.Location, undefined);
+});
+
+for (const failure of [
+  { label: 'reading the grant after the redemption was recorded', op: 'getGrant' as Op, skip: 0 },
+  { label: 'recording the issued tokens on the grant (write lost)', op: 'updateGrant' as Op, skip: 0 },
+]) {
+  test(`token exchange: a store failure while ${failure.label} is retried, not treated as a replay`, async () => {
+    const { clientId, verifier, flow, netlify } = await approvedFlow();
+    const code = location(await finish(flow, netlify)).searchParams.get('code') as string;
+    const form = { grant_type: 'authorization_code', code, client_id: clientId, redirect_uri: REDIRECT, code_verifier: verifier };
+
+    store.failOnce(failure.op, failure.skip);
+    assert.equal((await exchange(form)).statusCode, 503);
+    const retried = await exchange(form);
+    assert.equal(retried.statusCode, 200, retried.body as string);
+
+    const replay = await exchange(form);
+    assert.equal(replay.statusCode, 400);
+    assert.match(JSON.parse(replay.body as string).error_description, /revoked/);
+  });
+}
+
+test('an unknown transaction opened without a cookie says it cannot be found', async () => {
+  const res = await htmlConsent('A'.repeat(43), null);
+  assert.equal(stateOf(res), 'unknown');
+});

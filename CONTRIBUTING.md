@@ -97,10 +97,12 @@ Every read is strongly consistent. That is why `oauth-server.ts` is a modern
 Netlify hand Blobs the uncached edge URL strong reads need. A context without
 it makes every read fail with a 503 rather than fall back to a cached read,
 which could return a transaction from before its approval or a grant from
-before its revocation. The CLI's local Blobs sandbox returns no ETag on reads,
-so under `netlify dev` the compare-and-swap path refuses with a 503; run
-locally with `OAUTH_STORE=memory` and verify the Blobs path on a deploy
-preview. Records carry `v: 1`; a later shape change bumps
+before its revocation. Locally the full flow runs only in the test suite
+(`oauth-test-flow.ts` drives it in one process). Under `netlify dev` neither
+store works end to end: the CLI's Blobs sandbox returns no ETag on reads, so
+every compare-and-swap refuses with a 503, and the function module is loaded
+afresh for each request, so `OAUTH_STORE=memory` forgets the transaction
+between `/auth` and consent. Verify the Blobs path on a deploy preview. Records carry `v: 1`; a later shape change bumps
 that and reads the old shape explicitly. Expired `txn/` and `code/` records
 carry an `expiresAt` metadata field and are harmless if left behind; a
 housekeeping sweep can list and delete them.
@@ -147,9 +149,19 @@ Issuing the code is recoverable. The callback first moves the transaction to
 `issuing`, recording the grant id, the code id and a hash of the Netlify
 token, then creates the grant, mints the code and marks the transaction
 `completed`. If any of those steps fails, the same browser posting the same
-Netlify sign-in again finishes the same grant with the same one-use code; a
-different Netlify token is refused, and once the code has been exchanged a
-retry gets nothing. A code redeemed twice still revokes its grant.
+Netlify sign-in again finishes the same grant with the same one-use code. If
+no grant was created yet, the consent page offers to continue, and a fresh
+Netlify login finishes it; once the grant exists, a different Netlify login
+is refused with a page that says the sign-in was interrupted. Cancelling an
+interrupted sign-in revokes any grant it created. Once the code has been
+exchanged a retry delivers nothing.
+
+The token exchange is retry-safe in the same way: if the store fails after the
+code was marked redeemed but before tokens were issued, presenting the code
+again (with its PKCE verifier) finishes the exchange. A code presented again
+after tokens were issued on it revokes the grant (RFC 6749 §4.1.2), so a
+client that somehow receives the same code twice and exchanges both loses the
+grant, as it should for a replay.
 
 The browser endpoints (`consent`, `client-redirect`, `server-redirect`) answer
 a person with a page: resume or cancel for a request that was allowed but not
@@ -170,7 +182,9 @@ answer JSON.
   revokes its grant.
 
 A revoked grant stops working at the next `/mcp` request, the next `/proxy`
-request made with a proxy token minted from it, and the next refresh.
+request made with a proxy token minted from it, and the next refresh. Each
+proxied request reads the grant from the store, the deploy tool's status
+polls included.
 
 ### Migrating from the untyped tokens (October 2026)
 

@@ -257,7 +257,9 @@ type Refusal = { error: HandlerResponse; state: BrowserState; status: number; re
 
 /** Where an answered transaction leaves the browser: the page for its status. */
 function answeredState(status: AuthTransaction['status']): BrowserState {
-  return status === 'declined' ? 'cancelled' : status === 'pending' || status === 'approved' ? 'not_approved' : 'finished';
+  if (status === 'declined') return 'cancelled';
+  if (status === 'issuing') return 'interrupted';
+  return status === 'pending' || status === 'approved' ? 'not_approved' : 'finished';
 }
 
 /**
@@ -285,7 +287,7 @@ async function loadOwnedTransaction(
   if (!sessionSecret) {
     // The cookie is dropped once a request is finished or cancelled, so a
     // reload afterwards lands here; say that rather than blame the browser.
-    const state = found && (found.record.status === 'completed' || found.record.status === 'declined') ? answeredState(found.record.status) : 'other_browser';
+    const state = !found ? 'unknown' : found.record.status === 'completed' || found.record.status === 'declined' ? answeredState(found.record.status) : 'other_browser';
     return refuse(state, 'This browser did not start this authorization, or the request expired; start again from the application', 'session_cookie_missing');
   }
   if (!found) {
@@ -490,7 +492,9 @@ export async function handleConsentPage(req: Request): Promise<HandlerResponse> 
     const { txn, sessionSecret } = owned;
     const csrf = csrfTokenFor(sessionSecret, txn.id);
     if (txn.status === 'pending') return htmlResponse(consentPage(txn, csrf, url.origin));
-    if (txn.status === 'approved') return htmlResponse(resumePage(txn, csrf, url.origin));
+    // `issuing` is a sign-in whose callback failed part-way; signing in to
+    // Netlify again finishes it while no grant has been created yet.
+    if (txn.status === 'approved' || txn.status === 'issuing') return htmlResponse(resumePage(txn, csrf, url.origin));
     return browserError(req, answeredState(txn.status), 400, 'This authorization request has already been answered; start again from the application', 'consent', { reason: 'transaction_not_pending', status: txn.status });
   } catch (error) {
     if (isStorageError(error)) return browserStorageError(req, 'consent', error);
@@ -542,9 +546,15 @@ function toNetlifyLogin(req: Request, txn: AuthTransaction): HandlerResponse {
 async function decline(store: OAuthStore, owned: OwnedTransaction): Promise<AuthTransaction> {
   let { txn, etag } = owned;
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (txn.status !== 'pending' && txn.status !== 'approved') return txn;
+    if (txn.status !== 'pending' && txn.status !== 'approved' && txn.status !== 'issuing') return txn;
     const declined: AuthTransaction = { ...txn, status: 'declined', declinedAt: Date.now() };
-    if (await store.updateTransaction(declined, etag)) return declined;
+    if (await store.updateTransaction(declined, etag)) {
+      // An interrupted issuance may already have created its grant; a
+      // callback still in flight then finds the transaction declined and
+      // delivers nothing, and the grant is dead in any case.
+      if (txn.issuance) await revokeGrant(store, txn.issuance.grant, 'sign-in cancelled before it finished');
+      return declined;
+    }
     const found = await store.getTransaction(txn.id);
     if (!found) return txn;
     ({ record: txn, etag } = found);
@@ -578,7 +588,7 @@ export async function handleConsentDecision(req: Request): Promise<HandlerRespon
       return redirectWithError(txn, 'access_denied', 'The user declined the authorization request');
     }
 
-    if (txn.status === 'approved') {
+    if (txn.status === 'approved' || txn.status === 'issuing') {
       // A double submit, a Back button or the resume page: the approval
       // already stands, so the browser simply goes to Netlify again.
       log.info('consent resumed', { client_id: maskToken(txn.client_id) });
@@ -612,8 +622,10 @@ export async function handleConsentDecision(req: Request): Promise<HandlerRespon
  * Netlify's own OAuth answers with the token in the URL fragment, which only
  * the browser can read. This page moves it to the server in a same-origin POST
  * body, so the upstream token never appears in a request line, a proxy log or
- * a Referer header. A cancelled Netlify login comes back with `error` instead,
- * in the fragment or the query, and is passed on the same way.
+ * a Referer header. A cancelled Netlify login comes back with `error` in the
+ * fragment instead (RFC 6749 §4.2.2.1) and is passed on the same way. Only the
+ * fragment is read: a query string is something any page can link to, and
+ * would let it cancel someone's sign-in in progress.
  */
 export async function handleClientSideAuthExchange(){
   return {
@@ -632,10 +644,9 @@ const CLIENT_REDIRECT_SCRIPT = `
       if (hash.charAt(0) === '#') hash = hash.slice(1);
       if (hash.charAt(0) === '?') hash = hash.slice(1);
       var params = new URLSearchParams(hash);
-      var query = new URLSearchParams(window.location.search);
       var token = params.get('access_token') || params.get('token') || '';
-      var state = params.get('state') || query.get('state') || '';
-      var error = params.get('error') || query.get('error') || '';
+      var state = params.get('state') || '';
+      var error = params.get('error') || '';
       history.replaceState(null, '', window.location.pathname);
       var form = document.getElementById('handoff');
       form.elements.token.value = token;
@@ -716,6 +727,16 @@ async function beginIssuance(store: OAuthStore, owned: OwnedTransaction, upstrea
   return { ...owned, txn, etag };
 }
 
+/** Point an issuance that has no grant yet at a different Netlify sign-in. */
+async function rebindIssuance(store: OAuthStore, owned: OwnedTransaction, upstreamHash: string): Promise<OwnedTransaction | null> {
+  const { txn, etag } = owned;
+  if (!txn.issuance) return null;
+  const rebound: AuthTransaction = { ...txn, issuance: { ...txn.issuance, upstreamHash } };
+  if (!(await store.updateTransaction(rebound, etag))) return null;
+  const reread = await store.getTransaction(txn.id);
+  return reread ? { ...owned, txn: reread.record, etag: reread.etag } : null;
+}
+
 /** The grant this transaction's issuance names, created if no attempt got that far. */
 async function ensureGrant(store: OAuthStore, txn: AuthTransaction, issuance: Issuance, upstreamToken: string): Promise<Grant | null> {
   const existing = await store.getGrant(issuance.grant);
@@ -788,19 +809,27 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     const upstreamHash = sha256(`upstream:${token}`);
     owned = await beginIssuance(store, owned, upstreamHash);
-    const { txn } = owned;
+    let { txn } = owned;
     const issuance = txn.issuance;
     if (!issuance || (txn.status !== 'issuing' && txn.status !== 'completed')) {
       return browserError(req, answeredState(txn.status), 400, 'This authorization was answered elsewhere; start again from the application', 'server-redirect', { reason: 'transaction_not_approved', status: txn.status });
     }
-    // A retry must carry the same Netlify sign-in that started the issuance;
-    // anything else would swap the account behind a code already promised.
+    // A retry must carry the same Netlify sign-in that started the issuance,
+    // since the grant records that account. Until the grant exists nothing is
+    // bound to it, so a fresh Netlify login (from the resume page) takes over.
     if (!safeEqual(issuance.upstreamHash, upstreamHash)) {
-      return browserError(req, 'finished', 400, 'This authorization was already completed; start again from the application', 'server-redirect', { reason: 'transaction_already_completed', client_id: maskToken(txn.client_id) });
+      const rebound = txn.status === 'issuing' && !(await store.getGrant(issuance.grant))
+        ? await rebindIssuance(store, owned, upstreamHash)
+        : null;
+      if (!rebound) {
+        return browserError(req, answeredState(txn.status), 400, 'This authorization was already completed with another Netlify sign-in; start again from the application', 'server-redirect', { reason: 'upstream_mismatch', status: txn.status, client_id: maskToken(txn.client_id) });
+      }
+      owned = rebound;
+      txn = rebound.txn;
     }
     // Once the code has been exchanged there is nothing left to deliver; a
     // replay of this POST must not produce anything usable.
-    if (txn.status === 'completed' && await store.isCodeRedeemed(issuance.code)) {
+    if (await store.isCodeRedeemed(issuance.code)) {
       return browserError(req, 'finished', 400, 'This authorization was already completed; start again from the application', 'server-redirect', { reason: 'transaction_already_completed', client_id: maskToken(txn.client_id) });
     }
 
@@ -824,10 +853,13 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
       ...(grant.identity ? { identity: grant.identity } : {}),
     });
 
-    if (txn.status === 'issuing') {
-      // Losing this swap means a parallel attempt completed it first, which is
-      // the same outcome.
-      await store.updateTransaction({ ...txn, status: 'completed', completedAt: Date.now() }, owned.etag);
+    if (txn.status === 'issuing' && !(await store.updateTransaction({ ...txn, status: 'completed', completedAt: Date.now() }, owned.etag))) {
+      // A parallel attempt completing it first is the same outcome; a cancel
+      // that landed in between means the code must not go out.
+      const now = await store.getTransaction(txn.id);
+      if (now?.record.status !== 'completed') {
+        return browserError(req, now ? answeredState(now.record.status) : 'unknown', 400, 'This authorization was cancelled before it finished', 'server-redirect', { reason: 'transaction_moved', status: now?.record.status });
+      }
     }
 
     log.info('server redirect: issuing authorization code', { client_id: maskToken(txn.client_id), redirect_host: redirectHostForLog(txn.redirect_uri), scope: truncateForLog(txn.scope), hasIdentity: !!grant.identity, grant: grant.id, redelivery: txn.status === 'completed' });
@@ -976,6 +1008,7 @@ async function mintTokens(store: OAuthStore, grant: Grant, etag: string, source:
   // out, so a presentation of the old one is reuse the moment this returns.
   const rotated = await store.updateGrant({
     ...grant,
+    tokensIssuedAt: grant.tokensIssuedAt ?? Date.now(),
     currentRefresh: refreshJti,
     ...(grant.currentRefresh ? { previousRefresh: { jti: grant.currentRefresh, at: Date.now() } } : {}),
   }, etag);
@@ -1088,14 +1121,17 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
 
   try {
     // RFC 6749 §4.1.2: a code presented twice is an attack signal, and every
-    // token already issued on it is revoked along with the grant.
+    // token already issued on it is revoked along with the grant. The one
+    // exception is an earlier exchange that recorded the redemption and then
+    // failed before issuing anything: the grant shows no tokens, the caller
+    // passed PKCE, and finishing that exchange is a retry, not a replay.
     const first = await store.redeemCode(claims.jti);
-    if (!first) {
+    const found = await store.getGrant(claims.grant);
+    if (!first && (!found || found.record.revoked || found.record.tokensIssuedAt)) {
       await revokeGrant(store, claims.grant, 'authorization code replayed');
       return oauthError(400, 'invalid_grant', 'Authorization code has already been used; the grant has been revoked', 'token', { ...logContext, reason: 'code_replayed', grant: claims.grant });
     }
 
-    const found = await store.getGrant(claims.grant);
     if (!found || found.record.revoked || found.record.client_id !== claims.client_id) {
       return oauthError(400, 'invalid_grant', 'The grant behind this authorization code is no longer valid', 'token', { ...logContext, reason: !found ? 'grant_missing' : found.record.revoked ? 'grant_revoked' : 'grant_client_mismatch', grant: claims.grant });
     }

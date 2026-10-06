@@ -54,7 +54,7 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   // so revoking the grant (RFC 7009, a replayed code, a reused refresh token)
   // must end it too. A token minted from a PAT has no grant and is unchanged.
   if (claims.grant) {
-    const refusal = await grantRefusal(claims.grant);
+    const refusal = await grantRefusal(claims.grant, claims.client_id);
     if (refusal) return refusal;
   }
 
@@ -111,11 +111,11 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   return fetch(updatedReq);
 }
 
-async function grantRefusal(grantId: string): Promise<Response | null> {
+async function grantRefusal(grantId: string, clientId: string | null): Promise<Response | null> {
   try {
     const found = await getOAuthStore().getGrant(grantId);
-    if (!found || found.record.revoked) {
-      log.warn('proxy token rejected', { reason: found ? 'grant_revoked' : 'grant_missing', grant: grantId });
+    if (!found || found.record.revoked || found.record.client_id !== clientId) {
+      log.warn('proxy token rejected', { reason: !found ? 'grant_missing' : found.record.revoked ? 'grant_revoked' : 'grant_client_mismatch', grant: grantId });
       return new Response('Unauthorized', { status: 401 });
     }
     return null;

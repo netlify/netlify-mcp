@@ -71,6 +71,8 @@ export interface Grant {
   identity?: TokenIdentity;
   transaction: string;
   createdAt: number;
+  /** When the code was first exchanged for tokens; absent until then. */
+  tokensIssuedAt?: number;
   /** jti of the refresh token that is currently valid; null once revoked or if none was issued. */
   currentRefresh: string | null;
   /** The refresh token rotated out most recently and when, so a client's own

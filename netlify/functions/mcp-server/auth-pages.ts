@@ -70,6 +70,7 @@ export type BrowserState =
   | 'unknown'
   | 'not_approved'
   | 'finished'
+  | 'interrupted'
   | 'cancelled'
   | 'upstream_cancelled'
   | 'no_token'
@@ -104,6 +105,11 @@ const STATES: Record<BrowserState, { title: string; message: string; next: strin
     title: 'This sign-in is already finished',
     message: 'The application was already sent its sign-in for this request. Nothing else needs to happen on this page.',
     next: 'You can close this tab. If the application still says it is not connected, start the connection again from the application.',
+  },
+  interrupted: {
+    title: 'This sign-in was interrupted',
+    message: 'Netlify MCP had started passing your sign-in to the application when something failed, and it cannot finish it from here.',
+    next: START_AGAIN,
   },
   cancelled: {
     title: 'Sign-in cancelled',
