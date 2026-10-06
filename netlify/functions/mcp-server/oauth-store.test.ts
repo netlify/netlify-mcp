@@ -49,7 +49,7 @@ test('grant store reads go to the uncached endpoint', async () => {
   assert.equal(found?.record.revoked?.reason, 'test');
   assert.equal(found?.etag, '"e1"');
   assert.equal(requests.length, 1);
-  assert.ok(requests[0].startsWith(UNCACHED), `read went to ${new URL(requests[0]).origin}`);
+  assert.equal(new URL(requests[0]).origin, UNCACHED);
 });
 
 test('without an uncached endpoint every read is refused, never served from the cache', async () => {
