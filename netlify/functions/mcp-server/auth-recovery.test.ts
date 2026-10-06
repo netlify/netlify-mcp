@@ -287,7 +287,9 @@ test('an upstream error from another browser is refused without touching the tra
 /** Run the handoff page's script against a stand-in browser and return what it would post. */
 async function handoff(hash: string, search = '') {
   const page = await imports.handleClientSideAuthExchange();
-  const script = (page.body as string).match(/<script>([\s\S]*)<\/script>/)?.[1];
+  const html = page.body as string;
+  const start = html.indexOf('<script>');
+  const script = start === -1 ? undefined : html.slice(start + '<script>'.length, html.indexOf('</script>', start));
   assert.ok(script, 'the handoff page carries its script');
   const fields: Record<string, { value: string }> = { token: { value: '' }, state: { value: '' }, error: { value: '' } };
   let submitted = false;
