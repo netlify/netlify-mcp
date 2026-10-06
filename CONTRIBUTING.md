@@ -79,7 +79,9 @@ The OAuth server keeps three kinds of record in the Netlify Blobs store
 
 - `txn/<id>` — an authorization in progress: client, redirect, PKCE challenge,
   requested scope, the client's own `state`, and the hash of the browser
-  session cookie that started it. Ten-minute lifetime.
+  session cookie that started it, and its status (`pending`, `approved`,
+  `issuing`, `completed` or `declined`). Twenty-minute lifetime, long enough
+  for a Netlify login with SSO or 2FA.
 - `grant/<id>` — a user's approval of a client: client, redirect, scope,
   identity, which refresh token is current, and whether it is revoked.
 - `code/<jti>` — written once when an authorization code is redeemed.
@@ -88,15 +90,26 @@ Every write that must happen once uses a conditional write (`onlyIfNew` for
 "first one wins", `onlyIfMatch` for compare-and-swap on the etag) with strong
 consistency, so the guarantees hold across serverless instances. The store is
 provisioned automatically on any Netlify deploy and under `netlify dev`; there
-is nothing to create by hand. Records carry `v: 1`; a later shape change bumps
+is nothing to create by hand.
+
+Every read is strongly consistent. That is why `oauth-server.ts` is a modern
+(`Request => Response`) function that declares its own paths: only then does
+Netlify hand Blobs the uncached edge URL strong reads need. A context without
+it makes every read fail with a 503 rather than fall back to a cached read,
+which could return a transaction from before its approval or a grant from
+before its revocation. The CLI's local Blobs sandbox returns no ETag on reads,
+so under `netlify dev` the compare-and-swap path refuses with a 503; run
+locally with `OAUTH_STORE=memory` and verify the Blobs path on a deploy
+preview. Records carry `v: 1`; a later shape change bumps
 that and reads the old shape explicitly. Expired `txn/` and `code/` records
 carry an `expiresAt` metadata field and are harmless if left behind; a
 housekeeping sweep can list and delete them.
 
 **If the store is unavailable, the OAuth server refuses**: `/auth`, consent,
 the callback, `/token` and `/revoke` answer `503 temporarily_unavailable`
-naming the store, and `/mcp` answers 503 for an OAuth access token (PATs are
-unaffected). Nothing is issued or honoured on a guess.
+naming the store, `/mcp` answers 503 for an OAuth access token, and `/proxy`
+answers 503 for a proxy token minted from one (PATs, and proxy tokens minted
+from a PAT, are unaffected). Nothing is issued or honoured on a guess.
 
 ### Token types
 
@@ -115,7 +128,9 @@ A raw Netlify PAT (`nfp_`/`nfu_`/`nfo_`) is still accepted at `/mcp` as-is.
 ### Consent and the browser session
 
 `/auth` validates the client and redirect, records a transaction, sets an
-`HttpOnly; SameSite=Lax; Secure` session cookie (`__Host-netlify_mcp_oauth`),
+`HttpOnly; SameSite=Lax; Secure` session cookie (`__Host-netlify_mcp_oauth_<suffix>`,
+one per transaction, so two sign-ins in flight in one browser do not disturb
+each other),
 and shows `/oauth-server/consent`, which names the requesting application
 (marked **unverified** for a dynamically registered client, since the name is
 self-asserted), the exact callback destination, and what access the user is
@@ -125,8 +140,26 @@ after approval does the browser go to `app.netlify.com/authorize`, with the
 transaction id as `state`. Netlify returns to `/oauth-server/client-redirect`,
 which posts the token to `/oauth-server/server-redirect` in a request body;
 that callback requires an approved, unexpired transaction whose session hash
-matches the cookie, completes it once, creates the grant and mints the code.
-A callback reached without `/auth`, from another browser, or twice, is a 400.
+matches the cookie. A callback reached without `/auth`, or from another
+browser, is a 400.
+
+Issuing the code is recoverable. The callback first moves the transaction to
+`issuing`, recording the grant id, the code id and a hash of the Netlify
+token, then creates the grant, mints the code and marks the transaction
+`completed`. If any of those steps fails, the same browser posting the same
+Netlify sign-in again finishes the same grant with the same one-use code; a
+different Netlify token is refused, and once the code has been exchanged a
+retry gets nothing. A code redeemed twice still revokes its grant.
+
+The browser endpoints (`consent`, `client-redirect`, `server-redirect`) answer
+a person with a page: resume or cancel for a request that was allowed but not
+finished (the Back button from the Netlify login, a second tab, a double
+click), and a page that says what happened and what to do for expired,
+finished, cancelled, started-in-another-browser and store-unavailable
+requests. A request without `Accept: text/html` gets the OAuth JSON error as
+before. Cancelling, or a Netlify login that comes back with `error`, sends the
+client `access_denied`. `/auth`, `/token`, `/revoke` and registration always
+answer JSON.
 
 ### Revocation
 
@@ -136,9 +169,8 @@ A callback reached without `/auth`, from another browser, or twice, is a 400.
 - `POST /oauth-server/revoke` (RFC 7009) with an access or refresh token
   revokes its grant.
 
-A revoked grant stops working at the next `/mcp` request and the next
-refresh. Proxy tokens are not re-checked (the edge function has no store);
-their 30-minute lifetime bounds that exposure.
+A revoked grant stops working at the next `/mcp` request, the next `/proxy`
+request made with a proxy token minted from it, and the next refresh.
 
 ### Migrating from the untyped tokens (October 2026)
 
@@ -161,6 +193,39 @@ Tokens issued before this change have no `typ`:
   command issued before the deploy fails and must be requested again.
 - Dynamic client registrations (`token_use: client_registration`) are
   unchanged and keep working.
+
+**Check the cutoff against the rollout date before merging.** A legacy access
+token issued just before the deploy is good for 48 h, so the deploy must land
+no later than 48 h before `LEGACY_ACCESS_TOKEN_SUNSET`, i.e. by
+2026-10-11T00:00Z for the current value. If it lands later, move the constant
+to at least the deploy time plus 48 h in the same change; otherwise active
+users are cut off before their tokens would have expired.
+
+#### What users will notice
+
+- **Anyone actively using an OAuth client reconnects once, within 48 h of the
+  deploy.** Their current access token keeps working until it expires; the
+  client's refresh then fails with `invalid_grant` and the client asks them to
+  sign in again. How each client presents that (a banner, a reconnect button,
+  a silent new browser window) is up to the client and has not been checked
+  for every one.
+- **Deploy commands generated before the deploy stop working.** The
+  `netlify deploy` command the deploy tool hands out embeds a proxy token;
+  an old one is refused with 401. Ask the assistant to deploy again for a new
+  command.
+- **Sign-in must be finished in the browser that started it.** The consent
+  page and the Netlify login are bound to that browser's cookie. Copying the
+  link to another browser, or a browser that blocks cookies for the MCP host,
+  ends on a page that says so.
+- **Each tab is its own sign-in.** Two clients connecting at once, or a retry
+  in a new tab, each get their own transaction; finishing or cancelling one
+  does not affect the other.
+- **Personal access tokens are unaffected**, and so is the pinned ChatGPT
+  client id: ChatGPT users reconnect once like everyone else, but nobody has
+  to re-add the connector.
+- **The OAuth server depends on Netlify Blobs.** If the store is unavailable,
+  sign-in, refresh, `/mcp` with an OAuth token and the deploy proxy answer
+  503 and recover by themselves once it is back.
 
 Compatibility must never be restored by widening validation or by rotating
 `JWE_SECRET` as a reflex: rotation revokes every registration and token at
