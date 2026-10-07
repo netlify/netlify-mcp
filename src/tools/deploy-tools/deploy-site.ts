@@ -19,6 +19,7 @@ const deploySiteRemotelyParamsSchema = z.object({
 export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyParamsSchema> = {
   domain: 'deploy',
   operation: 'deploy-site',
+  granularToolName: 'netlify-deploy-site',
   description:
     "Deploy a project to an existing Netlify site and publish it, making it what visitors see. Returns a command for the user to run in their project directory. siteId is required in practice — this cannot create a new site, and omitting it produces a command that will not work. Use get-projects or create-new-project first if the target site id is not known.",
   inputSchema: deploySiteRemotelyParamsSchema,

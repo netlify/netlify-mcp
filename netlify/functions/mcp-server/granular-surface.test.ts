@@ -81,6 +81,27 @@ test('granular tools carry their own description, not the generated stub', async
   }
 });
 
+test('the two names flagged as unclear are overridden', async () => {
+  // `netlify-deploy-deploy-site` stuttered, and
+  // `netlify-extension-initialize-database` named something the tool does not
+  // do — it returns written setup steps and provisions nothing.
+  const names = (await toolsList('openai-mcp/1.0.0')).map(t => t.name);
+  assert.ok(names.includes('netlify-deploy-site'));
+  assert.ok(names.includes('netlify-get-database-setup-steps'));
+  for (const stale of ['netlify-deploy-deploy-site', 'netlify-extension-initialize-database']) {
+    assert.equal(names.includes(stale), false, `${stale} should be gone`);
+  }
+});
+
+test('overriding a granular name does not change the operation id', async () => {
+  // The operation id is part of the grouped selector's schema, so renaming the
+  // granular tool must not leak into it and break existing callers.
+  const grouped = await toolsList('some-other-client/2.0');
+  const deployUpdater = grouped.find(t => t.name === 'netlify-deploy-services-updater');
+  assert.ok(deployUpdater, 'grouped deploy updater should still exist');
+  assert.match(JSON.stringify(deployUpdater.inputSchema), /"const":"deploy-site"/);
+});
+
 test('granular tools carry explicit behaviour hints', async () => {
   const tools = await toolsList('openai-mcp/1.0.0');
   for (const tool of tools) {
@@ -97,5 +118,7 @@ test('granular tools carry explicit behaviour hints', async () => {
     'netlify-extension-change-extension-installation',
     'netlify-project-manage-env-vars',
     'netlify-project-manage-form-submissions',
+    'netlify-project-update-project-name',
+    'netlify-project-update-visitor-access-controls',
   ]);
 });
