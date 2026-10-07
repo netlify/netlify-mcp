@@ -266,3 +266,102 @@ test('toApiMode maps change to normal and leaves ask and create alone', async ()
   assert.equal(toApiMode('ask'), 'ask');
   assert.equal(toApiMode('create'), 'create');
 });
+
+const startRunInput = { siteId: 'site 1', prompt: 'Build a landing page', mode: 'change' as const };
+
+test('start-run posts the prompt with the API mode for each mode', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () =>
+    json({ id: 'run-1', site_id: 'site 1', title: 'A run', state: 'new' }, 201),
+  );
+
+  for (const [mode, apiMode] of [['change', 'normal'], ['ask', 'ask'], ['create', 'create']] as const) {
+    await startRunDomainTool.cb({ ...startRunInput, mode }, { request: testRequest() });
+    const [url, init] = fetchMock.mock.calls.at(-1)!.arguments as [string, RequestInit];
+    assert.equal(url, 'https://api.netlify.com/api/v1/agent_runners?site_id=site%201');
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(JSON.parse(String(init.body)), { prompt: 'Build a landing page', mode: apiMode });
+  }
+});
+
+test('start-run passes branch and deploy_id when given and omits them otherwise', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => json({ id: 'run-1' }, 201));
+
+  await startRunDomainTool.cb({ ...startRunInput, branch: 'dev', deployId: 'deploy-1' }, { request: testRequest() });
+  const body = JSON.parse(String((fetchMock.mock.calls[0].arguments[1] as RequestInit).body));
+  assert.equal(body.branch, 'dev');
+  assert.equal(body.deploy_id, 'deploy-1');
+
+  await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+  const bare = JSON.parse(String((fetchMock.mock.calls[1].arguments[1] as RequestInit).body));
+  assert.equal('branch' in bare, false);
+  assert.equal('deploy_id' in bare, false);
+});
+
+test('start-run returns a compact summary of the new run', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    json({ id: 'run-1', site_id: 'site-1', title: 'A run', state: 'new', secret: 'raw secret detail' }, 201),
+  );
+
+  const result = await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+  const parsed = JSON.parse(result);
+
+  assert.deepEqual(Object.keys(parsed), ['runId', 'siteId', 'title', 'state', 'nextStep']);
+  assert.equal(parsed.runId, 'run-1');
+  assert.match(parsed.nextStep, /get-run/);
+  assert.doesNotMatch(result, /raw secret detail/);
+});
+
+test('start-run does not throw when the success body cannot be read', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => new Response('not json', { status: 201 }));
+
+  const result = await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+
+  assert.match(result, /list-runs/);
+});
+
+const startRunFailures: [string, number, unknown, RegExp][] = [
+  ['403', 403, { error: 'Upgrade your plan' }, /plan can't use Agent Runners/],
+  ['403 ai_credit_limit_disabled', 403, { error_code: 'ai_credit_limit_disabled' }, /credit limit on this team is set to 0/],
+  ['404', 404, { error: 'raw secret detail' }, /not enabled for this project/],
+  ['429 ai_credit_limit_exceeded', 429, { error_code: 'ai_credit_limit_exceeded' }, /team is out of AI credits/],
+  ['429 ai_credit_limit_reached', 429, { error_code: 'ai_credit_limit_reached' }, /personal AI credit limit/],
+  ['429 without a code', 429, {}, /Too many runs are active/],
+];
+
+for (const [name, status, body, expected] of startRunFailures) {
+  test(`start-run returns the mapped message for ${name}`, async (t) => {
+    const { startRunDomainTool } = await import('./start-run.ts');
+
+    t.mock.method(globalThis, 'fetch', async () => json(body, status));
+
+    const result = await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+
+    assert.match(result, expected);
+    assert.doesNotMatch(result, /raw secret detail|\{/);
+  });
+}
+
+test('start-run throws NetlifyUnauthError on a 401', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+  const { NetlifyUnauthError } = await import('../../utils/api-networking.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({}, 401));
+
+  await assert.rejects(startRunDomainTool.cb(startRunInput, { request: testRequest() }), NetlifyUnauthError);
+});
+
+test('start-run carries the hand-off rule in its description and its prompt field', async () => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+  const { HANDOFF_RULE } = await import('./agent-runner-utils.ts');
+
+  assert.ok(startRunDomainTool.description?.includes(HANDOFF_RULE));
+  assert.ok(startRunDomainTool.inputSchema.shape.prompt.description?.includes(HANDOFF_RULE));
+});
