@@ -14,7 +14,10 @@ test('an expired JWE bearer is an auth failure, not a thrown server error', asyn
   const { getNetlifyAccessToken, userIsAuthenticated, NetlifyUnauthError } = await import('./api-networking.ts');
   const { createJWE } = await import('../../netlify/functions/mcp-server/utils.ts');
 
-  const expired = await createJWE({ accessToken: 'nfp_test' }, '1s');
+  // Typed, so the only thing wrong with it is its age: an untyped token is
+  // refused for its missing token_use whether or not it has expired.
+  const expired = await createJWE({ token_use: 'access', accessToken: 'nfp_test' }, '1s');
+  assert.equal(await getNetlifyAccessToken(requestWithBearer(expired)), 'nfp_test');
   await sleep(1500);
 
   await assert.rejects(getNetlifyAccessToken(requestWithBearer(expired)), NetlifyUnauthError);
@@ -32,7 +35,8 @@ test('the deploy proxy returns 401 (not a crash) for an expired token', async ()
   const { handleProxy } = await import('../../netlify/edge-functions/proxy.ts');
   const { createJWE } = await import('../../netlify/functions/mcp-server/utils.ts');
 
-  const expired = await createJWE({ accessToken: 'nfp_test' }, '1s');
+  const apisAllowed = [{ path: '/api/v1/deploys/:deploy_id', method: 'GET' }];
+  const expired = await createJWE({ token_use: 'proxy', accessToken: 'nfp_test', apisAllowed }, '1s');
   await sleep(1500);
 
   const resp = await handleProxy(
