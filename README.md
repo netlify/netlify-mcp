@@ -31,6 +31,7 @@ With Netlify MCP Server, your AI agents can:
 * Fetch user and team information
 * Enable and manage form submissions
 * Create and manage environment variables and secrets
+* Start Netlify Agent Runner runs to ask questions about a project, change it, or build a new site, and follow them to a deploy preview
 * and more...
 ---
 
