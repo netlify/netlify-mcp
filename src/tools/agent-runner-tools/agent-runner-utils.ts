@@ -1,7 +1,8 @@
 import { authenticatedFetch, NetlifyUnauthError } from '../../utils/api-networking.js';
 import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.js';
 
-// The one rule every tool's text carries. Stated as a check the model runs on itself.
+// Used in start-run's description and its `prompt` field description: the grouped tool surface
+// (non-OpenAI clients) shows only field descriptions, not per-operation ones.
 export const HANDOFF_RULE =
   "Only start an Agent Runner run when you do not have this project's source code open with a way to edit and build it (for example, in a chat app), or when the user asks for the work to happen in the background and come back as a deploy preview. If you can edit and build the code yourself, do the work directly instead.";
 
@@ -119,15 +120,17 @@ export function summarizeRun(snapshot: NetlifyAgentRunnerSnapshotResponse): Agen
   const dashboardUrl = runDashboardUrl(runner.site_name, runId);
 
   let pendingQuestion: AgentRunSummary['pendingQuestion'] = null;
-  if (session?.state === 'await_input') {
-    const pending = Object.entries(session.interactions ?? {}).find(([, interaction]) => interaction.status === 'pending');
+  for (const waiting of [...(snapshot.sessions ?? [])].reverse()) {
+    if (waiting.state !== 'await_input') continue;
+    const pending = Object.entries(waiting.interactions ?? {}).find(([, interaction]) => interaction.status === 'pending');
     if (pending) {
       pendingQuestion = {
-        sessionId: session.id ?? '',
+        sessionId: waiting.id ?? '',
         refId: pending[0],
         type: pending[1].type ?? null,
         questions: pending[1].payload ?? [],
       };
+      break;
     }
   }
 
@@ -145,7 +148,7 @@ export function summarizeRun(snapshot: NetlifyAgentRunnerSnapshotResponse): Agen
 
   let nextStep: string;
   if (activity === 'active' || state === 'new' || state === 'running') {
-    nextStep = `The run is still working${currentTask ? `: ${currentTask}` : ''}. Tell the user it is in progress and offer to check again later. Do not call get-run repeatedly in the same turn.`;
+    nextStep = `The run is still working. Tell the user it is in progress and offer to check again later. Do not call get-run repeatedly in the same turn.`;
   } else if (state === 'await_input' && pendingQuestion) {
     nextStep =
       pendingQuestion.type && pendingQuestion.type !== 'question'
@@ -157,8 +160,7 @@ export function summarizeRun(snapshot: NetlifyAgentRunnerSnapshotResponse): Agen
         ? 'Relay latestSession.result to the user. To ask more, call follow-up-run.'
         : 'Share previewUrl with the user. To change more, call follow-up-run. To open a pull request or publish to production, the user opens dashboardUrl.';
   } else if (state === 'error' || state === 'interrupted' || state === 'cancelled') {
-    const reasons = [latestSession?.interruptReason, latestSession?.creditLimitMessage].filter(Boolean).join(' ');
-    nextStep = `The run ended with state ${state}.${reasons ? ` ${reasons}` : ''} Point the user to dashboardUrl for details.`;
+    nextStep = `The run ended with state ${state}. See latestSession.interruptReason and latestSession.creditLimitMessage for why, and point the user to dashboardUrl for details.`;
   } else if (state === 'archived') {
     nextStep = 'This run is archived.';
   } else {

@@ -9,6 +9,7 @@ const answerRunQuestionParamsSchema = z.object({
   refId: z.string().describe('The pendingQuestion.refId from get-run.'),
   answers: z
     .array(z.union([z.string(), z.array(z.string()), z.null()]))
+    .min(1)
     .optional()
     .describe('One entry per question, in order: a string, an array of strings for multi-select, or null to skip that question.'),
   skip: z
@@ -30,7 +31,7 @@ export const answerRunQuestionDomainTool: DomainTool<typeof answerRunQuestionPar
     idempotentHint: false,
   },
   cb: async ({ runId, sessionId, refId, answers, skip, instruction }, { request }) => {
-    const hasAnswers = answers !== undefined && answers.length > 0;
+    const hasAnswers = answers !== undefined;
     if (hasAnswers === (skip === true)) {
       return 'Provide either answers (a non-empty list, one entry per question) or skip: true, but not both.';
     }
