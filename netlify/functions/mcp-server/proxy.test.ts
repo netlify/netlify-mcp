@@ -9,7 +9,7 @@ process.env.OAUTH_ISSUER = 'http://localhost:8888';
 delete process.env.JWE_SECRET;
 
 async function tokenFor(apisAllowed: Array<{ path: string; method: string }>): Promise<string> {
-  return createJWE({ accessToken: 'nfp_test_token', apisAllowed }, '1h');
+  return createJWE({ token_use: 'proxy', accessToken: 'nfp_test_token', apisAllowed }, '1h');
 }
 
 const allow = [{ path: '/api/v1/sites/:id/builds', method: 'POST' }];

@@ -1,6 +1,6 @@
 import type { HandlerResponse } from "@netlify/functions";
-import { createHash } from "crypto";
-import { createJWE, decryptJWE, getOAuthIssuer } from "./utils.ts";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { createJWE, decryptJWE, getOAuthIssuer, TOKEN_USE } from "./utils.ts";
 import { maskToken } from "./logging.ts";
 import { log, truncateForLog } from "./logger.ts";
 import { resolveIdentity, type TokenIdentity } from "./identity.ts";
@@ -16,21 +16,6 @@ import { attributionParams } from "./agent-attribution.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
 import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
-
-/**
- * When true, any request whose redirect_uri we can't match to a registration is
- * rejected — a stateless client presenting a redirect it didn't register, a
- * static client whose exact redirect string we haven't verified, or a
- * legacy/foreign `client_id` we can't resolve. Defaults to FALSE so deploying
- * this introduces no breaking change for any existing client: every such case
- * is logged (see the always-on warn below) but allowed. Flip
- * DCR_REJECT_UNKNOWN_CLIENTS=true to turn those warnings into hard rejections
- * once the logs show it's safe to enforce.
- */
-function rejectUnknownClients(): boolean {
-  const v = (process.env.DCR_REJECT_UNKNOWN_CLIENTS ?? '').trim().toLowerCase();
-  return v === 'true' || v === '1' || v === 'yes';
-}
 
 /** Host of a redirect_uri for logging, without leaking the full URI. */
 function redirectHostForLog(redirectUri: string): string {
@@ -48,11 +33,13 @@ function redirectHostForLog(redirectUri: string): string {
  * caller that needs it (e.g. for its `client_name`) doesn't have to resolve
  * it again.
  *
- * Log-only by default: a request that matches a registration proceeds quietly;
- * anything else (a stateless/static client whose redirect doesn't match, or an
- * unresolvable client_id) is ALLOWED but recorded via an always-on warning, so
- * deploying this can't break any existing client. Setting
- * DCR_REJECT_UNKNOWN_CLIENTS=true turns those warnings into hard rejections.
+ * Fails closed: a redirect_uri the client did not register, or a client_id
+ * this server cannot resolve, gets a 400 and is never redirected to (RFC 6749
+ * §4.1.2.1 forbids redirecting on an invalid redirect_uri). The 400 lands in
+ * the user's browser, not at the client, so a client with an id this server
+ * no longer knows (a legacy opaque id, or a stateless id from before a
+ * JWE_SECRET rotation) only recovers when it registers again; a client that
+ * must keep working with such an id is pinned in oauth-clients.ts.
  */
 async function validateClientRedirect(
   clientId: string,
@@ -62,34 +49,28 @@ async function validateClientRedirect(
   const { client, source } = await resolveClient(clientId);
 
   if (client && isRedirectUriAllowed(client, redirectUri)) {
-    log.debug(`${op}: redirect_uri validated`, { client_id: clientId, source });
+    log.debug(`${op}: redirect_uri validated`, { client_id: maskToken(clientId), source });
     return { error: null, client };
   }
 
-  if (rejectUnknownClients()) {
-    const [error, description] = client
-      ? ['invalid_request', 'redirect_uri does not match a registered redirect URI for this client']
-      : ['invalid_client', 'Unregistered client_id or redirect_uri'];
-    return { error: oauthError(400, error, description, op, { client_id: clientId, source, redirect_uri: redirectUri }), client };
-  }
-
-  // Log-only mode: surface unconditionally (not log.debug) so operators can see
-  // this traffic in steady state and decide when it's safe to enforce.
-  //
-  // `reason` distinguishes WHY it wasn't validated, since `source: unknown` alone
-  // conflates several different situations that call for different fixes:
+  // `reason` says WHY the request failed, since `source: unknown` alone
+  // conflates several situations that call for different fixes:
   //  - 'redirect_mismatch': the client resolved fine (static or stateless) but
-  //    this redirect_uri isn't one it registered — the most attack-relevant case.
+  //    this redirect_uri isn't one it registered — the attack-relevant case.
   //  - 'jwe-like' / 'opaque' / 'empty': the client_id itself couldn't be
   //    resolved at all — see classifyUnresolvedClientId for what each implies.
-  log.warn('[oauth] redirect_uri not validated (allowed; set DCR_REJECT_UNKNOWN_CLIENTS=true to enforce)', {
-    op,
-    source,
-    reason: client ? 'redirect_mismatch' : classifyUnresolvedClientId(clientId),
-    client_id: maskToken(clientId),
-    redirect_host: redirectHostForLog(redirectUri),
-  });
-  return { error: null, client };
+  const [error, description] = client
+    ? ['invalid_request', 'redirect_uri does not match a registered redirect URI for this client']
+    : ['invalid_client', 'This server does not know this client_id; the client must register with it again'];
+  return {
+    error: oauthError(400, error, description, op, {
+      source,
+      reason: client ? 'redirect_mismatch' : classifyUnresolvedClientId(clientId),
+      client_id: maskToken(clientId),
+      redirect_host: redirectHostForLog(redirectUri),
+    }),
+    client,
+  };
 }
 
 
@@ -104,7 +85,17 @@ interface AUTH_REQUEST_STATE {
   nonce?: string;
 }
 
+// The browser carries this through app.netlify.com as `state`. It is sealed so
+// it cannot be authored, and `browser_binding` must match the cookie set on the
+// consent page, so it only completes in the browser of the person who approved
+// it. (`nonce` is the client's own OIDC parameter, passed through untouched.)
+interface AUTH_TRANSACTION_PAYLOAD extends AUTH_REQUEST_STATE {
+  token_use: typeof TOKEN_USE.authorizationRequest;
+  browser_binding: string;
+}
+
 interface CODE_JWE_PAYLOAD {
+  token_use: typeof TOKEN_USE.authorizationCode;
   state: Partial<AUTH_REQUEST_STATE>;
   accessToken: string;
   // Resolved once at server-redirect and carried through so it can be attached
@@ -114,19 +105,105 @@ interface CODE_JWE_PAYLOAD {
 }
 
 interface ACCESS_TOKEN_PAYLOAD {
+  token_use: typeof TOKEN_USE.access;
   accessToken: string;
   identity?: TokenIdentity;
 }
 
 interface REFRESH_TOKEN_PAYLOAD {
+  token_use: typeof TOKEN_USE.refresh;
   accessToken: string;
-  type: 'refresh';
   identity?: TokenIdentity;
 }
 
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
 const AUTH_REQUIRED_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method'] as const;
 const AUTH_OPTIONAL_PARAMS = ['state', 'scope', 'nonce'] as const;
+
+// Long enough to sign up and verify an email at app.netlify.com on the way.
+const AUTH_TRANSACTION_TTL_SECONDS = 30 * 60;
+// The client exchanges the code as soon as its redirect receives it.
+const AUTH_CODE_TTL = '5m';
+// __Host- pins the cookie to this exact origin over HTTPS, so neither another
+// netlify.app site nor a subdomain can plant a binding in the victim's browser.
+const AUTH_TRANSACTION_COOKIE = '__Host-mcp-oauth-txn';
+
+function transactionCookie(value: string, maxAge: number): string {
+  return `${AUTH_TRANSACTION_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+function readTransactionCookie(req: Request): string | null {
+  for (const part of (req.headers.get('cookie') ?? '').split(';')) {
+    const [name, ...value] = part.trim().split('=');
+    if (name === AUTH_TRANSACTION_COOKIE) {
+      return value.join('=') || null;
+    }
+  }
+  return null;
+}
+
+function sameBinding(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+// Pages that hand a person to another site must not be framed: the click that
+// approves a client has to be one the person meant to make on this page.
+const PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+};
+
+/**
+ * The consent page every authorization goes through. Netlify's own consent
+ * screen names only this server's OAuth app, and dynamic registration lets
+ * anyone register a client with their own redirect_uri, so without this page a
+ * link to /auth was enough to send a person's Netlify token wherever the link's
+ * author chose. The redirect host is the fact that matters; the client_name is
+ * whatever the client registered, and is shown as such.
+ */
+function consentPage(clientName: string | undefined, redirectUri: string, netlifyAuthorizeUrl: string, cancelUrl: string): string {
+  // The scheme stays: a custom scheme or plain http in front of a familiar host
+  // is exactly what a look-alike registration would rely on hiding.
+  const url = new URL(redirectUri);
+  const destination = escapeHtml(url.host ? `${url.protocol}//${url.host}` : redirectUri);
+  const name = clientName ? `<strong>${escapeHtml(clientName)}</strong> (the name the application gave itself)` : 'An application';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect to Netlify</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; color: #181a1c; line-height: 1.5; }
+    .destination { font-family: ui-monospace, monospace; font-size: 1.1rem; background: #f3f3f4; padding: .5rem .75rem; border-radius: 4px; word-break: break-all; }
+    .actions { display: flex; gap: 1rem; margin-top: 2rem; }
+    a.button { padding: .6rem 1.2rem; border-radius: 4px; text-decoration: none; border: 1px solid #181a1c; color: #181a1c; }
+    a.primary { background: #04716f; border-color: #04716f; color: #fff; }
+  </style>
+</head>
+<body>
+  <h1>Connect to Netlify</h1>
+  <p>${name} wants to use the Netlify MCP server with your Netlify account. It will be able to do anything you can do on Netlify.</p>
+  <p>After you sign in, your access will be sent to:</p>
+  <p class="destination">${destination}</p>
+  <p>Only continue if you started this connection from that application.</p>
+  <div class="actions">
+    <a class="button primary" id="continue" href="${escapeHtml(netlifyAuthorizeUrl)}">Continue to Netlify</a>
+    <a class="button" id="cancel" href="${escapeHtml(cancelUrl)}">Cancel</a>
+  </div>
+</body>
+</html>
+`;
+}
 
 /**
  * Resolve the client_id from a token request. Clients may authenticate using
@@ -242,16 +319,28 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
     }
   }
 
-  // b64 value for the redirects
-  const paramsState = Buffer.from(JSON.stringify(paramsObj), 'utf-8').toString('base64');
+  const browserBinding = randomBytes(32).toString('base64url');
+  const transaction = await createJWE(
+    { ...paramsObj, token_use: TOKEN_USE.authorizationRequest, browser_binding: browserBinding } satisfies AUTH_TRANSACTION_PAYLOAD,
+    `${AUTH_TRANSACTION_TTL_SECONDS}s`,
+  );
   const netlifyRedirectUri = `${parsedUrl.origin}/oauth-server/client-redirect`;
+  const netlifyAuthorizeUrl = `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${encodeURIComponent(transaction)}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`;
+
+  const cancelUrl = new URL(redirectUri);
+  cancelUrl.searchParams.set('error', 'access_denied');
+  if (paramsObj.state) {
+    cancelUrl.searchParams.set('state', paramsObj.state);
+  }
+  cancelUrl.searchParams.set('iss', getOAuthIssuer());
 
   return {
-    statusCode: 302,
+    statusCode: 200,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
+      ...PAGE_HEADERS,
+      'Set-Cookie': transactionCookie(browserBinding, AUTH_TRANSACTION_TTL_SECONDS),
     },
-    body: ''
+    body: consentPage(client?.client_name, redirectUri, netlifyAuthorizeUrl, cancelUrl.toString()),
   };
 }
 
@@ -262,6 +351,7 @@ export async function handleClientSideAuthExchange(){
     headers: {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Referrer-Policy': 'no-referrer',
     },
     body: `
 <!DOCTYPE html>
@@ -299,7 +389,20 @@ export async function handleClientSideAuthExchange(){
       hashToken = hash;
     }
 
-    window.location.href = '/oauth-server/server-redirect?token=' + hashToken + '&init-state=' + hashState;
+    // POST, so the Netlify token never sits in a URL, a log line or history.
+    history.replaceState(null, '', window.location.pathname);
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/oauth-server/server-redirect';
+    for (const [name, value] of [['token', hashToken], ['init-state', hashState]]) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
   </script>
 </body>
 </html>
@@ -308,99 +411,88 @@ export async function handleClientSideAuthExchange(){
 }
 
 
-export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {  
-  const parsedUrl = new URL(req.url);
-  const initState = parsedUrl.searchParams.get('init-state');
-  const token = parsedUrl.searchParams.get('token');
+export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
+  if (req.method !== 'POST') {
+    return oauthError(405, 'invalid_request', 'The authorization response must be posted from the client-redirect page', 'server-redirect', { method: req.method });
+  }
+
+  const form = new URLSearchParams(await req.text());
+  const initState = form.get('init-state');
+  const token = form.get('token');
 
   if (!initState || !token) {
     return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
+  let transaction: AUTH_TRANSACTION_PAYLOAD;
   try {
-    const stateObj = JSON.parse(Buffer.from(initState, 'base64').toString('utf-8')) as Partial<AUTH_REQUEST_STATE>;
-
-    const requiredStateParams: Array<keyof AUTH_REQUEST_STATE> = [
-      'client_id',
-      'redirect_uri',
-      'code_challenge',
-      'code_challenge_method',
-      'response_type',
-    ];
-
-    for (const param of requiredStateParams) {
-      if (!stateObj[param]) {
-        return oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`, 'server-redirect', { missingStateParam: param });
-      }
-    }
-
-    const expectedStateValues: Pick<AUTH_REQUEST_STATE, 'code_challenge_method' | 'response_type'> = {
-      code_challenge_method: 'S256',
-      response_type: 'code',
-    };
-
-    for (const [param, expectedValue] of Object.entries(expectedStateValues)) {
-      const value = stateObj[param as keyof typeof expectedStateValues];
-      if (value !== expectedValue) {
-        return oauthError(400, 'invalid_request', `Invalid ${param} in init-state`, 'server-redirect', { param, value, expected: expectedValue });
-      }
-    }
-
-    const clientId = stateObj.client_id as string;
-    const redirectUri = stateObj.redirect_uri as string;
-    const codeChallenge = stateObj.code_challenge as string;
-
-    const validatedState: AUTH_REQUEST_STATE = {
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-      ...(stateObj.state ? { state: stateObj.state } : {}),
-      ...(stateObj.scope ? { scope: stateObj.scope } : {}),
-      ...(stateObj.nonce ? { nonce: stateObj.nonce } : {}),
-    };
-
-    // Defense in depth: init-state round-trips through the browser, so re-check
-    // the redirect_uri against the client's registration before we 302 to it.
-    const { error: redirectError } = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
-    if (redirectError) {
-      return redirectError;
-    }
-
-    const rediredctURL = new URL(validatedState.redirect_uri);
-
-    if(validatedState.state) {
-      rediredctURL.searchParams.set('state', validatedState.state);
-    }
-
-    // RFC 9207: Include iss parameter in authorization response
-    rediredctURL.searchParams.set('iss', getOAuthIssuer());
-
-    // Resolve the user/team for this token once, here, so it can be embedded in
-    // the code (and downstream access/refresh tokens) without a per-request
-    // lookup. Best-effort — never blocks issuing the code.
-    const identity = await resolveIdentity(token);
-
-    // TODO: future, we will add specific tools and other context to this for
-    // downstream validation
-    log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
-
-    const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
-
-    rediredctURL.searchParams.set('code', jwe);
-
-    return {
-      statusCode: 302,
-      headers: {
-        'Location': rediredctURL.toString(),
-      },
-      body: ''
-    };
-  
+    transaction = (await decryptJWE(initState)) as any as AUTH_TRANSACTION_PAYLOAD;
   } catch (error) {
-    return oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state parse failed', detail: error instanceof Error ? error.message : String(error) });
+    return oauthError(400, 'invalid_request', 'Invalid or expired authorization request. Start the connection again from your application.', 'server-redirect', { reason: 'init-state decrypt failed', detail: error instanceof Error ? error.message : String(error) });
   }
+
+  if (transaction?.token_use !== TOKEN_USE.authorizationRequest || typeof transaction.browser_binding !== 'string') {
+    return oauthError(400, 'invalid_request', 'Invalid or expired authorization request. Start the connection again from your application.', 'server-redirect', { reason: 'init-state is not an authorization request', token_use: transaction?.token_use });
+  }
+
+  // Without this, a sealed state minted for the attacker's own /auth visit
+  // would complete in the victim's browser.
+  const cookieBinding = readTransactionCookie(req);
+  if (!cookieBinding || !sameBinding(cookieBinding, transaction.browser_binding)) {
+    return oauthError(400, 'invalid_request', 'This sign-in was started in a different browser, replaced by a newer one, or has already finished. Start the connection again from your application.', 'server-redirect', { reason: cookieBinding ? 'browser binding mismatch' : 'no transaction cookie' });
+  }
+
+  const validatedState: AUTH_REQUEST_STATE = {
+    response_type: 'code',
+    client_id: transaction.client_id,
+    redirect_uri: transaction.redirect_uri,
+    code_challenge: transaction.code_challenge,
+    code_challenge_method: 'S256',
+    ...(transaction.state ? { state: transaction.state } : {}),
+    ...(transaction.scope ? { scope: transaction.scope } : {}),
+    ...(transaction.nonce ? { nonce: transaction.nonce } : {}),
+  };
+
+  // Defense in depth: the registration could have changed since /auth (a
+  // static client removed, a JWE_SECRET rotation), so check it again before
+  // the code is sent anywhere.
+  const { error: redirectError } = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
+  if (redirectError) {
+    return redirectError;
+  }
+
+  const rediredctURL = new URL(validatedState.redirect_uri);
+
+  if(validatedState.state) {
+    rediredctURL.searchParams.set('state', validatedState.state);
+  }
+
+  // RFC 9207: Include iss parameter in authorization response
+  rediredctURL.searchParams.set('iss', getOAuthIssuer());
+
+  // Resolve the user/team for this token once, here, so it can be embedded in
+  // the code (and downstream access/refresh tokens) without a per-request
+  // lookup. Best-effort — never blocks issuing the code.
+  const identity = await resolveIdentity(token);
+
+  log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
+
+  const jwe = await createJWE(
+    { token_use: TOKEN_USE.authorizationCode, state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD,
+    AUTH_CODE_TTL,
+  );
+
+  rediredctURL.searchParams.set('code', jwe);
+
+  return {
+    statusCode: 302,
+    headers: {
+      'Location': rediredctURL.toString(),
+      // One approval, one code: the same browser cannot replay the transaction.
+      'Set-Cookie': transactionCookie('', 0),
+    },
+    body: ''
+  };
 }
 
 
@@ -556,6 +648,14 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     });
   }
 
+  if (decryptedCode?.token_use !== TOKEN_USE.authorizationCode || !decryptedCode.state) {
+    return oauthError(400, 'invalid_grant', 'Invalid or expired authorization code', 'token', {
+      reason: 'not an authorization code',
+      token_use: decryptedCode?.token_use,
+      client_id: clientId,
+    });
+  }
+
   const { accessToken, state, identity } = decryptedCode;
 
   if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
@@ -578,7 +678,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     return oauthError(400, 'invalid_grant', 'PKCE verification failed', 'token', { client_id: clientId });
   }
 
-  const accessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
+  const accessTokenJWE = await createJWE({ token_use: TOKEN_USE.access, accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
 
   // Check if offline_access scope was requested
   const requestedScopes = state.scope ? state.scope.split(' ') : [];
@@ -593,7 +693,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   // Only include refresh_token if offline_access was requested
   if (hasOfflineAccess) {
     const refreshTokenJWE = await createJWE(
-      { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
+      { token_use: TOKEN_USE.refresh, accessToken, ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
       '7d' // refresh token valid for 7 days
     );
     tokenResponse.refresh_token = refreshTokenJWE;
@@ -639,18 +739,19 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
     });
   }
 
-  // Validate this is actually a refresh token
-  if (payload.type !== 'refresh') {
-    return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { type: payload.type });
+  // Validate this is actually a refresh token. Ones minted before token_use
+  // existed fail here too, and the client signs in again.
+  if (payload?.token_use !== TOKEN_USE.refresh) {
+    return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { token_use: payload?.token_use });
   }
 
   const { accessToken, identity } = payload;
 
   // Issue new access token and rotate refresh token, carrying identity forward
   // so it survives the token's full refresh lifetime.
-  const newAccessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
+  const newAccessTokenJWE = await createJWE({ token_use: TOKEN_USE.access, accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
   const newRefreshTokenJWE = await createJWE(
-    { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
+    { token_use: TOKEN_USE.refresh, accessToken, ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
     '7d'
   );
 

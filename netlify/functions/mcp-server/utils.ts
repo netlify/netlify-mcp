@@ -308,6 +308,20 @@ export function returnNeedsAuthResponse(opts?: { error?: string; errorDescriptio
 }
 
 /**
+ * The OAuth and proxy JWEs carry a `token_use` naming their purpose, and every
+ * endpoint that grants access on one checks it. They all decrypt with the same
+ * key, so without it an authorization code, a refresh token or a proxy token
+ * each opened /mcp as if it were an access token.
+ */
+export const TOKEN_USE = {
+  authorizationRequest: 'authorization_request',
+  authorizationCode: 'authorization_code',
+  access: 'access',
+  refresh: 'refresh',
+  proxy: 'proxy',
+} as const;
+
+/**
  * Encrypt a payload as a JWE. `expiresIn` accepts any `jose` duration string
  * (e.g. '1h', '7d'); pass `null` to mint a token with NO expiry — used for the
  * stateless dynamic-client-registration `client_id`, which encodes the client's

@@ -4,7 +4,7 @@ import envPaths from 'env-paths';
 import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { loginSpawnEnv } from './login-attribution.ts';
-import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
+import { decryptJWE, TOKEN_USE } from '../../netlify/functions/mcp-server/utils.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
 import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
@@ -129,7 +129,10 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
         } catch {
           throw new NetlifyUnauthError('Bearer token is invalid or expired');
         }
-        if(decrypted && typeof decrypted.accessToken === 'string') {
+        if (decrypted?.token_use !== TOKEN_USE.access) {
+          throw new NetlifyUnauthError('Bearer token is not an access token');
+        }
+        if(typeof decrypted.accessToken === 'string') {
           token = decrypted.accessToken;
         } else {
           log.error('decrypted JWE did not contain accessToken', { fields: Object.keys(decrypted ?? {}) });

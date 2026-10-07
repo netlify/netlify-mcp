@@ -52,7 +52,6 @@ this repo.
 | `JWE_SECRET` | yes (deployed) | Seals OAuth access/refresh tokens, the authorization code, the stateless DCR `client_id`, and the `/proxy/:token` JWE. Min 32 chars. Fails closed on any non-localhost issuer. |
 | `EVENTS_RELAY_JWE_SECRET` | only for event subscriptions | Seals event notification relay tokens. Min 32 chars, and it must not derive to the same key as `JWE_SECRET` (only the first 32 characters are used, so a shared prefix collides). **Without it the server does not advertise the `events` capability at all** — subscriptions could not work, so they are not offered. |
 | `NTL_AUTH_CLIENT_ID` | yes (deployed) | The Netlify OAuth application the authorize redirect uses. |
-| `DCR_REJECT_UNKNOWN_CLIENTS` | no (default false) | Turns dynamic-client-registration redirect warnings into hard rejections. |
 | `MCP_VERBOSE_LOGGING` | no | Enables the catch-all request/response body logger. |
 
 Generate the secrets with `openssl rand -base64 48`.
@@ -71,3 +70,17 @@ be rotated independently:
 
 Before the split, rotating `JWE_SECRET` would have silently killed every
 customer's event notifications as a side effect.
+
+### How sign-in is protected
+
+Every authorization goes through a consent page on this server that names the
+host the client registered as its redirect. Netlify's own consent screen only
+names this server's OAuth app, and anyone can register a client, so this page is
+the only place a person can see where their access is going. The page sets a
+`__Host-mcp-oauth-txn` cookie, and the sealed `state` sent through
+app.netlify.com only completes in the browser holding it.
+
+Every JWE sealed with `JWE_SECRET` carries a `token_use` (`authorization_request`,
+`authorization_code`, `access`, `refresh`, `proxy`), and each endpoint accepts
+only its own. Tokens minted before `token_use` existed are refused, so the
+deploy that introduced it signed every connected client out once.

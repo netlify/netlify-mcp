@@ -121,18 +121,25 @@ function authStartRequest(clientId: string, redirectUri: string): Request {
   return new Request(`http://localhost:8888/oauth-server/authorize?${params.toString()}`);
 }
 
+// The consent page links on to app.netlify.com; that link is the redirect.
+function continueHref(html: string): string {
+  const href = html.match(/id="continue" href="([^"]+)"/)?.[1];
+  assert.ok(href, 'expected a Continue link on the consent page');
+  return href.replace(/&#38;/g, '&');
+}
+
 test('handleAuthStart: redirect carries utm_content and utm_term for client_name: Claude', async () => {
   const clientId = await registerClientId('Claude');
   const response = await handleAuthStart(authStartRequest(clientId, REDIRECT_URI));
-  assert.equal(response.statusCode, 302);
-  const location = String(response.headers?.Location);
+  assert.equal(response.statusCode, 200);
+  const location = continueHref(response.body as string);
   assert.ok(location.includes('utm_source=mcp&utm_campaign=integrations&utm_content=claudeai&utm_term=client_name:Claude'));
 });
 
 test('handleAuthStart: redirect for a registration with no client_name omits attribution params', async () => {
   const clientId = await registerClientId();
   const response = await handleAuthStart(authStartRequest(clientId, REDIRECT_URI));
-  const location = String(response.headers?.Location);
+  const location = continueHref(response.body as string);
   assert.ok(location.includes('utm_campaign=integrations'));
   assert.ok(!location.includes('utm_content'));
   assert.ok(!location.includes('utm_term'));
