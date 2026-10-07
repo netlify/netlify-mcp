@@ -66,3 +66,47 @@ export type NetlifyAccountResponse = Schemas['accountMembership'] & {
   enforce_mfa?: boolean;
   role?: string;
 };
+
+/**
+ * Agent runner — `GET/POST /api/v1/agent_runners…`.
+ *
+ * Extensions over the published `agentRunner` schema: `site_name` is filled only
+ * by the snapshot endpoint, and the state fields back the run summary the model
+ * sees.
+ */
+export type NetlifyAgentRunnerResponse = Schemas['agentRunner'] & {
+  site_name?: string | null;
+  latest_session_state?: string;
+  publishing_state?: string;
+  preview_state?: string | null;
+};
+
+/** One entry of a session's `interactions` — a question, or an authorization request. */
+export type NetlifyAgentRunnerInteraction = {
+  type?: string;
+  status?: 'pending' | 'answered' | 'skipped';
+  payload?: unknown[];
+};
+
+/**
+ * Agent runner session — `GET /api/v1/agent_runners/{id}/sessions`, `POST …/sessions`.
+ *
+ * Extensions over the published `agentRunnerSession` schema: the mode, interruption
+ * and credit-limit fields, and the interactions the agent is waiting on.
+ */
+export type NetlifyAgentRunnerSessionResponse = Schemas['agentRunnerSession'] & {
+  mode?: string;
+  interrupt_reason?: string | null;
+  credit_limit_exceeded_message?: string | null;
+  interactions?: Record<string, NetlifyAgentRunnerInteraction>;
+};
+
+/** `GET /api/v1/agent_runners/{id}/snapshot` — not in the published spec. */
+export type NetlifyAgentRunnerSnapshotResponse = {
+  state_version?: number;
+  activity_state?: 'active' | 'idle' | 'terminal';
+  agent_runner?: NetlifyAgentRunnerResponse;
+  /** Oldest first. */
+  sessions?: NetlifyAgentRunnerSessionResponse[];
+  deploys?: { id?: string; state?: string; deploy_ssl_url?: string; context?: string; error_message?: string | null }[];
+};
