@@ -134,7 +134,7 @@ test('authorize shows a consent page naming where access will be sent, instead o
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers?.Location, undefined);
   const html = res.body as string;
-  assert.ok(html.includes('attacker.example.net'), 'the redirect host is shown');
+  assert.match(html, /<p class="destination">https:\/\/attacker\.example\.net<\/p>/, 'the redirect origin is shown');
   assert.ok(!html.includes('<img src=x'), 'the registered name is escaped');
   assert.ok(html.includes('&#60;img src=x onerror=alert(1)&#62;Claude'));
   assert.equal(link(html, 'continue').origin, 'https://app.netlify.com');
@@ -238,7 +238,7 @@ test('the consent page keeps its cookie and framing headers through the deployed
 test('the consent page shows the scheme of the destination, not just its host', async () => {
   const clientId = await register(['x-evil://claude.ai/cb']);
   const res = await authorize(clientId, 'x-evil://claude.ai/cb', pkcePair().challenge);
-  assert.ok((res.body as string).includes('x-evil://claude.ai'));
+  assert.match(res.body as string, /<p class="destination">x-evil:\/\/claude\.ai<\/p>/);
 });
 
 test('/mcp accepts only access tokens: not codes, refresh tokens or proxy tokens', async () => {
