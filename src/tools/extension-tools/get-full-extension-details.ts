@@ -10,6 +10,8 @@ const getFullExtensionDetailsParamsSchema = z.object({
 export const getFullExtensionDetailsDomainTool: DomainTool<typeof getFullExtensionDetailsParamsSchema> = {
   domain: 'extension',
   operation: 'get-full-extension-details',
+  description:
+    "Get the full detail for one Netlify extension in a team: what it does, its configuration, and whether it is currently installed. Use it before installing to check what an extension requires.",
   inputSchema: getFullExtensionDetailsParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

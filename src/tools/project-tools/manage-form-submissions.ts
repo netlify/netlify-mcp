@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySubmissionResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 
 const manageFormSubmissionsParamsSchema = z.object({
@@ -15,14 +16,19 @@ const manageFormSubmissionsParamsSchema = z.object({
 export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmissionsParamsSchema> = {
   domain: 'project',
   operation: 'manage-form-submissions',
+  description:
+    "Read or delete Netlify Forms submissions. Use action 'get-submissions' with a form or site id to page through submitted data, or 'delete-submission' with a submission id to delete one permanently. Deletion cannot be undone.",
   inputSchema: manageFormSubmissionsParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Includes delete-submission. Deleting an already-deleted submission is a no-op.
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ formId, siteId, limit, offset, action, submissionId }, {request}) => {
 
     if(action === 'delete-submission'){
-      await getAPIJSONResult(`/api/v1/submissions/${submissionId}`, { method: 'DELETE' }, {}, request);
+      await getAPIJSONResult<string>(`/api/v1/submissions/${submissionId}`, { method: 'DELETE' }, {}, request);
       return 'Submission deleted';
     }
 
@@ -38,12 +44,12 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
       }
     }
 
-    let apiResults;
+    let apiResults: NetlifySubmissionResponse[];
 
     if (formId) {
-      apiResults = await getAPIJSONResult(`/api/v1/forms/${formId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
+      apiResults = await getAPIJSONResult<NetlifySubmissionResponse[]>(`/api/v1/forms/${formId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
     } else if (siteId) {
-      apiResults = await getAPIJSONResult(`/api/v1/sites/${siteId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
+      apiResults = await getAPIJSONResult<NetlifySubmissionResponse[]>(`/api/v1/sites/${siteId}/submissions`, {}, { pagination: true, pageLimit, pageSize, pageOffset: offset }, request);
     } else {
       return 'Please provide a formId or siteId for selecting which form submissions to fetch'
     }

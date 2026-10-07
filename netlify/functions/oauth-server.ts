@@ -1,320 +1,137 @@
-import serverless from "serverless-http";
-import type { Handler, HandlerResponse, HandlerEvent, HandlerContext } from "@netlify/functions";
-import { Provider } from "oidc-provider";
-import type { Configuration, ClientMetadata } from "oidc-provider";
-import { handleAuthStart, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
-import { getOAuthIssuer, addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl, urlsToHTTP } from "./mcp-server/utils.ts";
+import type { Handler, HandlerResponse } from "@netlify/functions";
+import { handleAuthStart, handleClientRegistration, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
+import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
+import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
+import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
+import { safeBodySummary } from "./mcp-server/logging.ts";
+import { log, withLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
+import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
+import { installProcessGuards } from "./mcp-server/process-guards.ts";
 
-const authorizationEndpointPath = '/oauth-server/auth';
-const tokenEndpointPath = '/oauth-server/token';
-const clientRedirectPath = '/oauth-server/client-redirect';
-const serverRedirectPath = '/oauth-server/server-redirect';
-const registrationEndpointPath = '/oauth-server/reg';
+// Route structured logs onto Netlify's system-log channel for this Node
+// function. Runs once at cold start; edge/CLI keep the default console forwarder.
+initLogger({ forward: systemLogForwarder });
 
-// Static OAuth clients - add your pre-configured clients here
-const staticClients: ClientMetadata[] = [
-  // Azure AI Foundry wants to do authentication on customer behalf but does 
-  // not support dynamic client registration yet. They asked to have us provision a dedicated
-  // client for them. Here are the details they provided.
-  // Point of contacts for Azure AI Foundry
-  // zhuoqunli@microsoft.com 
-  // AzureToolsCatalog@microsoft.com
+// Keep detached transient network errors (background keep-alive socket resets)
+// from crashing the function as opaque "Invoke Error"s. Runs once at cold start.
+installProcessGuards();
 
-  // oauth app name "Azure AI Foundry"
-  {
-    client_id: 'yncg92fdmoCfvrPSIbNH9ihx9oI5iFFoKqTY7sVQkEA',
-    client_secret: process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY || 'supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8', // Use secure secrets in production
-    redirect_uris: [
-      'https://global.consent.azure-apim.net/redirect/foundrynetlifymcp'
-    ],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_post',
-  },
+/**
+ * Plain OAuth 2.1 Authorization Server for MCP.
+ *
+ * This is a hand-built router — there is no OIDC library underneath. The server
+ * fronts Netlify's own OAuth: the human authenticates at app.netlify.com and we
+ * wrap the resulting token in a JWE. All real logic lives in the mcp-server/
+ * handlers (auth-flow.ts, client-registry.ts); this file only dispatches.
+ *
+ * We implement and advertise ONLY the MCP-required surface:
+ *   - RFC 9728 protected-resource metadata
+ *   - RFC 8414 authorization-server metadata
+ *   - RFC 7591 dynamic client registration
+ *   - OAuth 2.1 authorization + token endpoints (PKCE S256 required)
+ * There is deliberately no revocation / introspection / userinfo / jwks /
+ * device-flow / PAR endpoint; any other path returns a clean 404.
+ */
 
-  // oauth app name "Azure AI Foundry Testing"
-  {
-    client_id: 'BHsAsy2hsx4NLRthhSVAA2IQ0W7d72H8o2fevaVqyaE',
-    client_secret: process.env.CLIENT_SECRET_AZURE_AI_FOUNDRY_TESTING || 'supersecret!!!!!321aasdf23123cdfdSDFSKL;;;8', // Use secure secrets in production
-    redirect_uris: [
-      'https://global-test.consent.azure-apim.net/redirect/foundrynetlifymcp'
-    ],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_post',
-  },
-
-  // Add more static clients as needed
-];
-
-// In-memory storage for dynamically registered clients
-const dynamicClients = new Map<string, ClientMetadata>();
-
-// Adapter to support both static and dynamic clients
-class ClientAdapter {
-  constructor(private name: string) {}
-
-  async upsert(id: string, payload: any, expiresIn?: number) {
-    if (this.name === 'Client') {
-      const staticClient = staticClients.find(c => c.client_id === id);
-      if (!staticClient) {
-        console.log('Registering dynamic client:', id, payload, expiresIn);
-        dynamicClients.set(id, payload);
-      }
-    }
-  }
-
-  async find(id: string) {
-    if (this.name === 'Client') {
-      // Check static clients first
-      const staticClient = staticClients.find(c => c.client_id === id);
-      if (staticClient) {
-        return staticClient;
-      }
-      // Then check dynamic clients
-      return dynamicClients.get(id);
-    }
-    return undefined;
-  }
-
-  async findByUserCode(userCode: string) {
-    return undefined;
-  }
-
-  async findByUid(uid: string) {
-    return undefined;
-  }
-
-  async destroy(id: string) {
-    if (this.name === 'Client') {
-      dynamicClients.delete(id);
-    }
-  }
-
-  async revokeByGrantId(grantId: string) {}
-
-  async consume(id: string) {}
+function jsonResponse(statusCode: number, body: unknown): HandlerResponse {
+  return {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
 }
 
-// MCP-compliant OAuth2/OIDC server configuration
-// Minimal MCP-compliant OAuth2/OIDC server configuration
-const configuration: Configuration = {
-  adapter: ClientAdapter,
-
-  // Only allow Authorization Code flow
-  responseTypes: ['code'],
-  // Supported scopes
-  scopes: [
-    'openid', 
-    'offline_access', 
-    'read', 
-    'write', 
-    'claudeai' // temp until this bug is fixed: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/653
-  ],
-  // OIDC claims (minimal)
-  claims: {
-    openid: ['sub'],
-    // Add more claims if needed
-  },
-  // Token lifetimes
-  ttl: {
-    AuthorizationCode: 60,      // 1 minute
-    AccessToken: 300,           // 5 minutes
-    RefreshToken: 24 * 3600     // 24 hours
-  },
-
-  // Enforce PKCE for all clients
-  pkce: {
-    required: () => true,
-  },
-  
-  // Enable dynamic client registration, introspection, revocation
-  features: {
-    registration: { enabled: true },
-    registrationManagement: { enabled: true },
-    deviceFlow: { enabled: true },
-
-    introspection: { enabled: false }, // TODO: future Enable introspection endpoint
-    revocation: { enabled: true },
-    userinfo: { enabled: false }, // TODO: future Enable userinfo endpoint
-  },
-
-  // we don't use all of these but we prefix them to ensure our fn handles them
-  routes: {
-    authorization: authorizationEndpointPath,
-    backchannel_authentication: '/oauth-server/backchannel',
-    code_verification: '/oauth-server/device',
-    device_authorization: '/oauth-server/device/auth',
-    end_session: '/oauth-server/session/end',
-    introspection: '/oauth-server/token/introspection',
-    jwks: '/404-jwks', // 404 until we can setup properly '/oauth-server/jwks',
-    pushed_authorization_request: '/oauth-server/request',
-    registration: registrationEndpointPath,
-    revocation: '/oauth-server/token/revocation',
-    token: tokenEndpointPath,
-    userinfo: '/oauth-server/me'
-  },
-
-  // For a real deployment, add findAccount, adapter, and interaction config
-  renderError(ctx, out, error) {
-    console.error('OIDC Provider Error:', error);
-    ctx.body = {
-      error: 'server_error',
-      error_description: 'An internal server error occurred'
-    };
-    ctx.status = 500;
-  },
-};
-
-
-interface InvocationOverrides {
-  url?: string;
-}
-async function invokeOIDCProvider(req: HandlerEvent, context: HandlerContext, overrides?: InvocationOverrides): Promise<HandlerResponse> {
-  const updatedReq = {...req};
-
-  if (overrides?.url) {
-    const oUrl = getParsedUrl(req, overrides.url); // Validate URL
-    updatedReq.rawUrl = oUrl.toString();
-    updatedReq.path = oUrl.pathname;
-    updatedReq.rawQuery = oUrl.search;
-    updatedReq.queryStringParameters = Object.fromEntries(oUrl.searchParams.entries());
-  }
-
-  const oidcProvider = new Provider(getOAuthIssuer(), configuration);
-
-  const wrappedAppInvoker = serverless(oidcProvider)
-  const response = await wrappedAppInvoker(updatedReq, context) as HandlerResponse;
-
-  const respHeaders = headersToHeadersObject(req.headers as Record<string, string>);
-  respHeaders.delete('content-length'); // Remove content-length to avoid issues with streaming responses
-
-  response.headers = Object.fromEntries(respHeaders.entries());
-
-  return response;
-}
-
-
-const oAuthHandler: Handler = async (req, context) => {
-
-  console.log('oauth', {reqMethod: req.httpMethod, url: req.rawUrl});
+const oAuthHandler: Handler = async (req) => {
+  log.debug('oauth request', { url: req.rawUrl });
 
   // Handle CORS preflight requests
-  if(req.httpMethod === 'OPTIONS') {
+  if (req.httpMethod === 'OPTIONS') {
     return {
       statusCode: 204,
-      body: ''
+      body: '',
     };
   }
 
   const parsedUrl = getParsedUrl(req);
-  let reqObj = new Request(req.rawUrl, {
+  const pathname = parsedUrl.pathname;
+  const reqObj = new Request(req.rawUrl, {
     method: req.httpMethod,
     headers: headersToHeadersObject(req.headers as Record<string, string>),
-    body: req.body || null
+    body: req.body || null,
   });
-  const invocationOverrides: InvocationOverrides = {};
 
-  const getProtectedResource = parsedUrl.pathname.endsWith('/.well-known/oauth-protected-resource');
-  const getAuthorizationServer = parsedUrl.pathname.endsWith('/.well-known/oauth-authorization-server');
-  const isAuthPath = parsedUrl.pathname.endsWith(authorizationEndpointPath);
-  const isClientRedirectPath = parsedUrl.pathname.endsWith(clientRedirectPath);
-  const isServerRedirectPath = parsedUrl.pathname.endsWith(serverRedirectPath);
-  const isCodeExchangePath = parsedUrl.pathname.endsWith(tokenEndpointPath);
-  const isRegistrationPath = parsedUrl.pathname.endsWith(registrationEndpointPath);
-
-
-  if(isRegistrationPath){
-    console.log(JSON.stringify(req.body))
+  // RFC 9728 Protected Resource Metadata. Clients derive the PRM URL from the
+  // resource path, so for a resource at /mcp they request
+  // /.well-known/oauth-protected-resource/mcp. Match both that path-based form
+  // and the bare well-known path.
+  if (pathname.includes('/.well-known/oauth-protected-resource')) {
+    return jsonResponse(200, buildProtectedResourceMetadata());
   }
 
-  // we want OIDC discovery to handle these paths
-  if (getProtectedResource || getAuthorizationServer) {
-
-    invocationOverrides.url = '/.well-known/openid-configuration';
-    const response = await invokeOIDCProvider(req, context, invocationOverrides);
-
-    let oidcConfig = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
-
-    if(getProtectedResource){
-      oidcConfig.resource = new URL('/mcp', getOAuthIssuer()).toString();
-    }
-
-    oidcConfig = urlsToHTTP(oidcConfig, getOAuthIssuer());
-
-    response.body = JSON.stringify(oidcConfig);
-
-    return response;
+  // RFC 8414 Authorization Server Metadata. Also served at the OIDC
+  // openid-configuration path as a compatibility alias: some MCP clients probe
+  // that path first even though this is a plain OAuth 2.1 AS (it issues no
+  // id_token). Both return the same document.
+  if (
+    pathname.endsWith('/.well-known/oauth-authorization-server') ||
+    pathname.endsWith('/.well-known/openid-configuration')
+  ) {
+    return jsonResponse(200, buildAuthServerMetadata());
   }
 
-  // where we expclicitly manage the auth flow, we handle the paths directly
-  if(isAuthPath) {
+  // Dynamic Client Registration (RFC 7591), stateless: the returned client_id is
+  // a JWE of the client metadata (see auth-flow / client-registry), so nothing
+  // is persisted. Some clients POST to the conventional /register path instead
+  // of the advertised registration_endpoint; accept both.
+  const isRegistration = pathname.endsWith(OAUTH_ROUTES.registration) || pathname.endsWith('/register');
+  if (isRegistration && req.httpMethod === 'POST') {
+    log.debug('registration request', { body: safeBodySummary(req.body) });
+    return await handleClientRegistration(reqObj, SUPPORTED_SCOPES);
+  }
+
+  // The interactive authorization flow, handled directly.
+  if (pathname.endsWith(OAUTH_ROUTES.authorization)) {
     return await handleAuthStart(reqObj);
-  }else if(isClientRedirectPath) {
-    // Handle client redirect after authorization
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.clientRedirect)) {
     return await handleClientSideAuthExchange();
-  }else if(isServerRedirectPath) {
-    // Handle server redirect after authorization
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.serverRedirect)) {
     return await handleServerSideAuthRedirect(reqObj);
-  }else if(isCodeExchangePath){
+  }
+  if (pathname.endsWith(OAUTH_ROUTES.token)) {
     return await handleCodeExchange(reqObj);
   }
 
-  // ensure requests have a proper application type
-  // if(isRegistrationPath){
-  //   const regInfo = JSON.parse(req.body || '{}');
-  //   if(regInfo && !regInfo.application_type && Array.isArray(regInfo.redirect_uris)){
-  //     regInfo.redirect_uris.some((uri: string) => {
-  //       if(uri.startsWith('http')){
-  //         regInfo.application_type = 'web';
-  //         return true;
-  //       }
-  //       return false;
-  //     });
-
-  //     if(regInfo.application_type !== 'web'){
-  //       regInfo.application_type = 'native';
-  //     }
-      
-  //     reqObj.headers.delete('content-length');
-  //     reqObj = new Request(req.rawUrl, {
-  //       method: reqObj.method,
-  //       headers: reqObj.headers,
-  //       body: JSON.stringify(regInfo),
-  //     });
-  //     req.headers = Object.fromEntries(reqObj.headers.entries());
-  //     req.body = JSON.stringify(regInfo);
-
-  //     console.log('updated', JSON.stringify(req, null, 2));
-  //   }
-  // }
-
-  // allow catch all for these paths to be handled by the OIDC provider
-  const resp = await invokeOIDCProvider(req, context, invocationOverrides);
-
-  if(resp.statusCode === 400){
-    console.error({
-      error: 'Bad Request',
-      message: 'Invalid request to OIDC provider',
-      statusCode: resp.statusCode,
-      body: resp.body,
-      headers: headersToHeadersObject(resp.headers as Record<string, string> || {})
-    })
-  }
-
-  if(resp.body && resp.body.includes('http')){
-    resp.body = urlsToHTTP(resp.body, getOAuthIssuer()) as string;
-  }
-
-  return resp;
-}
+  // No other OAuth endpoints exist on this server. Return a clean OAuth-style
+  // error rather than letting the request fall through to a generic 404 page.
+  log.warn('oauth: unknown endpoint');
+  return jsonResponse(404, {
+    error: 'invalid_request',
+    error_description: `No such endpoint: ${pathname}`,
+  });
+};
 
 
 export const handler: Handler = async (req, context) => {
-  const resp = await oAuthHandler(req, context);
-  return resp ? addCommonHeadersToHandlerResp(resp) : {
-    statusCode: 500,
-    body: JSON.stringify({ error: 'Internal Server Error' }),
-    headers: { 'Content-Type': 'application/json' }
-  };
+  // Establish request-scoped log context for the whole OAuth request so every
+  // line from oAuthHandler and the auth-flow handlers it calls is correlated.
+  return withLogContext(
+    {
+      service: 'oauth',
+      requestId: getRequestId(req.headers as Record<string, string | undefined>),
+      deployId: getDeployId(req.headers as Record<string, string | undefined>),
+      httpMethod: req.httpMethod,
+      path: truncateForLog(req.path),
+      userAgent: truncateForLog((req.headers as Record<string, string | undefined>)['user-agent']),
+    },
+    async () => {
+      const resp = await oAuthHandler(req, context);
+      return resp ? addCommonHeadersToHandlerResp(resp) : {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Internal Server Error' }),
+        headers: { 'Content-Type': 'application/json' },
+      };
+    }
+  );
 }

@@ -7,6 +7,8 @@ const getExtensionsParamsSchema = z.object({});
 export const getExtensionsDomainTool: DomainTool<typeof getExtensionsParamsSchema> = {
   domain: 'extension',
   operation: 'get-extensions',
+  description:
+    "List the Netlify extensions available to install, with each extension's slug and summary. Takes no arguments. Use it to find the extension slug needed by the other extension tools.",
   inputSchema: getExtensionsParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,

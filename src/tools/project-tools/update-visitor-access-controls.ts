@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
 
@@ -15,10 +16,21 @@ const getProjectParamsSchema = z.object({
 export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProjectParamsSchema> = {
   domain: 'project',
   operation: 'update-visitor-access-controls',
+  description:
+    "Control who can view a Netlify site by requiring EITHER SSO team login OR a site password — not both. This call replaces the site's whole visitor-access configuration: requiring a password clears any SSO requirement and vice versa, and omitting both is rejected. To remove all protection and make the site publicly visible, pass requirePassword: false, requireSSOTeamLogin: false, or both. If both are requested as true the password takes effect and SSO is turned off. passwordValue is required whenever requirePassword is true. Scope the rule to all deploys or to non-production deploys only with appliesTo.",
   inputSchema: getProjectParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Destructive because it can expose a site that was private: passing
+    // requirePassword: false with no SSO requirement falls through to the
+    // reset defaults and sends password: "", sso_login: false, removing all
+    // protection. Re-protecting afterwards does not undo content having been
+    // publicly reachable, and the call also silently clears whichever control
+    // it is not setting. (Previously false on the reasoning that nothing is
+    // deleted and controls can be re-applied; revised after app review.)
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ siteId, appliesTo, requireSSOTeamLogin, requirePassword, passwordValue }, {request}) => {
 
     if(requireSSOTeamLogin === undefined && requirePassword === undefined) {
@@ -46,7 +58,7 @@ export const updateVisitorAccessControlsDomainTool: DomainTool<typeof getProject
       // access controls
     }
 
-    const site = await getAPIJSONResult(`/api/v1/sites/${siteId}`, {
+    const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {
       method: 'PUT',
       body: JSON.stringify(updatePayload)
     }, {}, request);

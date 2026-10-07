@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { log } from '../../netlify/functions/mcp-server/logger.ts';
 
 /**
  * Appends a message to the log file
@@ -23,7 +24,7 @@ export function appendToLog(message: string | string[], includeTimestamp: boolea
     // Append to the log file, creating it if it doesn't exist
     fs.appendFileSync(logPath, logEntry);
   } catch (error) {
-    console.error(`Error writing to log file: ${error}`);
+    log.error('Error writing to dev log file', { err: error });
   }
 }
 
