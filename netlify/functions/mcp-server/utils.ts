@@ -308,10 +308,10 @@ export function returnNeedsAuthResponse(opts?: { error?: string; errorDescriptio
 }
 
 /**
- * Every JWE sealed with JWE_SECRET carries a `token_use` naming its purpose,
- * and every consumer checks it. They all decrypt with the same key, so without
- * it an authorization code, a refresh token or a proxy token each opened /mcp
- * as if it were an access token.
+ * The OAuth and proxy JWEs carry a `token_use` naming their purpose, and every
+ * endpoint that grants access on one checks it. They all decrypt with the same
+ * key, so without it an authorization code, a refresh token or a proxy token
+ * each opened /mcp as if it were an access token.
  */
 export const TOKEN_USE = {
   authorizationRequest: 'authorization_request',

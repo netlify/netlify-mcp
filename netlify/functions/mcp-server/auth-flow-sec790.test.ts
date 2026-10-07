@@ -5,7 +5,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   handleAuthStart,
   handleClientRegistration,
-  handleClientSideAuthExchange,
   handleCodeExchange,
   handleServerSideAuthRedirect,
 } from './auth-flow.ts';
@@ -13,6 +12,7 @@ import { SUPPORTED_SCOPES } from './oauth-config.ts';
 import { createJWE } from './utils.ts';
 import { getNetlifyAccessToken, NetlifyUnauthError } from '../../../src/utils/api-networking.ts';
 import { handleProxy } from '../../edge-functions/proxy.ts';
+const { handler: oauthServer }: any = await import('../oauth-server.ts');
 
 // SEC-790: a link to /auth with an attacker-registered client sent a person's
 // Netlify token to the attacker, and every token this server seals opened /mcp.
@@ -210,11 +210,35 @@ test('server-redirect refuses a Netlify token in the query string', async () => 
   assert.equal(res.headers?.Location, undefined);
 });
 
-test('the client-redirect page posts the token instead of putting it in a URL', async () => {
-  const res = await handleClientSideAuthExchange();
-  const html = res.body as string;
-  assert.ok(html.includes("form.method = 'POST'"));
-  assert.ok(!html.includes('server-redirect?token='));
+test('server-redirect re-checks the redirect against the registration before sending the code', async () => {
+  // A sealed request whose redirect the client no longer has (or never had)
+  // must still stop here, even in the right browser.
+  const clientId = await register([VICTIM_CLIENT_REDIRECT]);
+  const binding = randomBytes(32).toString('base64url');
+  const sealed = await createJWE({
+    response_type: 'code', client_id: clientId, redirect_uri: ATTACKER_REDIRECT,
+    code_challenge: pkcePair().challenge, code_challenge_method: 'S256',
+    token_use: 'authorization_request', browser_binding: binding,
+  }, '30m');
+  const res = await serverRedirect(sealed, `__Host-mcp-oauth-txn=${binding}`);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.headers?.Location, undefined);
+});
+
+test('the consent page keeps its cookie and framing headers through the deployed handler', async () => {
+  const clientId = await register([VICTIM_CLIENT_REDIRECT]);
+  const query = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: VICTIM_CLIENT_REDIRECT, code_challenge: pkcePair().challenge, code_challenge_method: 'S256' });
+  const res = await oauthServer({ httpMethod: 'GET', rawUrl: `${ISSUER}/oauth-server/auth?${query}`, path: '/oauth-server/auth', headers: {}, body: null }, {});
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['set-cookie'], /^__Host-mcp-oauth-txn=[\w-]{43}; Path=\/; Secure; HttpOnly; SameSite=Lax; Max-Age=1800$/);
+  assert.ok(res.headers['content-security-policy'].includes("frame-ancestors 'none'"));
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+});
+
+test('the consent page shows the scheme of the destination, not just its host', async () => {
+  const clientId = await register(['x-evil://claude.ai/cb']);
+  const res = await authorize(clientId, 'x-evil://claude.ai/cb', pkcePair().challenge);
+  assert.ok((res.body as string).includes('x-evil://claude.ai'));
 });
 
 test('/mcp accepts only access tokens: not codes, refresh tokens or proxy tokens', async () => {

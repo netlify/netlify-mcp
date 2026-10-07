@@ -171,7 +171,10 @@ const PAGE_HEADERS = {
  * whatever the client registered, and is shown as such.
  */
 function consentPage(clientName: string | undefined, redirectUri: string, netlifyAuthorizeUrl: string, cancelUrl: string): string {
-  const destination = escapeHtml(new URL(redirectUri).host || redirectUri);
+  // The scheme stays: a custom scheme or plain http in front of a familiar host
+  // is exactly what a look-alike registration would rely on hiding.
+  const url = new URL(redirectUri);
+  const destination = escapeHtml(url.host ? `${url.protocol}//${url.host}` : redirectUri);
   const name = clientName ? `<strong>${escapeHtml(clientName)}</strong> (the name the application gave itself)` : 'An application';
   return `<!DOCTYPE html>
 <html lang="en">
@@ -436,7 +439,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   // would complete in the victim's browser.
   const cookieBinding = readTransactionCookie(req);
   if (!cookieBinding || !sameBinding(cookieBinding, transaction.browser_binding)) {
-    return oauthError(400, 'invalid_request', 'This sign-in was started in a different browser or has already finished. Start the connection again from your application.', 'server-redirect', { reason: cookieBinding ? 'browser binding mismatch' : 'no transaction cookie' });
+    return oauthError(400, 'invalid_request', 'This sign-in was started in a different browser, replaced by a newer one, or has already finished. Start the connection again from your application.', 'server-redirect', { reason: cookieBinding ? 'browser binding mismatch' : 'no transaction cookie' });
   }
 
   const validatedState: AUTH_REQUEST_STATE = {
