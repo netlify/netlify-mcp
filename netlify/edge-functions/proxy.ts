@@ -1,4 +1,4 @@
-import { decryptJWE } from "../functions/mcp-server/utils.ts";
+import { decryptJWE, TOKEN_USE } from "../functions/mcp-server/utils.ts";
 import { log, withLogContext, addLogContext, getRequestId, getDeployId, truncateForLog } from "../functions/mcp-server/logger.ts";
 import type {Config, Context} from '@netlify/edge-functions';
 
@@ -39,7 +39,13 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   } catch {
     return new Response('Unauthorized', { status: 401 });
   }
-  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string') {
+  // Only a proxy token, which always carries its allow-list, may be forwarded:
+  // an access token here would reach every Netlify API path unrestricted.
+  if (
+    decryptedToken?.token_use !== TOKEN_USE.proxy ||
+    typeof decryptedToken.accessToken !== 'string' ||
+    !Array.isArray(decryptedToken.apisAllowed)
+  ) {
     return new Response('Unauthorized', { status: 401 });
   }
 
@@ -66,23 +72,21 @@ export async function handleProxy(req: Request, token: string): Promise<Response
 
   const normalizedPath = url.pathname;
 
-  if (Array.isArray(decryptedToken.apisAllowed)) {
-    const isAllowed = decryptedToken.apisAllowed.some(({ path, method }: { path: string; method: string; }) => {
-      // Escape regex metacharacters in the allowed path, then turn `:param`
-      // placeholders into a bounded segment matcher, and anchor with ^...$ so
-      // the whole normalized path must match — not just a substring of it.
-      const pattern = '^' + escapeRegExp(path).replace(/:\w+/g, '[\\w\\-]+') + '$';
-      const pathMatches = new RegExp(pattern).test(normalizedPath);
-      return pathMatches && method === req.method;
-    });
+  const isAllowed = decryptedToken.apisAllowed.some(({ path, method }: { path: string; method: string; }) => {
+    // Escape regex metacharacters in the allowed path, then turn `:param`
+    // placeholders into a bounded segment matcher, and anchor with ^...$ so
+    // the whole normalized path must match — not just a substring of it.
+    const pattern = '^' + escapeRegExp(path).replace(/:\w+/g, '[\\w\\-]+') + '$';
+    const pathMatches = new RegExp(pattern).test(normalizedPath);
+    return pathMatches && method === req.method;
+  });
 
-    if (!isAllowed) {
-      // Expected access-control enforcement (the token requested a path outside
-      // its scope), not a server error — warn so it stays a security signal
-      // without inflating error metrics.
-      log.warn('proxy denied out-of-scope path', { normalizedPath, apisAllowed: decryptedToken.apisAllowed });
-      return new Response('Forbidden', { status: 403 });
-    }
+  if (!isAllowed) {
+    // Expected access-control enforcement (the token requested a path outside
+    // its scope), not a server error — warn so it stays a security signal
+    // without inflating error metrics.
+    log.warn('proxy denied out-of-scope path', { normalizedPath, apisAllowed: decryptedToken.apisAllowed });
+    return new Response('Forbidden', { status: 403 });
   }
 
   req.headers.set('Authorization', `Bearer ${decryptedToken.accessToken}`);

@@ -70,3 +70,17 @@ be rotated independently:
 
 Before the split, rotating `JWE_SECRET` would have silently killed every
 customer's event notifications as a side effect.
+
+### How sign-in is protected
+
+Every authorization goes through a consent page on this server that names the
+host the client registered as its redirect. Netlify's own consent screen only
+names this server's OAuth app, and anyone can register a client, so this page is
+the only place a person can see where their access is going. The page sets a
+`__Host-mcp-oauth-txn` cookie, and the sealed `state` sent through
+app.netlify.com only completes in the browser holding it.
+
+Every JWE sealed with `JWE_SECRET` carries a `token_use` (`authorization_request`,
+`authorization_code`, `access`, `refresh`, `proxy`), and each endpoint accepts
+only its own. Tokens minted before `token_use` existed are refused, so the
+deploy that introduced it signed every connected client out once.

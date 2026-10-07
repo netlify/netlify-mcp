@@ -82,11 +82,30 @@ function initState(fields: Record<string, string>): string {
   })).toString('base64');
 }
 
-function serverRedirect(state: string) {
-  const url = new URL(`${ISSUER}/oauth-server/server-redirect`);
-  url.searchParams.set('token', 'netlify-token-from-browser');
-  url.searchParams.set('init-state', state);
-  return handleServerSideAuthRedirect(new Request(url));
+// What the client-redirect page posts, from the browser holding `cookie`.
+function serverRedirect(state: string, cookie?: string) {
+  return handleServerSideAuthRedirect(new Request(`${ISSUER}/oauth-server/server-redirect`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
+    body: new URLSearchParams({ token: 'netlify-token-from-browser', 'init-state': state }).toString(),
+  }));
+}
+
+// The consent page's Continue link, which carries the sealed state to Netlify.
+function continueUrl(res: { body?: string }): URL {
+  const href = res.body?.match(/id="continue" href="([^"]+)"/)?.[1];
+  assert.ok(href, 'expected a Continue link on the consent page');
+  return new URL(href.replace(/&#38;/g, '&'));
+}
+
+// The cookie the consent page set, as the browser sends it back.
+function browserCookie(res: { headers?: Record<string, unknown> }): string {
+  const value = res.headers?.['Set-Cookie'];
+  assert.equal(typeof value, 'string', 'expected the consent page to set a cookie');
+  return (value as string).split(';')[0];
 }
 
 function exchange(form: Record<string, string>) {
@@ -125,7 +144,8 @@ test('authorize: a client_id this server cannot resolve is rejected', async () =
 test('server-redirect: a tampered init-state cannot send the code to an unregistered redirect_uri', async () => {
   // SEC-691 / SEC-790: the attacker never calls /auth. They hand the victim an
   // app.netlify.com/authorize link whose state names a real client_id but
-  // their own redirect_uri, and the code must not follow it.
+  // their own redirect_uri, and the code must not follow it. The state is no
+  // longer something anyone but this server can author.
   const clientId = await register([REGISTERED_REDIRECT]);
   const res = await serverRedirect(initState({
     client_id: clientId,
@@ -141,7 +161,7 @@ test('server-redirect: an unresolvable client_id in init-state is rejected', asy
     redirect_uri: ATTACKER_REDIRECT,
     code_challenge: pkcePair().challenge,
   }));
-  assertRejectedWithoutRedirect(res, 'invalid_client');
+  assertRejectedWithoutRedirect(res, 'invalid_request');
 });
 
 test('the registered redirect_uri still completes the whole flow and binds the code to it', async () => {
@@ -149,13 +169,13 @@ test('the registered redirect_uri still completes the whole flow and binds the c
   const { verifier, challenge } = pkcePair();
 
   const start = await authorize(clientId, REGISTERED_REDIRECT, challenge);
-  assert.equal(start.statusCode, 302);
-  const netlifyAuthorize = location(start);
+  assert.equal(start.statusCode, 200);
+  const netlifyAuthorize = continueUrl(start);
   assert.equal(netlifyAuthorize.origin, 'https://app.netlify.com');
   const state = netlifyAuthorize.searchParams.get('state');
   assert.ok(state);
 
-  const redirect = await serverRedirect(state);
+  const redirect = await serverRedirect(state, browserCookie(start));
   assert.equal(redirect.statusCode, 302);
   const clientCallback = location(redirect);
   assert.equal(`${clientCallback.origin}${clientCallback.pathname}`, REGISTERED_REDIRECT);
@@ -182,7 +202,7 @@ test('the registered redirect_uri still completes the whole flow and binds the c
 test('authorize: a native client may vary the loopback port (RFC 8252)', async () => {
   const clientId = await register(['http://127.0.0.1:1234/cb']);
   const res = await authorize(clientId, 'http://127.0.0.1:50321/cb', pkcePair().challenge);
-  assert.equal(res.statusCode, 302);
+  assert.equal(res.statusCode, 200);
   // Still exact on everything but the port.
   const other = await authorize(clientId, 'http://127.0.0.1:50321/other', pkcePair().challenge);
   assertRejectedWithoutRedirect(other, 'invalid_request');
@@ -191,7 +211,7 @@ test('authorize: a native client may vary the loopback port (RFC 8252)', async (
 test('authorize: every pre-provisioned static client is bound to its registered redirects too', async () => {
   for (const client of staticClients) {
     const ok = await authorize(client.client_id, client.redirect_uris[0], pkcePair().challenge);
-    assert.equal(ok.statusCode, 302, `${client.client_id} with its own redirect`);
+    assert.equal(ok.statusCode, 200, `${client.client_id} with its own redirect`);
     const spoofed = await authorize(client.client_id, ATTACKER_REDIRECT, pkcePair().challenge);
     assertRejectedWithoutRedirect(spoofed, 'invalid_request');
   }
@@ -209,13 +229,13 @@ test('the legacy ChatGPT registration keeps working, on its own redirect only', 
 
   const { verifier, challenge } = pkcePair();
   const ok = await authorize(CHATGPT_ID, CHATGPT_REDIRECT, challenge, 'offline_access');
-  assert.equal(ok.statusCode, 302);
+  assert.equal(ok.statusCode, 200);
   const elsewhere = await authorize(CHATGPT_ID, 'https://chatgpt.com.attacker.example/connector_platform_oauth_redirect', pkcePair().challenge);
   assertRejectedWithoutRedirect(elsewhere, 'invalid_request');
 
   // The whole flow, as the connector drives it: code to its redirect, then
   // exchange and refresh with the pinned id.
-  const redirect = await serverRedirect(location(ok).searchParams.get('state')!);
+  const redirect = await serverRedirect(continueUrl(ok).searchParams.get('state')!, browserCookie(ok));
   assert.equal(redirect.statusCode, 302);
   const callback = location(redirect);
   assert.equal(`${callback.origin}${callback.pathname}`, CHATGPT_REDIRECT);
