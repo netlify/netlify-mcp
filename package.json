@@ -19,7 +19,8 @@
     "build": "tsup ./netlify-mcp.ts --format esm",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/register-ts-js-loader.mjs --test \"src/**/*.test.ts\" \"netlify/**/*.test.ts\"",
-    "start": "node ./dist/netlify-mcp.js",
+    "verify:coding-context": "node --import ./scripts/register-ts-js-loader.mjs scripts/verify-coding-context.mjs",
+    "start":"node ./dist/netlify-mcp.js",
     "build:publish": "rm -rf ./dist && npm run build && npm publish"
   },
   "files": [
