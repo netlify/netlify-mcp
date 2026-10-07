@@ -10,6 +10,7 @@ import {
 } from './auth-flow.ts';
 import { staticClients } from './oauth-clients.ts';
 import { SUPPORTED_SCOPES } from './oauth-config.ts';
+import { createJWE } from './utils.ts';
 
 // Pin the dev-key path regardless of ambient env: a localhost issuer with no
 // JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
@@ -72,8 +73,8 @@ function authorize(clientId: string, redirectUri: string, challenge: string, sco
   return handleAuthStart(new Request(url));
 }
 
-// The init-state the browser hands back to server-redirect is a base64 JSON
-// blob the attacker can author directly, so build it the way they would.
+// The base64 JSON init-state an attacker could author before it was sealed,
+// built the way they would.
 function initState(fields: Record<string, string>): string {
   return Buffer.from(JSON.stringify({
     response_type: 'code',
@@ -141,7 +142,7 @@ test('authorize: a client_id this server cannot resolve is rejected', async () =
   assertRejectedWithoutRedirect(res, 'invalid_client');
 });
 
-test('server-redirect: a tampered init-state cannot send the code to an unregistered redirect_uri', async () => {
+test('server-redirect: an unsealed init-state naming an unregistered redirect_uri is refused', async () => {
   // SEC-691 / SEC-790: the attacker never calls /auth. They hand the victim an
   // app.netlify.com/authorize link whose state names a real client_id but
   // their own redirect_uri, and the code must not follow it. The state is no
@@ -155,13 +156,21 @@ test('server-redirect: a tampered init-state cannot send the code to an unregist
   assertRejectedWithoutRedirect(res, 'invalid_request');
 });
 
-test('server-redirect: an unresolvable client_id in init-state is rejected', async () => {
-  const res = await serverRedirect(initState({
+test('server-redirect: a sealed request whose client_id no longer resolves is rejected', async () => {
+  // A static client removed between /auth and the callback: right browser,
+  // valid seal, but the client is gone.
+  const binding = randomBytes(32).toString('base64url');
+  const sealed = await createJWE({
+    response_type: 'code',
     client_id: 'legacy-opaque-random-id-1234567890',
-    redirect_uri: ATTACKER_REDIRECT,
+    redirect_uri: REGISTERED_REDIRECT,
     code_challenge: pkcePair().challenge,
-  }));
-  assertRejectedWithoutRedirect(res, 'invalid_request');
+    code_challenge_method: 'S256',
+    token_use: 'authorization_request',
+    browser_binding: binding,
+  }, '30m');
+  const res = await serverRedirect(sealed, `__Host-mcp-oauth-txn=${binding}`);
+  assertRejectedWithoutRedirect(res, 'invalid_client');
 });
 
 test('the registered redirect_uri still completes the whole flow and binds the code to it', async () => {
