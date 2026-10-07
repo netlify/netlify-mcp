@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { authenticatedFetch, NetlifyUnauthError } from '../../utils/api-networking.js';
 import type { NetlifyAgentRunnerResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
-import { agentRunnerFailureMessage, CREDITS_NOTE, HANDOFF_RULE, toApiMode } from './agent-runner-utils.js';
+import { CREDITS_NOTE, HANDOFF_RULE, postAgentRunnerJson, toApiMode } from './agent-runner-utils.js';
 
 const startRunParamsSchema = z.object({
   siteId: z.string().describe('Id of the Netlify project to run against.'),
@@ -30,32 +29,21 @@ export const startRunDomainTool: DomainTool<typeof startRunParamsSchema> = {
     idempotentHint: false,
   },
   cb: async ({ siteId, prompt, mode, branch, deployId }, { request }) => {
-    const response = await authenticatedFetch(
+    const result = await postAgentRunnerJson<NetlifyAgentRunnerResponse>(
       `/api/v1/agent_runners?site_id=${encodeURIComponent(siteId)}`,
       {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt,
-          mode: toApiMode(mode),
-          ...(branch ? { branch } : {}),
-          ...(deployId ? { deploy_id: deployId } : {}),
-        }),
+        prompt,
+        mode: toApiMode(mode),
+        ...(branch ? { branch } : {}),
+        ...(deployId ? { deploy_id: deployId } : {}),
       },
       request,
+      'start the run',
     );
 
-    if (response.status === 401 && request) {
-      throw new NetlifyUnauthError('Unauthenticated request to Netlify API. /api/v1/agent_runners');
-    }
-
-    if (!response.ok) {
-      return await agentRunnerFailureMessage(response, 'start the run');
-    }
-
-    let run: NetlifyAgentRunnerResponse;
-    try {
-      run = JSON.parse(await response.text());
-    } catch {
+    if ('error' in result) return result.error;
+    const run = result.data;
+    if (!run) {
       return 'The run may have started, but the response could not be read. Check recent runs with list-runs.';
     }
 

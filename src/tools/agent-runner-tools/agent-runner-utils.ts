@@ -1,3 +1,4 @@
+import { authenticatedFetch, NetlifyUnauthError } from '../../utils/api-networking.js';
 import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.js';
 
 // The one rule every tool's text carries. Stated as a check the model runs on itself.
@@ -57,6 +58,31 @@ export async function agentRunnerFailureMessage(response: Response, action: stri
       return `The run can't continue as requested.${detail}`;
   }
   return `Failed to ${action}: ${response.status}`;
+}
+
+// POSTs a JSON body and folds the failure paths into one result: `error` is a message to
+// return as-is, `data` is the parsed body or null when a successful response could not be read.
+export async function postAgentRunnerJson<T>(
+  path: string,
+  body: unknown,
+  request: Request | undefined,
+  action: string,
+): Promise<{ error: string } | { data: T | null }> {
+  const response = await authenticatedFetch(path, { method: 'POST', body: JSON.stringify(body) }, request);
+
+  if (response.status === 401 && request) {
+    throw new NetlifyUnauthError(`Unauthenticated request to Netlify API. ${path.split('?')[0]}`);
+  }
+
+  if (!response.ok) {
+    return { error: await agentRunnerFailureMessage(response, action) };
+  }
+
+  try {
+    return { data: JSON.parse(await response.text()) as T };
+  } catch {
+    return { data: null };
+  }
 }
 
 export interface AgentRunSummary {

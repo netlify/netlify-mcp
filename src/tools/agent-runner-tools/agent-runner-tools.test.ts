@@ -365,3 +365,148 @@ test('start-run carries the hand-off rule in its description and its prompt fiel
   assert.ok(startRunDomainTool.description?.includes(HANDOFF_RULE));
   assert.ok(startRunDomainTool.inputSchema.shape.prompt.description?.includes(HANDOFF_RULE));
 });
+
+const followUpInput = { runId: 'run 1', prompt: 'Make it blue', mode: 'change' as const };
+
+test('follow-up-run posts to the encoded run URL, sending mode only for ask', async (t) => {
+  const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => json({ id: 'session-2', state: 'new' }, 201));
+
+  await followUpRunDomainTool.cb({ ...followUpInput, mode: 'ask' }, { request: testRequest() });
+  let [url, init] = fetchMock.mock.calls.at(-1)!.arguments as [string, RequestInit];
+  assert.equal(url, 'https://api.netlify.com/api/v1/agent_runners/run%201/sessions');
+  assert.equal(init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(init.body)), { prompt: 'Make it blue', mode: 'ask' });
+
+  await followUpRunDomainTool.cb(followUpInput, { request: testRequest() });
+  [url, init] = fetchMock.mock.calls.at(-1)!.arguments as [string, RequestInit];
+  const body = JSON.parse(String(init.body));
+  assert.deepEqual(body, { prompt: 'Make it blue' });
+  assert.equal('mode' in body, false);
+});
+
+test('follow-up-run returns a compact summary of the new session', async (t) => {
+  const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ id: 'session-2', state: 'new', secret: 'raw secret detail' }, 201));
+
+  const result = await followUpRunDomainTool.cb(followUpInput, { request: testRequest() });
+  const parsed = JSON.parse(result);
+
+  assert.deepEqual(Object.keys(parsed), ['runId', 'sessionId', 'state', 'nextStep']);
+  assert.equal(parsed.sessionId, 'session-2');
+  assert.match(parsed.nextStep, /get-run/);
+  assert.doesNotMatch(result, /raw secret detail/);
+});
+
+const followUpFailures: [string, number, unknown, RegExp][] = [
+  ['409 active_session_exists', 409, { error_code: 'active_session_exists' }, /session is still running/],
+  ['409 follow_up_unavailable', 409, { error_code: 'follow_up_unavailable' }, /published or is publishing/],
+];
+
+for (const [name, status, body, expected] of followUpFailures) {
+  test(`follow-up-run returns the mapped message for ${name}`, async (t) => {
+    const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+
+    t.mock.method(globalThis, 'fetch', async () => json(body, status));
+
+    const result = await followUpRunDomainTool.cb(followUpInput, { request: testRequest() });
+
+    assert.match(result, expected);
+  });
+}
+
+test('follow-up-run throws NetlifyUnauthError on a 401', async (t) => {
+  const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+  const { NetlifyUnauthError } = await import('../../utils/api-networking.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({}, 401));
+
+  await assert.rejects(followUpRunDomainTool.cb(followUpInput, { request: testRequest() }), NetlifyUnauthError);
+});
+
+test('follow-up-run carries the credits note in its prompt field', async () => {
+  const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+  const { CREDITS_NOTE } = await import('./agent-runner-utils.ts');
+
+  assert.ok(followUpRunDomainTool.inputSchema.shape.prompt.description?.includes(CREDITS_NOTE));
+});
+
+const answerInput = { runId: 'run 1', sessionId: 'session/2', refId: 'ref-1' };
+const answerUrl = 'https://api.netlify.com/api/v1/agent_runners/run%201/sessions/session%2F2/answers';
+
+test('answer-run-question sends refId and response for answers', async (t) => {
+  const { answerRunQuestionDomainTool } = await import('./answer-run-question.ts');
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => json({ id: 'session/2', state: 'running' }));
+
+  const result = await answerRunQuestionDomainTool.cb(
+    { ...answerInput, answers: ['Blue', ['a', 'b'], null] },
+    { request: testRequest() },
+  );
+
+  const [url, init] = fetchMock.mock.calls[0].arguments as [string, RequestInit];
+  assert.equal(url, answerUrl);
+  assert.equal(init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(init.body)), { refId: 'ref-1', response: ['Blue', ['a', 'b'], null] });
+
+  const parsed = JSON.parse(result);
+  assert.deepEqual(Object.keys(parsed), ['runId', 'sessionId', 'state', 'nextStep']);
+  assert.equal(parsed.state, 'running');
+  assert.match(parsed.nextStep, /get-run/);
+});
+
+test('answer-run-question sends skipped for skip, with instruction only when given', async (t) => {
+  const { answerRunQuestionDomainTool } = await import('./answer-run-question.ts');
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => json({ id: 'session/2', state: 'running' }));
+
+  await answerRunQuestionDomainTool.cb({ ...answerInput, skip: true }, { request: testRequest() });
+  assert.deepEqual(JSON.parse(String((fetchMock.mock.calls[0].arguments[1] as RequestInit).body)), {
+    refId: 'ref-1',
+    skipped: true,
+  });
+
+  await answerRunQuestionDomainTool.cb(
+    { ...answerInput, skip: true, instruction: 'Use a placeholder' },
+    { request: testRequest() },
+  );
+  assert.deepEqual(JSON.parse(String((fetchMock.mock.calls[1].arguments[1] as RequestInit).body)), {
+    refId: 'ref-1',
+    skipped: true,
+    instruction: 'Use a placeholder',
+  });
+});
+
+const invalidAnswerInputs: [string, Record<string, unknown>][] = [
+  ['neither answers nor skip', {}],
+  ['empty answers', { answers: [] }],
+  ['skip false', { skip: false }],
+  ['both answers and skip', { answers: ['Blue'], skip: true }],
+];
+
+for (const [name, extra] of invalidAnswerInputs) {
+  test(`answer-run-question returns an error and makes no request for ${name}`, async (t) => {
+    const { answerRunQuestionDomainTool } = await import('./answer-run-question.ts');
+
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () => json({}));
+
+    const result = await answerRunQuestionDomainTool.cb({ ...answerInput, ...extra }, { request: testRequest() });
+
+    assert.match(result, /either answers .* or skip: true/);
+    assert.equal(fetchMock.mock.callCount(), 0);
+  });
+}
+
+test('answer-run-question throws NetlifyUnauthError on a 401', async (t) => {
+  const { answerRunQuestionDomainTool } = await import('./answer-run-question.ts');
+  const { NetlifyUnauthError } = await import('../../utils/api-networking.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({}, 401));
+
+  await assert.rejects(
+    answerRunQuestionDomainTool.cb({ ...answerInput, skip: true }, { request: testRequest() }),
+    NetlifyUnauthError,
+  );
+});
