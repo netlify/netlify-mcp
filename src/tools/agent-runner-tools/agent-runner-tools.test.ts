@@ -49,6 +49,12 @@ test('summarizeRun keeps agent-produced text out of nextStep', async () => {
   assert.ok(!summary.nextStep.includes(injected));
 });
 
+test('summarizeRun carries the fixed untrusted-output note', async () => {
+  const { summarizeRun, UNTRUSTED_FIELDS_NOTE } = await import('./agent-runner-utils.ts');
+
+  assert.equal(summarizeRun(snapshot()).untrustedFieldsNote, UNTRUSTED_FIELDS_NOTE);
+});
+
 test('summarizeRun finds a pending question in an earlier await_input session', async () => {
   const { summarizeRun } = await import('./agent-runner-utils.ts');
 
@@ -173,6 +179,7 @@ test('summarizeRun explains an ended run with the interrupt reason and credit me
 
 test('get-run fetches the snapshot with the run id encoded and returns the summary', async (t) => {
   const { getRunDomainTool } = await import('./get-run.ts');
+  const { UNTRUSTED_FIELDS_NOTE } = await import('./agent-runner-utils.ts');
 
   const fetchMock = t.mock.method(globalThis, 'fetch', async () => json(snapshot()));
 
@@ -184,6 +191,7 @@ test('get-run fetches the snapshot with the run id encoded and returns the summa
   const parsed = JSON.parse(result);
   assert.equal(parsed.runId, 'run-1');
   assert.equal(parsed.dashboardUrl, 'https://app.netlify.com/projects/my-site/agent-runs/run-1');
+  assert.equal(parsed.untrustedFieldsNote, UNTRUSTED_FIELDS_NOTE);
 });
 
 test('get-run returns the not-found message on a 404 instead of throwing', async (t) => {
