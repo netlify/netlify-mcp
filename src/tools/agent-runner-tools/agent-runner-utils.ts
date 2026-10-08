@@ -1,4 +1,5 @@
-import { authenticatedFetch, NetlifyUnauthError } from '../../utils/api-networking.js';
+import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
+import { log, truncateForLog } from '../../../netlify/functions/mcp-server/logger.js';
 import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.js';
 
 // Used in start-run's description and its `prompt` field description (PROMPT_CONTEXT_NOTE and
@@ -28,21 +29,49 @@ export const toApiMode = (mode: RunMode): 'ask' | 'normal' | 'create' => (mode =
 export const runDashboardUrl = (siteName: string | null | undefined, runId: string): string | null =>
   siteName ? `https://app.netlify.com/projects/${siteName}/agent-runs/${runId}` : null;
 
-// Turns a gated or failed response into a sentence the model can relay or act on.
-// Reads the JSON body's `error_code` when present. Never returns the raw body.
-export async function agentRunnerFailureMessage(response: Response, action: string): Promise<string> {
-  let errorCode: string | undefined;
-  let errorText: string | undefined;
+type AgentRunnerWriteOperation = 'start-run' | 'follow-up-run' | 'answer-run-question';
+
+export interface RunRequestFields {
+  domainOperation: AgentRunnerWriteOperation;
+  mode?: RunMode;
+}
+
+type RunFailure = { errorCode?: string; errorText?: string };
+
+// Remote only: log.info writes to stdout, which the local stdio server uses for protocol messages.
+export function logRunRequest(
+  request: Request | undefined,
+  { domainOperation, mode, status, errorCode }: RunRequestFields & { status: number; errorCode?: string },
+): void {
+  if (!request) return;
+  log.info('agent runner request', {
+    domain: 'agent-runner',
+    domainOperation,
+    ...(mode !== undefined ? { mode } : {}),
+    status,
+    ...(errorCode !== undefined ? { errorCode: truncateForLog(errorCode) } : {}),
+  });
+}
+
+// Reads the JSON body's `error_code` and `error` when present. Never returns the raw body.
+async function readFailureBody(response: Response): Promise<RunFailure> {
+  const failure: RunFailure = {};
   try {
     const body = await response.json();
-    if (typeof body?.error_code === 'string') errorCode = body.error_code;
-    if (typeof body?.error === 'string') errorText = body.error;
+    if (typeof body?.error_code === 'string') failure.errorCode = body.error_code;
+    if (typeof body?.error === 'string') failure.errorText = body.error;
   } catch {
     // Non-JSON or empty body: fall through to the status-only messages.
   }
+  return failure;
+}
+
+// Turns a gated or failed response into a sentence the model can relay or act on.
+export function agentRunnerFailureMessage(status: number, failure: RunFailure, action: string): string {
+  const { errorCode, errorText } = failure;
   const detail = errorText ? ` ${errorText}` : '';
 
-  switch (response.status) {
+  switch (status) {
     case 404:
       return NOT_FOUND_MESSAGE;
     case 403:
@@ -69,16 +98,18 @@ export async function agentRunnerFailureMessage(response: Response, action: stri
     case 422:
       return `The run can't continue as requested.${detail}`;
   }
-  return `Failed to ${action}: ${response.status}`;
+  return `Failed to ${action}: ${status}`;
 }
 
 // POSTs a JSON body and folds the failure paths into one result: `error` is a message to
 // return as-is, `data` is the parsed body or null when a successful response could not be read.
+// A 5xx throws so the tool wrapper records it as a failure.
 export async function postAgentRunnerJson<T>(
   path: string,
   body: unknown,
   request: Request | undefined,
   action: string,
+  fields: RunRequestFields,
 ): Promise<{ error: string } | { data: T | null }> {
   const response = await authenticatedFetch(path, { method: 'POST', body: JSON.stringify(body) }, request);
 
@@ -87,8 +118,13 @@ export async function postAgentRunnerJson<T>(
   }
 
   if (!response.ok) {
-    return { error: await agentRunnerFailureMessage(response, action) };
+    const failure = await readFailureBody(response);
+    logRunRequest(request, { ...fields, status: response.status, errorCode: failure.errorCode });
+    if (response.status >= 500) throw new NetlifyApiError(response.status);
+    return { error: agentRunnerFailureMessage(response.status, failure, action) };
   }
+
+  logRunRequest(request, { ...fields, status: response.status });
 
   try {
     return { data: JSON.parse(await response.text()) as T };

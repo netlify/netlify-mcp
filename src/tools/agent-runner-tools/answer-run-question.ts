@@ -41,6 +41,7 @@ export const answerRunQuestionDomainTool: DomainTool<typeof answerRunQuestionPar
       hasAnswers ? { refId, response: answers } : { refId, skipped: true, ...(instruction ? { instruction } : {}) },
       request,
       'send the answer',
+      { domainOperation: 'answer-run-question' },
     );
 
     if ('error' in result) return result.error;

@@ -41,6 +41,7 @@ export const startRunDomainTool: DomainTool<typeof startRunParamsSchema> = {
       },
       request,
       'start the run',
+      { domainOperation: 'start-run', mode },
     );
 
     if ('error' in result) return result.error;

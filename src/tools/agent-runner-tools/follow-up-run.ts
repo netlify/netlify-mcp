@@ -32,6 +32,7 @@ export const followUpRunDomainTool: DomainTool<typeof followUpRunParamsSchema> =
       { prompt, ...(mode === 'ask' ? { mode } : {}) },
       request,
       'send the follow-up',
+      { domainOperation: 'follow-up-run', mode },
     );
 
     if ('error' in result) return result.error;

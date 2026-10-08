@@ -276,27 +276,26 @@ test('list-runs returns the not-found message when the project is missing and do
   assert.equal(fetchMock.mock.callCount(), 1);
 });
 
-const failureCases: [string, number, unknown, RegExp][] = [
-  ['404', 404, { error: 'raw secret detail' }, /not enabled for this project/],
-  ['403 ai_credit_limit_disabled', 403, { error_code: 'ai_credit_limit_disabled' }, /credit limit on this team is set to 0/],
-  ['403 other', 403, { error: 'Upgrade your plan' }, /plan can't use Agent Runners.*Upgrade your plan/],
-  ['403 without a body', 403, undefined, /plan can't use Agent Runners/],
-  ['409 active_session_exists', 409, { error_code: 'active_session_exists' }, /session is still running/],
-  ['409 follow_up_unavailable', 409, { error_code: 'follow_up_unavailable' }, /published or is publishing/],
-  ['429 ai_credit_limit_exceeded', 429, { error_code: 'ai_credit_limit_exceeded' }, /team is out of AI credits/],
-  ['429 ai_credit_limit_reached', 429, { error_code: 'ai_credit_limit_reached' }, /personal AI credit limit/],
+const failureCases: [string, number, { errorCode?: string; errorText?: string }, RegExp][] = [
+  ['404', 404, { errorText: 'raw secret detail' }, /not enabled for this project/],
+  ['403 ai_credit_limit_disabled', 403, { errorCode: 'ai_credit_limit_disabled' }, /credit limit on this team is set to 0/],
+  ['403 other', 403, { errorText: 'Upgrade your plan' }, /plan can't use Agent Runners.*Upgrade your plan/],
+  ['403 without a body', 403, {}, /plan can't use Agent Runners/],
+  ['409 active_session_exists', 409, { errorCode: 'active_session_exists' }, /session is still running/],
+  ['409 follow_up_unavailable', 409, { errorCode: 'follow_up_unavailable' }, /published or is publishing/],
+  ['429 ai_credit_limit_exceeded', 429, { errorCode: 'ai_credit_limit_exceeded' }, /team is out of AI credits/],
+  ['429 ai_credit_limit_reached', 429, { errorCode: 'ai_credit_limit_reached' }, /personal AI credit limit/],
   ['429 other', 429, {}, /Too many runs are active/],
-  ['422', 422, { error: 'prompt is too long' }, /can't continue as requested.*prompt is too long/],
-  ['other', 500, { error: 'boom' }, /^Failed to start the run: 500$/],
-  ['409 unknown code', 409, { error_code: 'something_else' }, /^Failed to start the run: 409$/],
+  ['422', 422, { errorText: 'prompt is too long' }, /can't continue as requested.*prompt is too long/],
+  ['other', 500, { errorText: 'boom' }, /^Failed to start the run: 500$/],
+  ['409 unknown code', 409, { errorCode: 'something_else' }, /^Failed to start the run: 409$/],
 ];
 
-for (const [name, status, body, expected] of failureCases) {
+for (const [name, status, failure, expected] of failureCases) {
   test(`agentRunnerFailureMessage maps ${name}`, async () => {
     const { agentRunnerFailureMessage } = await import('./agent-runner-utils.ts');
 
-    const response = new Response(body === undefined ? 'not json' : JSON.stringify(body), { status });
-    const message = await agentRunnerFailureMessage(response, 'start the run');
+    const message = agentRunnerFailureMessage(status, failure, 'start the run');
 
     assert.match(message, expected);
     assert.doesNotMatch(message, /raw secret detail|\{/);
@@ -568,4 +567,98 @@ test('answer-run-question throws NetlifyUnauthError on a 401', async (t) => {
     answerRunQuestionDomainTool.cb({ ...answerInput, skip: true }, { request: testRequest() }),
     NetlifyUnauthError,
   );
+});
+
+const runRequestLines = (logMock: { mock: { calls: { arguments: unknown[] }[] } }) =>
+  logMock.mock.calls
+    .map((call) => JSON.parse(String(call.arguments[0])))
+    .filter((line) => line.message === 'agent runner request');
+
+test('start-run with a request logs one outcome line without the prompt', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ id: 'run-1' }, 201));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  await startRunDomainTool.cb({ ...startRunInput, mode: 'create' }, { request: testRequest() });
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].domain, 'agent-runner');
+  assert.equal(lines[0].domainOperation, 'start-run');
+  assert.equal(lines[0].mode, 'create');
+  assert.equal(lines[0].status, 201);
+  assert.equal('errorCode' in lines[0], false);
+  assert.ok(!String(logMock.mock.calls[0].arguments[0]).includes(startRunInput.prompt));
+});
+
+test('start-run logs the status and error code on a 429 and still returns the credit message', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ error_code: 'ai_credit_limit_exceeded' }, 429));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  const result = await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].status, 429);
+  assert.equal(lines[0].errorCode, 'ai_credit_limit_exceeded');
+  assert.match(result, /team is out of AI credits/);
+});
+
+test('start-run rejects with NetlifyApiError on a 500 after logging the status', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ error: 'boom' }, 500));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  await assert.rejects(
+    startRunDomainTool.cb(startRunInput, { request: testRequest() }),
+    (error) => error instanceof NetlifyApiError && error.status === 500,
+  );
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].status, 500);
+});
+
+test('follow-up-run logs its operation and mode', async (t) => {
+  const { followUpRunDomainTool } = await import('./follow-up-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ id: 'session-2', state: 'new' }, 201));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  await followUpRunDomainTool.cb({ ...followUpInput, mode: 'ask' }, { request: testRequest() });
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].domainOperation, 'follow-up-run');
+  assert.equal(lines[0].mode, 'ask');
+  assert.equal(lines[0].status, 201);
+});
+
+test('answer-run-question logs its operation with no mode key', async (t) => {
+  const { answerRunQuestionDomainTool } = await import('./answer-run-question.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ id: 'session/2', state: 'running' }));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  await answerRunQuestionDomainTool.cb({ ...answerInput, skip: true }, { request: testRequest() });
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].domainOperation, 'answer-run-question');
+  assert.equal('mode' in lines[0], false);
+});
+
+test('logRunRequest writes nothing without a request', async (t) => {
+  const { logRunRequest } = await import('./agent-runner-utils.ts');
+
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  logRunRequest(undefined, { domainOperation: 'start-run', mode: 'ask', status: 201 });
+
+  assert.equal(logMock.mock.callCount(), 0);
 });
