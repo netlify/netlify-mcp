@@ -578,6 +578,15 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
 
   const { accessToken, state, identity } = decryptedCode;
 
+  if (typeof accessToken !== 'string' || !accessToken ||
+      !state || typeof state !== 'object' || Array.isArray(state) ||
+      (state.scope !== undefined && typeof state.scope !== 'string')) {
+    return oauthError(400, 'invalid_grant', 'Invalid authorization code payload', 'token', {
+      reason: 'authorization code payload invalid',
+      client_id: clientId,
+    });
+  }
+
   if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
     return oauthError(400, 'invalid_grant', 'client_id or redirect_uri does not match authorization code', 'token', {
       client_id: clientId,
