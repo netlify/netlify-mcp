@@ -1,6 +1,6 @@
 {
   "name": "@netlify/mcp",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "description": "",
   "type": "module",
   "main": "./dist/netlify-mcp.js",

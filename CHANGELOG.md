@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.18.0...mcp-v1.18.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **oauth:** sign the authorize state and type issued tokens (SEC-790) ([#68](https://github.com/netlify/netlify-mcp/issues/68)) ([79a81b8](https://github.com/netlify/netlify-mcp/commit/79a81b8b03496332e6bbbaf9c93d3e66eb656157))
+
 ## [1.18.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.17.0...mcp-v1.18.0) (2026-10-07)
 
 
