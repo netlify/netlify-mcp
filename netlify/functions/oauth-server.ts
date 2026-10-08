@@ -1,3 +1,6 @@
+// FIRST import on purpose: self-installs an outbound-http error guard before any
+// dependency that makes http calls loads (see mcp-server/http-guard.ts).
+import "./mcp-server/http-guard.ts";
 import type { Handler, HandlerResponse } from "@netlify/functions";
 import { handleAuthStart, handleClientRegistration, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
