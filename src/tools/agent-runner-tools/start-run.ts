@@ -1,14 +1,16 @@
 import { z } from 'zod';
 import type { NetlifyAgentRunnerResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
-import { CREDITS_NOTE, HANDOFF_RULE, postAgentRunnerJson, toApiMode } from './agent-runner-utils.js';
+import { CREDITS_NOTE, HANDOFF_RULE, PROMPT_CONTEXT_NOTE, postAgentRunnerJson, toApiMode } from './agent-runner-utils.js';
 
 const startRunParamsSchema = z.object({
   siteId: z.string().describe('Id of the Netlify project to run against.'),
   prompt: z
     .string()
     .min(1)
-    .describe(`What the agent should do or answer, written as a complete task. ${HANDOFF_RULE} ${CREDITS_NOTE}`),
+    .describe(
+      `What the agent should do or answer, written as a complete task. ${PROMPT_CONTEXT_NOTE} ${HANDOFF_RULE} ${CREDITS_NOTE}`,
+    ),
   mode: z
     .enum(['ask', 'change', 'create'])
     .describe(
@@ -21,7 +23,7 @@ const startRunParamsSchema = z.object({
 export const startRunDomainTool: DomainTool<typeof startRunParamsSchema> = {
   domain: 'agent-runner',
   operation: 'start-run',
-  description: `Start an Agent Runner run: a coding agent that runs on Netlify against the project's code and, in change or create mode, builds a deploy preview of its changes. ${HANDOFF_RULE} Modes: 'ask' answers a question about the project and changes nothing; 'change' edits the code and builds a deploy preview; 'create' builds a new site from a description. To build a site from scratch, first make an empty project with create-new-project, then start a run in 'create' mode on it. ${CREDITS_NOTE} The response includes a runId: pass it to get-run to follow the run. Nothing is published to production.`,
+  description: `Start an Agent Runner run. ${HANDOFF_RULE} Modes: 'ask' answers a question about the project and changes nothing; 'change' edits the code and builds a deploy preview; 'create' builds a new site from a description. To build a site from scratch, first make an empty project with create-new-project, then start a run in 'create' mode on it. ${PROMPT_CONTEXT_NOTE} ${CREDITS_NOTE} The response includes a runId: pass it to get-run to follow the run. Nothing is published to production.`,
   inputSchema: startRunParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,

@@ -1,10 +1,17 @@
 import { authenticatedFetch, NetlifyUnauthError } from '../../utils/api-networking.js';
 import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.js';
 
-// Used in start-run's description and its `prompt` field description: the grouped tool surface
-// (non-OpenAI clients) shows only field descriptions, not per-operation ones.
+// Used in start-run's description and its `prompt` field description (PROMPT_CONTEXT_NOTE and
+// FOLLOW_UP_CONTEXT_NOTE likewise): the grouped tool surface (non-OpenAI clients) shows only
+// field descriptions, not per-operation ones.
 export const HANDOFF_RULE =
-  "Only start an Agent Runner run when you do not have this project's source code open with a way to edit and build it (for example, in a chat app), or when the user asks for the work to happen in the background and come back as a deploy preview. If you can edit and build the code yourself, do the work directly instead.";
+  "An Agent Runner run is a coding agent on its own machine with the project's git repo, installed dependencies, the Netlify CLI, the project's environment variables and secrets, function logs, and a deploy preview of each change. If you have this project's code open with a way to edit and build it, do the work yourself, unless the user asks for an Agent Runner or wants the work done in the background. Without the code (for example, in a chat app), start a run for full-stack apps, functions, AI agents, and anything that needs dependencies, secrets or a preview to test against. For a quick static page, build and deploy it yourself; a run is more than it needs.";
+
+export const PROMPT_CONTEXT_NOTE =
+  "The run can't see this conversation. Write the prompt as a complete brief from what you know: what the user wants and why, decisions and preferences they've stated, names, copy and links, and relevant details from your other tools. Don't include secret values; the run reads the project's environment variables.";
+
+export const FOLLOW_UP_CONTEXT_NOTE =
+  "The run remembers its earlier sessions but can't see this conversation, so include any new details the user has given you.";
 
 export const CREDITS_NOTE = "Runs use the team's AI credits and take several minutes.";
 

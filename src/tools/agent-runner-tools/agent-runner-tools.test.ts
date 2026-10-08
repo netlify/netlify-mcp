@@ -410,6 +410,14 @@ test('start-run carries the hand-off rule in its description and its prompt fiel
   assert.ok(startRunDomainTool.inputSchema.shape.prompt.description?.includes(HANDOFF_RULE));
 });
 
+test('start-run carries the prompt context note in its description and its prompt field', async () => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+  const { PROMPT_CONTEXT_NOTE } = await import('./agent-runner-utils.ts');
+
+  assert.ok(startRunDomainTool.description?.includes(PROMPT_CONTEXT_NOTE));
+  assert.ok(startRunDomainTool.inputSchema.shape.prompt.description?.includes(PROMPT_CONTEXT_NOTE));
+});
+
 const followUpInput = { runId: 'run 1', prompt: 'Make it blue', mode: 'change' as const };
 
 test('follow-up-run posts to the encoded run URL, sending mode only for ask', async (t) => {
@@ -470,11 +478,13 @@ test('follow-up-run throws NetlifyUnauthError on a 401', async (t) => {
   await assert.rejects(followUpRunDomainTool.cb(followUpInput, { request: testRequest() }), NetlifyUnauthError);
 });
 
-test('follow-up-run carries the credits note in its prompt field', async () => {
+test('follow-up-run carries the context and credits notes in its prompt field', async () => {
   const { followUpRunDomainTool } = await import('./follow-up-run.ts');
-  const { CREDITS_NOTE } = await import('./agent-runner-utils.ts');
+  const { CREDITS_NOTE, FOLLOW_UP_CONTEXT_NOTE } = await import('./agent-runner-utils.ts');
 
-  assert.ok(followUpRunDomainTool.inputSchema.shape.prompt.description?.includes(CREDITS_NOTE));
+  const description = followUpRunDomainTool.inputSchema.shape.prompt.description;
+  assert.ok(description?.includes(FOLLOW_UP_CONTEXT_NOTE));
+  assert.ok(description?.includes(CREDITS_NOTE));
 });
 
 const answerInput = { runId: 'run 1', sessionId: 'session/2', refId: 'ref-1' };

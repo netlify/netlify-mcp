@@ -1,14 +1,16 @@
 import { z } from 'zod';
 import type { NetlifyAgentRunnerSessionResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
-import { CREDITS_NOTE, postAgentRunnerJson } from './agent-runner-utils.js';
+import { CREDITS_NOTE, FOLLOW_UP_CONTEXT_NOTE, postAgentRunnerJson } from './agent-runner-utils.js';
 
 const followUpRunParamsSchema = z.object({
   runId: z.string().describe('Id of the run to continue, from start-run or list-runs.'),
   prompt: z
     .string()
     .min(1)
-    .describe(`What the agent should do or answer next, written as a complete task. ${CREDITS_NOTE}`),
+    .describe(
+      `What the agent should do or answer next, written as a complete task. ${FOLLOW_UP_CONTEXT_NOTE} ${CREDITS_NOTE}`,
+    ),
   mode: z
     .enum(['ask', 'change'])
     .describe("'ask' answers a question and changes nothing. 'change' edits the code and builds a new deploy preview."),
