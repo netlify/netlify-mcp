@@ -2,8 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { z } from "zod";
-import { getContextConsumerConfig, getNetlifyCodingContext } from "./src/context/coding-context.ts";
+import { registerCodingContextTool } from "./src/context/register-coding-context-tool.ts";
 import { getPackageVersion } from "./src/utils/version.ts";
 import { checkCompatibility } from "./src/utils/compatibility.ts";
 import { bindTools } from "./src/tools/index.ts";
@@ -86,35 +85,10 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
     });
     setMcpClientNameSource(() => server.server.getClientVersion()?.name);
 
-    // load the consumer configuration for the MCP so
-    // we can share all of the available context for the
-    // client to select from.
-    const contextConsumer = await getContextConsumerConfig();
-    const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-    const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
-    server.registerTool(
-      "netlify-coding-rules",
-      {
-        description: "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
-        inputSchema:{
-          creationType: creationTypeEnum
-        },
-        annotations: {
-          readOnlyHint: true
-        }
-      },
-      async ({creationType}) => {
-
-        checkCompatibility();
-
-        const context = await getNetlifyCodingContext(creationType);
-        const text = context?.content || '';
-
-        return ({
-          content: [{type: "text" as const, text}]
-        });
-      }
-    );
+    await registerCodingContextTool(server, {
+      name: "netlify-coding-rules",
+      description: "ALWAYS call when writing serverless or Netlify code. required step before creating or editing any type of functions, Netlify sdk/library  usage, etc.",
+    });
 
     await bindTools(server, undefined, verboseMode);
 
