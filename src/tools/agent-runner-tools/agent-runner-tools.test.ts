@@ -607,6 +607,20 @@ test('start-run logs the status and error code on a 429 and still returns the cr
   assert.match(result, /team is out of AI credits/);
 });
 
+test('start-run logs an unknown error code as other and never the raw value', async (t) => {
+  const { startRunDomainTool } = await import('./start-run.ts');
+
+  t.mock.method(globalThis, 'fetch', async () => json({ error_code: 'SENTINEL_SECRET_VALUE' }, 409));
+  const logMock = t.mock.method(console, 'log', () => {});
+
+  await startRunDomainTool.cb(startRunInput, { request: testRequest() });
+
+  const lines = runRequestLines(logMock);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].errorCode, 'other');
+  assert.ok(!String(logMock.mock.calls[0].arguments[0]).includes('SENTINEL_SECRET_VALUE'));
+});
+
 test('start-run rejects with NetlifyApiError on a 500 after logging the status', async (t) => {
   const { startRunDomainTool } = await import('./start-run.ts');
   const { NetlifyApiError } = await import('../../utils/api-networking.ts');

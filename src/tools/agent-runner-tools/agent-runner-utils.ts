@@ -1,5 +1,5 @@
 import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
-import { log, truncateForLog } from '../../../netlify/functions/mcp-server/logger.js';
+import { log } from '../../../netlify/functions/mcp-server/logger.js';
 import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.js';
 
 // Used in start-run's description and its `prompt` field description (PROMPT_CONTEXT_NOTE and
@@ -36,6 +36,14 @@ export interface RunRequestFields {
   mode?: RunMode;
 }
 
+const KNOWN_ERROR_CODES = new Set([
+  'ai_credit_limit_disabled',
+  'ai_credit_limit_exceeded',
+  'ai_credit_limit_reached',
+  'active_session_exists',
+  'follow_up_unavailable',
+]);
+
 type RunFailure = { errorCode?: string; errorText?: string };
 
 // Remote only: log.info writes to stdout, which the local stdio server uses for protocol messages.
@@ -49,7 +57,7 @@ export function logRunRequest(
     domainOperation,
     ...(mode !== undefined ? { mode } : {}),
     status,
-    ...(errorCode !== undefined ? { errorCode: truncateForLog(errorCode) } : {}),
+    ...(errorCode !== undefined ? { errorCode: KNOWN_ERROR_CODES.has(errorCode) ? errorCode : 'other' } : {}),
   });
 }
 
