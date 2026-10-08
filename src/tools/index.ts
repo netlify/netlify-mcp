@@ -28,6 +28,7 @@ import { deployDomainTools } from './deploy-tools/index.js';
 import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
+import { agentRunnerDomainTools } from './agent-runner-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken, NetlifyUnauthError, NetlifyApiError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
@@ -36,7 +37,7 @@ import { aggregateToolAnnotations, categorizeToolsByReadWrite, completeToolAnnot
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, agentRunnerDomainTools];
 
 const toSelectorSchema = (domainTool: DomainTool<any>) => {
   return z.object({
