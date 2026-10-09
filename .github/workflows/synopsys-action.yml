@@ -35,7 +35,6 @@ jobs:
           blackduck_url: ${{ secrets.BLACKDUCK_URL }}
 
           #------------------------------------------POLARIS------------------------------------------
-          polaris_server_url: ${{ secrets.POLARIS_SERVER_URL }}
+          polaris_server_url: https://polaris.synopsys.com
           polaris_access_token: ${{ secrets.POLARIS_ACCESS_TOKEN }}
           polaris_assessment_types: "SCA,SAST"
-
