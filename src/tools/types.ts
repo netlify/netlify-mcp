@@ -35,4 +35,4 @@ export interface MCPEnvContext {
   isRemoteMCP?: boolean;
 }
 
-export type ToolDomain = 'project' | 'team' | 'user' | 'deploy' | 'extension';
+export type ToolDomain = 'project' | 'team' | 'user' | 'deploy' | 'extension' | 'observability';
