@@ -131,10 +131,13 @@ Once resolved, remove your PAT from the config.
 ## Hosted website and missing paths
 
 The Netlify site publishes the repository root. `index.html` is the public
-landing page, and Netlify serves `404.html` for missing static paths with HTTP
-404 while showing the same website content. Keep these two files in sync.
-No catch-all redirect is added, so OAuth, MCP, proxy, and event relay handlers
-retain their existing routing and error responses.
+landing page. The last redirect in `netlify.toml` rewrites missing public paths
+to that page with HTTP 200, without changing the requested URL. Existing static
+files are still served normally because the rewrite is not forced.
+OAuth, MCP, and event relay rewrites come before this fallback, and the proxy
+edge function returns its own responses, preserving API routing and error codes.
+`404.html` remains a native fallback with the same content; keep both HTML files
+in sync.
 
 No separate website URL or HTML was supplied, and the repository had no existing
 website page. The landing page therefore uses the project's existing description
