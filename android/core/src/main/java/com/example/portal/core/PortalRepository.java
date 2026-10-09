@@ -21,7 +21,7 @@ public interface PortalRepository extends AutoCloseable {
     void selectDevice(String id);
     void addDevice(String id, String name);
     void toggleFavorite(String channelId);
-    /** An empty channel ID with playing=false stops the selected device. */
+    /** Plays in the selected portal, pauses any known channel, or stops with an empty ID and false. */
     void sendCommand(String channelId, boolean playing);
     @Override void close();
 }

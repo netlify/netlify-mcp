@@ -11,6 +11,8 @@ a commercial IPTV subscription. Use only streams you are authorized to access.
 * `tv`: Android TV launcher, portal/device selection, category/channel browsing,
   favorites, D-pad navigation, and Media3 video/audio playback. A signed-in TV
   listens to its selected device's command document.
+  Media3 supports progressive HTTPS samples and HLS (`.m3u8`) streams; this
+  project does not provide DRM licenses or proprietary portal codecs.
 * `companion`: phone/tablet channel search, favorites, portal/device selection,
   and play/pause/stop remote commands. Video is played on the selected TV, not
   on the phone.
@@ -36,7 +38,7 @@ Maven repository and Maven Central. Gradle 8.11.1 is pinned by the wrapper.
 cd /path/to/netlify-mcp/android
 ./gradlew :core:testDebugUnitTest :companion:testDebugUnitTest
 ./gradlew :tv:assembleDebug :companion:assembleDebug :tv:lintDebug :companion:lintDebug
-adb install -r tv/build/outputs/apk/debug/tv-debug.apk
+adb -s TV_SERIAL install -r tv/build/outputs/apk/debug/tv-debug.apk
 # Select a phone/tablet adb target when installing the other APK:
 adb -s PHONE_SERIAL install -r companion/build/outputs/apk/debug/companion-debug.apk
 ----
@@ -62,6 +64,8 @@ Use separate accounts for separate households.
 Explicit `FirebaseOptions` are used rather than the Google Services plugin.
 Supply the project ID, the relevant Android application's Firebase app ID,
 and its Firebase web API key using local Gradle properties or `-P` flags:
+Supply all three values; partial configuration is rejected rather than silently
+switching to mock mode.
 
 [source,shell]
 ----

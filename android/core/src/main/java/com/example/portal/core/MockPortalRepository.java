@@ -82,8 +82,9 @@ public final class MockPortalRepository implements PortalRepository {
     }
     @Override public synchronized void sendCommand(String channelId, boolean playing) {
         if (closed) return;
-        if (!("".equals(channelId) && !playing) && !hasChannel(channelId, true)) {
-            error("Choose a channel in the selected portal");
+        boolean stopping = "".equals(channelId) && !playing;
+        if (!stopping && !hasChannel(channelId, playing)) {
+            error(playing ? "Choose a channel in the selected portal" : "Unknown channel");
             return;
         }
         states.put(deviceId, new PlaybackState(channelId, playing));

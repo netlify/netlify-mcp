@@ -301,6 +301,10 @@ public final class MainActivity extends Activity {
             player.setMediaItem(MediaItem.fromUri(requested.streamUrl));
             player.prepare();
         }
+        if (state.playing && player.getPlaybackState() == Player.STATE_IDLE) {
+            playbackError = "";
+            player.prepare();
+        }
         player.setPlayWhenReady(state.playing);
     }
 
@@ -314,12 +318,15 @@ public final class MainActivity extends Activity {
     }
 
     private void updateStatus() {
-        String mode = RepoProvider.isFirebaseConfigured(this) ? "Synced account" : "Demo mode — configure Firebase to sync devices";
+        boolean configured = RepoProvider.isFirebaseConfigured(this);
+        String mode = configured ? "Account sync configured" : "Demo mode — configure Firebase to sync devices";
         String target = localDeviceId.equals(repository.selectedDeviceId()) ? "This TV selected" : "Another device selected";
         String empty = visibleChannels.isEmpty() ? " · No matching channels" : "";
         PlaybackState state = repository.playback();
         String transport = state.channelId.isEmpty() ? "Stopped" : (state.playing ? "Playing" : "Paused");
         status.setText(mode + " · " + target + " · " + transport + empty
+                + (configured && repository.portals().isEmpty()
+                ? "\nSign in using Account. If signed in, check the shared catalog setup." : "")
                 + (pendingDeviceId.isEmpty() ? "" : "\nRegistering TV…")
                 + (repositoryError.isEmpty() ? "" : "\n" + repositoryError)
                 + (playbackError.isEmpty() ? "" : "\n" + playbackError));

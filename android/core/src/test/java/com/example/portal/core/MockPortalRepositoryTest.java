@@ -100,6 +100,18 @@ public class MockPortalRepositoryTest {
         assertTrue(repository.playback().playing);
     }
 
+    @Test public void pauseAcceptsKnownChannelAfterSharedPortalChange() {
+        repository.sendCommand("soundhelix-one", true);
+        repository.selectPortal("discovery");
+        repository.sendCommand("soundhelix-one", false);
+        assertEquals("soundhelix-one", repository.playback().channelId);
+        assertFalse(repository.playback().playing);
+        assertTrue(errors.isEmpty());
+        repository.sendCommand("unknown", false);
+        assertEquals(1, errors.size());
+        assertEquals("soundhelix-one", repository.playback().channelId);
+    }
+
     @Test public void registerAndRenameDoesNotResetExistingPlayback() {
         repository.addDevice("my-tv", " My TV ");
         assertEquals(3, repository.devices().size());

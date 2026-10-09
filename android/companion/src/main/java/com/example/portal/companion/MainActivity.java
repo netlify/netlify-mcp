@@ -182,9 +182,12 @@ public final class MainActivity extends Activity {
         for (Portal portal : repository.portals()) for (Channel channel : portal.channels) {
             if (channel.id.equals(playback.channelId)) title = channel.title;
         }
-        String mode = RepoProvider.isFirebaseConfigured(this) ? "Account sync enabled" : "Demo mode — configure Firebase for TV sync";
+        boolean configured = RepoProvider.isFirebaseConfigured(this);
+        String mode = configured ? "Account sync configured" : "Demo mode — configure Firebase for TV sync";
         String transport = playback.channelId.isEmpty() ? "Stopped" : (playback.playing ? "Playing: " : "Paused: ") + title;
         status.setText(mode + "\n" + transport + " · " + channels.size() + " channels"
+                + (configured && repository.portals().isEmpty()
+                ? "\nSign in using Account. If signed in, check the shared catalog setup." : "")
                 + (deviceIds.isEmpty() ? "\nRegister a device in the TV app." : "")
                 + (error.isEmpty() ? "" : "\n" + error));
     }

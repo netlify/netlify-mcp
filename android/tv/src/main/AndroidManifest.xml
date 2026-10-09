@@ -8,7 +8,7 @@
         android:banner="@drawable/tv_banner"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:allowBackup="false"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

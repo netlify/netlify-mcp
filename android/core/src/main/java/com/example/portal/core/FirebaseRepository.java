@@ -81,13 +81,17 @@ public final class FirebaseRepository implements PortalRepository {
                                 category = item.get("category"), url = item.get("streamUrl"),
                                 audio = item.get("audioOnly");
                         if (id instanceof String && title instanceof String && category instanceof String
-                                && url instanceof String && ((String) url).startsWith("https://")
+                                && url instanceof String && CatalogValidation.isHttpsStream((String) url)
                                 && audio instanceof Boolean) {
                             channels.add(new Channel((String) id, (String) title, (String) category,
                                     (String) url, (Boolean) audio));
                         }
                     }
                     result.add(new Portal(doc.getId(), name, channels));
+                }
+                if (!CatalogValidation.hasUniqueChannelIds(result)) {
+                    error("Channel IDs must be nonempty and unique across all portals");
+                    return;
                 }
                 catalog = Collections.unmodifiableList(result);
                 resolvePortal();
@@ -244,8 +248,9 @@ public final class FirebaseRepository implements PortalRepository {
     @Override public synchronized void sendCommand(String channelId, boolean playing) {
         if (!ready()) return;
         if (!hasDevice(deviceId)) { error("Select or register a device first"); return; }
-        if (!("".equals(channelId) && !playing) && !hasChannel(channelId, true)) {
-            error("Choose a channel in the selected portal");
+        boolean stopping = "".equals(channelId) && !playing;
+        if (!stopping && !hasChannel(channelId, playing)) {
+            error(playing ? "Choose a channel in the selected portal" : "Unknown channel");
             return;
         }
         final long token = generation;

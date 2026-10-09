@@ -42,9 +42,13 @@ public final class CarMediaService extends MediaLibraryService {
                 handler.post(() -> {
                     // Stop stale playback after signing out or switching to a different catalog.
                     MediaItem current = player.getCurrentMediaItem();
-                    if (current != null && CarCatalog.resolve(channels(), current.mediaId) == null) {
-                        player.stop();
-                        player.clearMediaItems();
+                    if (current != null) {
+                        Channel allowed = CarCatalog.resolve(channels(), current.mediaId);
+                        if (allowed == null || current.localConfiguration == null
+                                || !allowed.streamUrl.equals(current.localConfiguration.uri.toString())) {
+                            player.stop();
+                            player.clearMediaItems();
+                        }
                     }
                     session.notifyChildrenChanged(CarCatalog.ROOT, channels().size(), null);
                 });

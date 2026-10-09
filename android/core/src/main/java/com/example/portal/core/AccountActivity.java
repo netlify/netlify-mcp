@@ -12,6 +12,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import java.lang.ref.WeakReference;
 
 /** The same keyboard-capable email/password sign-in screen is used on handheld and TV. */
 public final class AccountActivity extends Activity {
@@ -104,14 +105,18 @@ public final class AccountActivity extends Activity {
         logout.setEnabled(false);
         status.setText("Signing in…");
         password.setText("");
-        auth.signInWithEmailAndPassword(address, secret).addOnCompleteListener(this, task -> {
-            busy = false;
-            refreshUser();
+        WeakReference<AccountActivity> owner = new WeakReference<>(this);
+        auth.signInWithEmailAndPassword(address, secret).addOnCompleteListener(task -> {
+            AccountActivity activity = owner.get();
+            if (activity == null) return;
+            activity.busy = false;
+            if (activity.isFinishing() || activity.isDestroyed()) return;
+            activity.refreshUser();
             if (!task.isSuccessful()) {
                 Exception exception = task.getException();
-                status.setText(exception == null ? "Sign-in failed." : exception.getLocalizedMessage());
+                activity.status.setText(exception == null ? "Sign-in failed." : exception.getLocalizedMessage());
             } else {
-                email.setText("");
+                activity.email.setText("");
             }
         });
     }

@@ -37,9 +37,10 @@ public final class RepoProvider {
     }
 
     public static boolean isFirebaseConfigured(Context context) {
-        return !resource(context, "firebase_project_id").isEmpty()
-                && !resource(context, "firebase_application_id").isEmpty()
-                && !resource(context, "firebase_api_key").isEmpty();
+        return FirebaseConfiguration.isConfigured(
+                resource(context, "firebase_project_id"),
+                resource(context, "firebase_application_id"),
+                resource(context, "firebase_api_key"));
     }
 
     static synchronized FirebaseAuth auth(Context context) {
