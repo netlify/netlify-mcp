@@ -1,0 +1,31 @@
+:root { --bg:#04110a; --green:#2bff88; --dim:#0f5d34; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--green); font-family:"Courier New",monospace; min-height:100vh; }
+header { text-align:center; padding:1.5rem 1rem 0; }
+h1 { letter-spacing:.3em; margin:0; }
+h1 span { color:#fff; }
+#status { color:var(--dim); animation:blink 1.2s infinite; }
+main { display:flex; flex-wrap:wrap; gap:2rem; justify-content:center; align-items:center; padding:1.5rem; }
+.radar { position:relative; width:min(80vw,420px); aspect-ratio:1; border-radius:50%; border:2px solid var(--green);
+  background:radial-gradient(circle,#082014 0%,#020a05 100%); box-shadow:0 0 30px rgba(43,255,136,.35); overflow:hidden; }
+.ring { position:absolute; border:1px solid var(--dim); border-radius:50%; top:50%; left:50%; transform:translate(-50%,-50%); }
+.r1 { width:33%; height:33%; } .r2 { width:66%; height:66%; } .r3 { width:99%; height:99%; }
+.crosshair { position:absolute; background:var(--dim); }
+.crosshair.h { top:50%; left:0; width:100%; height:1px; }
+.crosshair.v { left:50%; top:0; height:100%; width:1px; }
+.sweep { position:absolute; inset:0; border-radius:50%;
+  background:conic-gradient(from 0deg, rgba(43,255,136,.55), rgba(43,255,136,0) 25%, rgba(43,255,136,0) 100%);
+  animation:spin 4s linear infinite; }
+.radar.paused .sweep { animation-play-state:paused; }
+.blip { position:absolute; width:10px; height:10px; margin:-5px; border-radius:50%; background:#fff;
+  box-shadow:0 0 10px var(--green); animation:fade 4s ease-out forwards; }
+.panel { min-width:240px; border:1px solid var(--dim); padding:1rem; border-radius:6px; }
+.panel h2 { margin-top:0; }
+.panel ul { list-style:none; padding:0; margin:0 0 1rem; max-height:220px; overflow:auto; }
+.panel li { padding:.2rem 0; border-bottom:1px dashed var(--dim); }
+button { background:transparent; color:var(--green); border:1px solid var(--green); padding:.5rem 1rem; font:inherit; cursor:pointer; }
+button:hover { background:var(--green); color:var(--bg); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes blink { 50% { opacity:.3; } }
+@keyframes fade { from { opacity:1; } to { opacity:0; } }
+@media (prefers-reduced-motion:reduce) { .sweep,#status { animation:none; } }

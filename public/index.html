@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A4A Radar</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>A4A <span>RADAR</span></h1>
+    <p id="status">SCANNING…</p>
+  </header>
+  <main>
+    <div class="radar" id="radar">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="crosshair h"></div>
+      <div class="crosshair v"></div>
+      <div class="sweep"></div>
+    </div>
+    <section class="panel">
+      <h2>Contacts</h2>
+      <ul id="contacts"></ul>
+      <button id="toggle" type="button">Pause scan</button>
+    </section>
+  </main>
+  <script src="js/app.js"></script>
+</body>
+</html>
