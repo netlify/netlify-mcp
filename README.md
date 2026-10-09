@@ -127,3 +127,15 @@ Once resolved, remove your PAT from the config.
 * [Model Context Protocol Documentation](https://modelcontextprotocol.org/docs)
 * [Official List of MCP Clients](https://modelcontextprotocol.org/clients)
 * [Netlify CLI](https://docs.netlify.com/cli/get-started/)
+
+## Hosted website and missing paths
+
+The Netlify site publishes the repository root. `index.html` is the public
+landing page, and Netlify serves `404.html` for missing static paths with HTTP
+404 while showing the same website content. Keep these two files in sync.
+No catch-all redirect is added, so OAuth, MCP, proxy, and event relay handlers
+retain their existing routing and error responses.
+
+No separate website URL or HTML was supplied, and the repository had no existing
+website page. The landing page therefore uses the project's existing description
+and documentation links; replace both HTML files if a different website is supplied.
