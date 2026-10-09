@@ -14,6 +14,11 @@
   path = "/proxy/:token/*"
 
 [[redirects]]
+  from = "/mcp"
+  to = ".netlify/functions/mcp"
+  status = 200
+
+[[redirects]]
   from = "/mcp/*"
   to = ".netlify/functions/mcp/:splat"
   status = 200
@@ -53,6 +58,19 @@
 [[redirects]]
   from = "/.well-known/openid-configuration"
   to = ".netlify/functions/oauth-server/openid-configuration"
+  status = 200
+
+# Keep the function's custom path ahead of the public website fallback.
+[[redirects]]
+  from = "/events/relay/*"
+  to = ".netlify/functions/events-relay/:splat"
+  status = 200
+
+# Existing static files take precedence; API rewrites above and proxy edge
+# responses keep their own status codes rather than serving the landing page.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
   status = 200
 
 # Domain ownership proof for the OpenAI apps/plugin directory. The file is a

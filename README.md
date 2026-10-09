@@ -127,3 +127,18 @@ Once resolved, remove your PAT from the config.
 * [Model Context Protocol Documentation](https://modelcontextprotocol.org/docs)
 * [Official List of MCP Clients](https://modelcontextprotocol.org/clients)
 * [Netlify CLI](https://docs.netlify.com/cli/get-started/)
+
+## Hosted website and missing paths
+
+The Netlify site publishes the repository root. `index.html` is the public
+landing page. The last redirect in `netlify.toml` rewrites missing public paths
+to that page with HTTP 200, without changing the requested URL. Existing static
+files are still served normally because the rewrite is not forced.
+OAuth, MCP, and event relay rewrites come before this fallback, and the proxy
+edge function returns its own responses, preserving API routing and error codes.
+`404.html` remains a native fallback with the same content; keep both HTML files
+in sync.
+
+No separate website URL or HTML was supplied, and the repository had no existing
+website page. The landing page therefore uses the project's existing description
+and documentation links; replace both HTML files if a different website is supplied.
