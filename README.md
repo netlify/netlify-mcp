@@ -21,6 +21,13 @@ You can connect to the Netlify MCP Server using a variety of MCP clients, includ
 
 ## Use Cases
 
+### Android portal clients
+
+The independent [`android/`](android/) project adds an Android TV IPTV client,
+a phone/tablet remote, and an audio-only Android Auto media service. It does not
+change the MCP server. See [Android setup and Firebase deployment](android/README.adoc)
+for mock mode, account/device pairing, build commands, and platform limitations.
+
 With Netlify MCP Server, your AI agents can:
 
 * Create, manage, and deploy Netlify projects

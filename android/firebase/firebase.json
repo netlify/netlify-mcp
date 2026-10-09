@@ -1,0 +1,23 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [{
+      "source": "**",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    }]
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": false }
+  }
+}

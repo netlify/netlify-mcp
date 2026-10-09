@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function authenticated() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function owner(uid) {
+      return authenticated() && request.auth.uid == uid;
+    }
+    function validPreferences() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['portalId', 'favorites'])
+        && data.keys().hasOnly(['portalId', 'favorites'])
+        && data.portalId is string
+        && data.portalId.size() > 0
+        && data.portalId.size() <= 128
+        && exists(/databases/$(database)/documents/portals/$(data.portalId))
+        && data.favorites is list
+        && data.favorites.size() <= 200
+        && data.favorites.size() == data.favorites.toSet().size();
+    }
+    function validDevice(deviceId) {
+      let data = request.resource.data;
+      return deviceId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && data.keys().hasAll(['name', 'channelId', 'playing', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'channelId', 'playing', 'updatedAt'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 128
+        && data.channelId is string
+        && data.channelId.size() <= 128
+        && data.playing is bool
+        && (!data.playing || data.channelId.size() > 0)
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+    match /portals/{portalId} {
+      allow read: if authenticated();
+      allow write: if false;
+    }
+    match /users/{uid}/preferences/{preferenceId} {
+      allow read: if owner(uid) && preferenceId == 'main';
+      allow create, update: if owner(uid) && preferenceId == 'main' && validPreferences();
+    }
+    match /users/{uid}/devices/{deviceId} {
+      allow read: if owner(uid);
+      allow create, update: if owner(uid) && validDevice(deviceId);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
