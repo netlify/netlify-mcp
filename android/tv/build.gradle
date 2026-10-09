@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.portal.tv'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.example.portal.tv'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+        resValue 'string', 'firebase_project_id', providers.gradleProperty('firebaseProjectId').getOrElse('')
+        resValue 'string', 'firebase_application_id', providers.gradleProperty('firebaseApplicationId').getOrElse('')
+        resValue 'string', 'firebase_api_key', providers.gradleProperty('firebaseApiKey').getOrElse('')
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation project(':core')
+    implementation 'androidx.media3:media3-exoplayer:1.6.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.6.1'
+    implementation 'androidx.media3:media3-ui:1.6.1'
+}
