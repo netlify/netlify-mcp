@@ -90,16 +90,17 @@ public final class MainActivity extends Activity {
         button(controls, "Play", () -> command(repository.playback().channelId, true));
         button(controls, "Pause", () -> command(repository.playback().channelId, false));
         button(controls, "Stop", () -> command("", false));
-        Button favorites = button(controls, "Favorites: off", () -> {});
+        LinearLayout channelControls = row(root);
+        Button favorites = button(channelControls, "Favorites: off", () -> {});
         favorites.setOnClickListener(v -> {
             favoritesOnly = !favoritesOnly;
             favorites.setText(favoritesOnly ? "Favorites: on" : "Favorites: off");
             render();
         });
-        favoriteButton = button(controls, "Favorite selected channel", () -> {
+        favoriteButton = button(channelControls, "Favorite selected channel", () -> {
             if (!focusedChannelId.isEmpty()) repository.toggleFavorite(focusedChannelId);
         });
-        categories = spinner(controls, "Category");
+        categories = spinner(channelControls, "Category");
 
         LinearLayout registration = row(root);
         deviceId = new EditText(this);
