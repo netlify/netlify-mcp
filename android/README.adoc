@@ -1,0 +1,158 @@
+= Android portal clients
+
+This standalone Gradle project leaves the TypeScript/Netlify MCP server unchanged.
+It provides a starting implementation, not an Infomir firmware replacement or
+a commercial IPTV subscription. Use only streams you are authorized to access.
+
+== Experiences and architecture
+
+* `core`: shared portal/channel/device models, mock repository, Firebase
+  Authentication and Firestore repository, and account sign-in screen.
+* `tv`: Android TV launcher, portal/device selection, category/channel browsing,
+  favorites, D-pad navigation, and Media3 video/audio playback. A signed-in TV
+  listens to its selected device's command document.
+  Media3 supports progressive HTTPS samples and HLS (`.m3u8`) streams; this
+  project does not provide DRM licenses or proprietary portal codecs.
+* `companion`: phone/tablet channel search, favorites, portal/device selection,
+  and play/pause/stop remote commands. Video is played on the selected TV, not
+  on the phone.
+* The companion also contains `CarMediaService`: Android Auto discovers its
+  Media3 library/session and supplies the driving UI. Only the first twelve
+  audio-only HTTPS channels in the selected portal are visible. No video,
+  keyboard input, account/device setup, or TV remote UI is exposed in the car.
+  Playback in the car is local audio and never controls a TV.
+
+MAG 524 is a Linux set-top box, not an Android TV device. “MAG-style” here means
+portal -> categories -> channels -> player navigation. The implementation does
+not impersonate MAG MAC addresses, implement the proprietary Stalker handshake,
+or send commands to physical MAG hardware. Actual MAG support would require an
+authorized gateway/protocol implementation with device-specific authentication.
+
+== Build and run
+
+Requirements: Java 17, Android SDK platform 35, and internet access to Google's
+Maven repository and Maven Central. Gradle 8.11.1 is pinned by the wrapper.
+
+[source,shell]
+----
+cd /path/to/netlify-mcp/android
+./gradlew :core:testDebugUnitTest :companion:testDebugUnitTest
+./gradlew :tv:assembleDebug :companion:assembleDebug :tv:lintDebug :companion:lintDebug
+adb -s TV_SERIAL install -r tv/build/outputs/apk/debug/tv-debug.apk
+# Select a phone/tablet adb target when installing the other APK:
+adb -s PHONE_SERIAL install -r companion/build/outputs/apk/debug/companion-debug.apk
+----
+
+Alternatively open this directory in Android Studio and run `tv` on a TV emulator
+and `companion` on a phone/tablet. The TV UI uses native focusable controls:
+arrows move focus, center selects, Back returns through Android navigation.
+Use a D-pad/remote, not a touchscreen, when testing the TV launcher.
+
+With no Firebase properties, both apps use explicit mock mode. The public sample
+streams need internet, but browsing, favorites, and state changes do not need a
+backend. Mock state is process-local: separate phone/TV installations do not
+synchronize. Use Firebase mode for actual cross-device remote control.
+
+== Configure Firebase
+
+Create a Firebase project, register *two* Android apps using application IDs
+`com.example.portal.tv` and `com.example.portal.companion`, enable Firestore,
+and enable Email/Password authentication. Create a test user in the Firebase
+console; both clients must sign in with that same user to share commands.
+Use separate accounts for separate households.
+
+Explicit `FirebaseOptions` are used rather than the Google Services plugin.
+Supply the project ID, the relevant Android application's Firebase app ID,
+and its Firebase web API key using local Gradle properties or `-P` flags:
+Supply all three values; partial configuration is rejected rather than silently
+switching to mock mode.
+
+[source,shell]
+----
+./gradlew :tv:assembleDebug \
+  -PfirebaseProjectId=YOUR_PROJECT \
+  -PfirebaseApplicationId=YOUR_TV_FIREBASE_APP_ID \
+  -PfirebaseApiKey=YOUR_FIREBASE_API_KEY
+./gradlew :companion:assembleDebug \
+  -PfirebaseProjectId=YOUR_PROJECT \
+  -PfirebaseApplicationId=YOUR_PHONE_FIREBASE_APP_ID \
+  -PfirebaseApiKey=YOUR_FIREBASE_API_KEY
+----
+
+These values identify the Firebase client; they are not administrative credentials.
+Do not put account passwords, service-account JSON, or signing keys in this
+repository. Restrict Firebase API keys to your project/Android packages and
+signing certificates. Configure Auth and Firestore rules before distributing an
+APK; client API keys are not an authorization boundary.
+
+The repository starts unauthenticated in Firebase mode. Open Account on each
+client and sign in. Register/select a device ID on the TV, then select the same
+device on the phone. Device selection is local so choosing a target on the phone
+does not change which device the TV represents. Portal selection and favorites
+are account-wide; commands are per device. A device document's latest command
+wins. This is state synchronization, not a guaranteed queue of every button
+press or a frame-accurate playback-position protocol.
+
+=== Data model and permissions
+
+`portals/{portalId}` holds a display `name` and `channels` array. Every channel
+has `id`, `title`, `category`, `streamUrl`, and `audioOnly`. Populate these
+documents from the example `firebase/catalog.json` using the console or a trusted
+administrative importer. It is a sample catalog, not an automatically imported
+Firestore backup. Mark only genuine audio streams `audioOnly: true`.
+Channel IDs must be globally unique across portals: favorites and playback
+commands identify channels by that ID.
+
+`users/{uid}/preferences/main` holds shared portal selection and favorites.
+`users/{uid}/devices/{deviceId}` holds device name and playback command/state.
+Consult `firebase/firestore.rules` for the exact accepted fields.
+Catalogs are readable only after authentication and writable only through trusted
+administrative tooling. Device commands/preferences are isolated by Firebase UID.
+Never use public Firestore test-mode rules.
+
+On backend/authentication errors, the clients display an error instead of silently
+falling back to mock data. Signing out clears the private session state.
+The repository observes Firestore updates; activities unsubscribe when stopped.
+
+== Firebase hosting and distribution
+
+Android APKs do not execute on Firebase App Hosting (that product is for web
+applications). Firebase Authentication and Firestore host this project's backend.
+The included Firebase *Hosting* configuration deploys a small static project
+landing page, separately from the repository's Netlify website.
+
+With the Firebase CLI installed and logged in, deploy from `android/firebase`:
+
+[source,shell]
+----
+firebase deploy --project YOUR_PROJECT --only firestore:rules,hosting
+----
+
+No project alias or credentials are committed. For private APK testing, use
+Firebase App Distribution and register testers; for production Android TV and
+Android Auto distribution use the Play Console, signing, and the applicable
+quality/policy review. The included landing page does not publish debug APKs.
+Do not distribute mock content as if it were an IPTV service.
+
+== Manual verification
+
+. Mock mode: launch each app; switch portals, navigate all TV controls with
+  D-pad, play a sample, favorite/unfavorite, search on the phone, and pause/stop.
+. Firebase mode: sign both clients into one test account, register/select the
+  same device, then play/pause/stop from the phone and confirm the TV follows.
+  Verify favorites and portal changes synchronize; disconnect/reconnect the
+  network and verify errors are visible.
+. Privacy: sign out, then sign in as another user and confirm the first user's
+  devices/favorites cannot be read. Try unauthorized writes using the Firebase
+  Rules simulator before a production deployment.
+. Android Auto: install the companion on a phone and use Android Auto's Desktop
+  Head Unit with developer/unknown-source testing enabled. Choose Portal Remote
+  from its media apps; browse Audio and play/pause using the host controls.
+  Confirm no video channels or phone UI appear, and audio focus/headset
+  disconnection are handled. This is Android Auto projection, not an AAOS APK.
+. Run unit tests, Android lint/build, and the existing root `npm run typecheck`,
+  `npm run build`, and `npm test` before release.
+
+The car host limits interaction further. Production release still requires
+real-device/head-unit testing and Android for Cars app-quality review:
+https://developer.android.com/training/cars/media

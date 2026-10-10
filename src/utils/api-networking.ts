@@ -5,6 +5,7 @@ import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { loginSpawnEnv } from './login-attribution.ts';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
+import { isTokenTypeAllowed, TOKEN_TYPE } from '../../netlify/functions/mcp-server/token-types.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
 import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
@@ -128,6 +129,11 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
           decrypted = await decryptJWE(bearerToken);
         } catch {
           throw new NetlifyUnauthError('Bearer token is invalid or expired');
+        }
+        // Codes, refresh tokens and proxy tokens also carry an accessToken; only
+        // access tokens are bearers here (see token-types.ts).
+        if (!isTokenTypeAllowed(decrypted, [TOKEN_TYPE.access])) {
+          throw new NetlifyUnauthError('Bearer token is not an access token');
         }
         if(decrypted && typeof decrypted.accessToken === 'string') {
           token = decrypted.accessToken;

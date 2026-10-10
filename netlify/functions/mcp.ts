@@ -3,11 +3,9 @@
 // from one web-standard (Request)=>Response handler — replacing v1's
 // StreamableHTTPServerTransport + fetch-to-node bridge.
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { z } from "zod";
 import { addCORSHeadersToFetchResp, returnNeedsAuthResponse } from "./mcp-server/utils.ts";
-import { getContextConsumerConfig, getNetlifyCodingContext } from "../../src/context/coding-context.ts";
+import { registerCodingContextTool } from "../../src/context/register-coding-context-tool.ts";
 import { getPackageVersion } from "../../src/utils/version.ts";
-import { checkCompatibility } from "../../src/utils/compatibility.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
@@ -224,42 +222,11 @@ async function handleMCPPost(req: Request) {
     async () => {
       const server = new McpServer({ name: "netlify", version: getPackageVersion() });
 
-      const contextConsumer = await getContextConsumerConfig();
-      const availableContextTypes = Object.keys(contextConsumer?.contextScopes || {});
-
-      // Only register the coding-context tool when we actually have scopes to
-      // offer. With no scopes (e.g. the consumer config failed to fetch at cold
-      // start), z.enum([]) yields an uncallable tool — its required creationType
-      // can satisfy no value — so skip it until scopes become available. Normal
-      // enum construction proceeds whenever at least one scope exists.
-      if (availableContextTypes.length > 0) {
-        const creationTypeEnum = z.enum(availableContextTypes as [string, ...string[]]);
-
-        server.registerTool(
-          "get-netlify-coding-context",
-          {
-            description:
-              "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
-            inputSchema: { creationType: creationTypeEnum },
-            // All four hints explicit: the spec defaults destructiveHint and
-            // openWorldHint to true when omitted, so declaring only
-            // readOnlyHint published this as implicitly destructive. It fetches
-            // context over the public internet, which is open-world under
-            // OpenAI's rubric (see completeToolAnnotations).
-            annotations: {
-              readOnlyHint: true,
-              destructiveHint: false,
-              idempotentHint: true,
-              openWorldHint: true,
-            },
-          },
-          async ({ creationType }) => {
-            checkCompatibility();
-            const context = await getNetlifyCodingContext(creationType);
-            return { content: [{ type: "text" as const, text: context?.content || "" }] };
-          },
-        );
-      }
+      await registerCodingContextTool(server, {
+        name: "get-netlify-coding-context",
+        description:
+          "ALWAYS call when writing code. Required step before creating or editing any type of functions, Netlify sdk/library usage, etc. Use other operations for project management.",
+      });
 
       // Claude-only top-level design-import tool (detected from the request/body).
       if (isClaudeMCPClient(req, body)) {

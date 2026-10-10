@@ -1,6 +1,6 @@
 {
   "name": "@netlify/mcp",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "description": "",
   "type": "module",
   "main": "./dist/netlify-mcp.js",
@@ -19,6 +19,7 @@
     "build": "tsup ./netlify-mcp.ts --format esm",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/register-ts-js-loader.mjs --test \"src/**/*.test.ts\" \"netlify/**/*.test.ts\"",
+    "verify:coding-context": "node --import ./scripts/register-ts-js-loader.mjs scripts/verify-coding-context.mjs",
     "start": "node ./dist/netlify-mcp.js",
     "build:publish": "rm -rf ./dist && npm run build && npm publish"
   },
