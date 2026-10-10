@@ -1,4 +1,23 @@
 
+[build.environment]
+  NPM_VERSION = "11"
+
+# Catch-all request/response body logger. Declared here (not inline) so it runs
+# before the file-based `proxy` edge function and wraps every interaction.
+# Active only when MCP_VERBOSE_LOGGING is set.
+# [[edge_functions]]
+#   function = "request-logger"
+#   path = "/*"
+
+[[edge_functions]]
+  function = "proxy"
+  path = "/proxy/:token/*"
+
+[[redirects]]
+  from = "/mcp"
+  to = ".netlify/functions/mcp"
+  status = 200
+
 [[redirects]]
   from = "/mcp/*"
   to = ".netlify/functions/mcp/:splat"
@@ -18,9 +37,18 @@
   from = "/authorize"
   to = ".netlify/functions/oauth-server/auth"
   status = 200
+[[redirects]]
+  from = "/register"
+  to = ".netlify/functions/oauth-server/register"
+  status = 200
 
 [[redirects]]
   from = "/.well-known/oauth-protected-resource"
+  to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
+  status = 200
+# RFC 9728 path-based PRM: clients request this for a resource at /mcp.
+[[redirects]]
+  from = "/.well-known/oauth-protected-resource/*"
   to = ".netlify/functions/oauth-server/.well-known/oauth-protected-resource"
   status = 200
 [[redirects]]
@@ -31,3 +59,26 @@
   from = "/.well-known/openid-configuration"
   to = ".netlify/functions/oauth-server/openid-configuration"
   status = 200
+
+# Keep the function's custom path ahead of the public website fallback.
+[[redirects]]
+  from = "/events/relay/*"
+  to = ".netlify/functions/events-relay/:splat"
+  status = 200
+
+# Existing static files take precedence; API rewrites above and proxy edge
+# responses keep their own status codes rather than serving the landing page.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Domain ownership proof for the OpenAI apps/plugin directory. The file is a
+# static asset at the repo root (this site publishes the root, so no build step
+# is involved); this header only pins its Content-Type, since the token file has
+# no extension and would otherwise be served as a generic binary download.
+[[headers]]
+  for = "/.well-known/openai-apps-challenge"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+    Cache-Control = "public, max-age=300"

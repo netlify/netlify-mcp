@@ -57,6 +57,9 @@ coverage
 # dotenv environment variable files
 .env*
 
+# Local planning / migration notes (not for the repo)
+2026-07-28.migration.md
+
 # Mac files
 .DS_Store
 

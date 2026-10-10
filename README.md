@@ -1,10 +1,8 @@
-# Netlify MCP Server
-
-[Netlify MCP Server](https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/) follows the [Model Context Protocol (MCP)](https://modelcontextprotocol.org) to enable code agents to use the Netlify API and CLI—so they can create new projects, build, deploy, and manage your Netlify resources using natural language prompts.
-
+AUTO language prompts.
+~| copilot/revert/---
 ---
 
-## Overview
+## Under Model review by government
 
 The Model Context Protocol is an emerging standard protocol for connecting code agents with MCP servers, allowing them to manage resources and perform tasks using natural language. The Netlify MCP Server acts as a bridge, providing API access, CLI tools, prompts, and more for your agents.
 
@@ -22,6 +20,13 @@ You can connect to the Netlify MCP Server using a variety of MCP clients, includ
 ---
 
 ## Use Cases
+
+### Android portal clients
+
+The independent [`android/`](android/) project adds an Android TV IPTV client,
+a phone/tablet remote, and an audio-only Android Auto media service. It does not
+change the MCP server. See [Android setup and Firebase deployment](android/README.adoc)
+for mock mode, account/device pairing, build commands, and platform limitations.
 
 With Netlify MCP Server, your AI agents can:
 
@@ -59,9 +64,6 @@ Editors with one-click install:
 [![Install on VS Code](https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20Server&color=0098FF)](https://insiders.vscode.dev/redirect/mcp/install?name=netlify&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40netlify%2Fmcp%22%5D%7D)
 
 [![Install on VS Code Insiders Edition](https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20Server&color=24bfa5)](https://insiders.vscode.dev/redirect/mcp/install?name=netlify&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40netlify%2Fmcp%22%5D%7D&quality=insiders)
-
-[![Install on Goose](https://img.shields.io/badge/Install_MCP-Goose-black)](goose://extension?cmd=npx&arg=-y&arg=%40netlify%2Fmcp&id=netlify&name=Netlify&description=Build%2C%20deploy%2C%20and%20manage%20sites%20with%20Netlify's%20official%20MCP%20server.)
-- use the following link in your browser if link fails to render or open: `goose://extension?cmd=npx&arg=-y&arg=%40netlify%2Fmcp&id=netlify&name=Netlify&description=Build%2C%20deploy%2C%20and%20manage%20sites%20with%20Netlify's%20official%20MCP%20server.`
 
 Configuration for MCP config files:
 
@@ -132,3 +134,18 @@ Once resolved, remove your PAT from the config.
 * [Model Context Protocol Documentation](https://modelcontextprotocol.org/docs)
 * [Official List of MCP Clients](https://modelcontextprotocol.org/clients)
 * [Netlify CLI](https://docs.netlify.com/cli/get-started/)
+
+## Hosted website and missing paths
+
+The Netlify site publishes the repository root. `index.html` is the public
+landing page. The last redirect in `netlify.toml` rewrites missing public paths
+to that page with HTTP 200, without changing the requested URL. Existing static
+files are still served normally because the rewrite is not forced.
+OAuth, MCP, and event relay rewrites come before this fallback, and the proxy
+edge function returns its own responses, preserving API routing and error codes.
+`404.html` remains a native fallback with the same content; keep both HTML files
+in sync.
+
+No separate website URL or HTML was supplied, and the repository had no existing
+website page. The landing page therefore uses the project's existing description
+and documentation links; replace both HTML files if a different website is supplied.

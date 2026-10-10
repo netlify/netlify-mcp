@@ -1,6 +1,7 @@
 
 import { z } from 'zod';
 import { getAPIJSONResult } from '../../utils/api-networking.js';
+import type { NetlifyAccountResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedTeamModelForLLM } from './team-utils.js';
 
@@ -9,11 +10,13 @@ const getTeamsParamsSchema = z.object({});
 export const getTeamsDomainTool: DomainTool<typeof getTeamsParamsSchema> = {
   domain: 'team',
   operation: 'get-teams',
+  description:
+    "List every Netlify team (account) the authenticated user belongs to, with each team's name and slug. Takes no arguments. Use it first when an operation needs a team slug or id and the user has not said which team.",
   inputSchema: getTeamsParamsSchema,
   toolAnnotations: {
     readOnlyHint: true,
   },
   cb: async (_, {request}) => {
-    return JSON.stringify(getEnrichedTeamModelForLLM(await getAPIJSONResult('/api/v1/accounts', {}, {}, request)));
+    return JSON.stringify(getEnrichedTeamModelForLLM(await getAPIJSONResult<NetlifyAccountResponse[]>('/api/v1/accounts', {}, {}, request)));
   }
 }

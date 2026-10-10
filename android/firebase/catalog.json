@@ -1,0 +1,42 @@
+{
+  "portals": {
+    "public": {
+      "name": "Public samples",
+      "channels": [
+        {
+          "id": "big-buck-bunny",
+          "title": "Big Buck Bunny",
+          "category": "Film",
+          "streamUrl": "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          "audioOnly": false
+        },
+        {
+          "id": "soundhelix-one",
+          "title": "SoundHelix sample 1",
+          "category": "Music",
+          "streamUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+          "audioOnly": true
+        }
+      ]
+    },
+    "discovery": {
+      "name": "Discovery samples",
+      "channels": [
+        {
+          "id": "elephants-dream",
+          "title": "Elephants Dream",
+          "category": "Film",
+          "streamUrl": "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+          "audioOnly": false
+        },
+        {
+          "id": "soundhelix-two",
+          "title": "SoundHelix sample 2",
+          "category": "Music",
+          "streamUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+          "audioOnly": true
+        }
+      ]
+    }
+  }
+}

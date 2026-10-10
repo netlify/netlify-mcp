@@ -14,10 +14,15 @@ const changeExtensionInstallationParamsSchema = z.object({
 export const changeExtensionInstallationDomainTool: DomainTool<typeof changeExtensionInstallationParamsSchema> = {
   domain: 'extension',
   operation: 'change-extension-installation',
+  description:
+    "Install or uninstall a Netlify extension for a team. Set shouldBeInstalled false to uninstall, which removes the extension's functionality from the team's sites. Installation is team-wide; siteId does not configure anything, it only adds a link to that site's configuration page for extensions that have one.",
   inputSchema: changeExtensionInstallationParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
-  },
+    // Can uninstall an extension. Converges on the requested installed state.
+    destructiveHint: true,
+    idempotentHint: true,
+},
   cb: async ({ extensionSlug, shouldBeInstalled, teamId, siteId }, {request}) => {
 
     try {
