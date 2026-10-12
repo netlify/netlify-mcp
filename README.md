@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/netlify-netlify-mcp-badge.png)](https://mseep.ai/app/netlify-netlify-mcp)
+
 # Netlify MCP Server
 
 [Netlify MCP Server](https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/) follows the [Model Context Protocol (MCP)](https://modelcontextprotocol.org) to enable code agents to use the Netlify API and CLI—so they can create new projects, build, deploy, and manage your Netlify resources using natural language prompts.
