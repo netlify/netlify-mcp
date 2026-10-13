@@ -1,4 +1,5 @@
 import { decryptJWE } from "../functions/mcp-server/utils.ts";
+import { isTokenTypeAllowed, TOKEN_TYPE } from "../functions/mcp-server/token-types.ts";
 import { log, withLogContext, addLogContext, getRequestId, getDeployId, truncateForLog } from "../functions/mcp-server/logger.ts";
 import type {Config, Context} from '@netlify/edge-functions';
 
@@ -39,7 +40,9 @@ export async function handleProxy(req: Request, token: string): Promise<Response
   } catch {
     return new Response('Unauthorized', { status: 401 });
   }
-  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string') {
+  // Only proxy tokens: an access token would reach the API without the
+  // apisAllowed scope a proxy token carries (see token-types.ts).
+  if (!decryptedToken || typeof decryptedToken.accessToken !== 'string' || !isTokenTypeAllowed(decryptedToken, [TOKEN_TYPE.proxy])) {
     return new Response('Unauthorized', { status: 401 });
   }
 

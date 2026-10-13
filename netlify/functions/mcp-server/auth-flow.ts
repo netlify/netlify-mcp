@@ -16,6 +16,8 @@ import { attributionParams } from "./agent-attribution.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
 import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
+import { signInitState, verifyInitState, type AUTH_REQUEST_STATE } from "./init-state.ts";
+import { isTokenTypeAllowed, TOKEN_TYPE } from "./token-types.ts";
 
 /**
  * When true, any request whose redirect_uri we can't match to a registration is
@@ -93,18 +95,10 @@ async function validateClientRedirect(
 }
 
 
-interface AUTH_REQUEST_STATE {
-  response_type: 'code';
-  client_id: string;
-  redirect_uri: string;
-  code_challenge: string;
-  code_challenge_method: 'S256';
-  state?: string;
-  scope?: string;
-  nonce?: string;
-}
-
+// `typ` is optional on the payloads we read back: tokens issued before typing
+// have none (see token-types.ts). Every token minted here sets it.
 interface CODE_JWE_PAYLOAD {
+  typ?: typeof TOKEN_TYPE.code;
   state: Partial<AUTH_REQUEST_STATE>;
   accessToken: string;
   // Resolved once at server-redirect and carried through so it can be attached
@@ -114,12 +108,16 @@ interface CODE_JWE_PAYLOAD {
 }
 
 interface ACCESS_TOKEN_PAYLOAD {
+  typ?: typeof TOKEN_TYPE.access;
   accessToken: string;
   identity?: TokenIdentity;
 }
 
 interface REFRESH_TOKEN_PAYLOAD {
+  typ?: typeof TOKEN_TYPE.refresh;
   accessToken: string;
+  // The pre-typing marker, still written so a rollback keeps accepting
+  // refresh tokens issued after this change.
   type: 'refresh';
   identity?: TokenIdentity;
 }
@@ -242,8 +240,9 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
     }
   }
 
-  // b64 value for the redirects
-  const paramsState = Buffer.from(JSON.stringify(paramsObj), 'utf-8').toString('base64');
+  // Signed so server-redirect can trust it and Netlify's consent screen can show
+  // where the code will go (see init-state.ts). A compact JWS is URL-safe.
+  const paramsState = await signInitState(paramsObj);
   const netlifyRedirectUri = `${parsedUrl.origin}/oauth-server/client-redirect`;
 
   return {
@@ -299,7 +298,7 @@ export async function handleClientSideAuthExchange(){
       hashToken = hash;
     }
 
-    window.location.href = '/oauth-server/server-redirect?token=' + hashToken + '&init-state=' + hashState;
+    window.location.href = '/oauth-server/server-redirect?token=' + encodeURIComponent(hashToken) + '&init-state=' + encodeURIComponent(hashState);
   </script>
 </body>
 </html>
@@ -317,9 +316,20 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
+  // Only a state we signed at /authorize is accepted. An unsigned or edited one
+  // would let a crafted link skip /authorize and choose where the code goes,
+  // without that destination ever being shown on Netlify's consent screen.
+  let stateObj: Partial<AUTH_REQUEST_STATE>;
   try {
-    const stateObj = JSON.parse(Buffer.from(initState, 'base64').toString('utf-8')) as Partial<AUTH_REQUEST_STATE>;
+    stateObj = await verifyInitState(initState);
+  } catch (error) {
+    return oauthError(400, 'invalid_request', 'Invalid or expired init-state parameter', 'server-redirect', {
+      reason: 'init-state verification failed',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
 
+  try {
     const requiredStateParams: Array<keyof AUTH_REQUEST_STATE> = [
       'client_id',
       'redirect_uri',
@@ -361,8 +371,8 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
       ...(stateObj.nonce ? { nonce: stateObj.nonce } : {}),
     };
 
-    // Defense in depth: init-state round-trips through the browser, so re-check
-    // the redirect_uri against the client's registration before we 302 to it.
+    // Defense in depth: re-check the redirect_uri against the client's
+    // registration before we 302 to it, even though we signed it ourselves.
     const { error: redirectError } = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
     if (redirectError) {
       return redirectError;
@@ -386,7 +396,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     // downstream validation
     log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
 
-    const jwe = await createJWE({ state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
+    const jwe = await createJWE({ typ: TOKEN_TYPE.code, state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
     rediredctURL.searchParams.set('code', jwe);
 
@@ -399,7 +409,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     };
   
   } catch (error) {
-    return oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state parse failed', detail: error instanceof Error ? error.message : String(error) });
+    return oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state invalid', detail: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -556,6 +566,16 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     });
   }
 
+  // A legacy (untyped) access token has no `state`, so check for it too rather
+  // than fail on it below.
+  if (!isTokenTypeAllowed(decryptedCode as any, [TOKEN_TYPE.code]) || !decryptedCode.state) {
+    return oauthError(400, 'invalid_grant', 'Invalid or expired authorization code', 'token', {
+      reason: 'not an authorization code',
+      typ: (decryptedCode as any).typ,
+      client_id: clientId,
+    });
+  }
+
   const { accessToken, state, identity } = decryptedCode;
 
   if (state.client_id !== clientId || state.redirect_uri !== redirectUri) {
@@ -578,7 +598,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
     return oauthError(400, 'invalid_grant', 'PKCE verification failed', 'token', { client_id: clientId });
   }
 
-  const accessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
+  const accessTokenJWE = await createJWE({ typ: TOKEN_TYPE.access, accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
 
   // Check if offline_access scope was requested
   const requestedScopes = state.scope ? state.scope.split(' ') : [];
@@ -593,7 +613,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   // Only include refresh_token if offline_access was requested
   if (hasOfflineAccess) {
     const refreshTokenJWE = await createJWE(
-      { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
+      { typ: TOKEN_TYPE.refresh, accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
       '7d' // refresh token valid for 7 days
     );
     tokenResponse.refresh_token = refreshTokenJWE;
@@ -639,18 +659,19 @@ async function handleRefreshTokenGrant(bodyParams: URLSearchParams): Promise<Han
     });
   }
 
-  // Validate this is actually a refresh token
-  if (payload.type !== 'refresh') {
-    return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { type: payload.type });
+  // Validate this is actually a refresh token. Legacy refresh tokens only have
+  // `type`; new ones have both, so both checks hold for every refresh token.
+  if (payload.type !== 'refresh' || !isTokenTypeAllowed(payload as any, [TOKEN_TYPE.refresh])) {
+    return oauthError(400, 'invalid_grant', 'Invalid token type', 'token/refresh', { type: payload.type, typ: payload.typ });
   }
 
   const { accessToken, identity } = payload;
 
   // Issue new access token and rotate refresh token, carrying identity forward
   // so it survives the token's full refresh lifetime.
-  const newAccessTokenJWE = await createJWE({ accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
+  const newAccessTokenJWE = await createJWE({ typ: TOKEN_TYPE.access, accessToken, ...(identity ? { identity } : {}) } satisfies ACCESS_TOKEN_PAYLOAD, '48h');
   const newRefreshTokenJWE = await createJWE(
-    { accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
+    { typ: TOKEN_TYPE.refresh, accessToken, type: 'refresh', ...(identity ? { identity } : {}) } satisfies REFRESH_TOKEN_PAYLOAD,
     '7d'
   );
 

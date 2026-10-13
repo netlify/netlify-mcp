@@ -16,7 +16,8 @@ process.env.EVENTS_RELAY_JWE_SECRET = 'test-only-events-relay-secret-at-least-32
 const realFetch = globalThis.fetch;
 
 // Stand in for every outbound call the handler makes while building a server:
-// the auth probe (/api/v1/user) and the coding-context consumer config.
+// the auth probe (/api/v1/user). The coding-context tool's skills manifest fetch
+// is answered with a 404, so that tool simply isn't registered.
 globalThis.fetch = (async (input: any) => {
   const url = String(input?.url ?? input);
   if (url.includes('/api/v1/user')) {
@@ -24,9 +25,7 @@ globalThis.fetch = (async (input: any) => {
       status: 200, headers: { 'content-type': 'application/json' },
     });
   }
-  return new Response(JSON.stringify({ contextScopes: { general: {} } }), {
-    status: 200, headers: { 'content-type': 'application/json' },
-  });
+  return new Response('not found', { status: 404 });
 }) as typeof fetch;
 
 const mcp = (await import('../mcp.ts')).default;

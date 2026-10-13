@@ -74,7 +74,7 @@ function isLocalIssuer(): boolean {
   }
 }
 
-function getSecretKey(): Uint8Array {
+export function getSecretKey(): Uint8Array {
   if (cachedSecretKey) {
     return cachedSecretKey;
   }

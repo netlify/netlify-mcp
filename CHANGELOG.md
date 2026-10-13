@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.18.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.17.0...mcp-v1.18.0) (2026-10-07)
+
+
+### Features
+
+* serve a granular, individually-annotated tool surface to OpenAI clients ([#60](https://github.com/netlify/netlify-mcp/issues/60)) ([1f8c2cb](https://github.com/netlify/netlify-mcp/commit/1f8c2cb7ca10e595ff7053184f20f26299141056))
+* serve coding context from the hosted Netlify skills ([#56](https://github.com/netlify/netlify-mcp/issues/56)) ([760342e](https://github.com/netlify/netlify-mcp/commit/760342e8e8f3678fc254b98578cc6ccb221c55a3))
+
+
+### Bug Fixes
+
+* address app review on granular tool names and visitor-access hint ([#61](https://github.com/netlify/netlify-mcp/issues/61)) ([312cf63](https://github.com/netlify/netlify-mcp/commit/312cf63e414a2dfc9f7330b917428679e5284f3a))
+* declare all tool behaviour hints explicitly ([#58](https://github.com/netlify/netlify-mcp/issues/58)) ([9501c56](https://github.com/netlify/netlify-mcp/commit/9501c569d84fbb472372bda2921cf5e595c06c12))
+* mark project renames as destructive ([#62](https://github.com/netlify/netlify-mcp/issues/62)) ([e0b23f4](https://github.com/netlify/netlify-mcp/commit/e0b23f4b413c840c30696af2bbc5321a798e2e22))
+
 ## [1.17.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.16.0...mcp-v1.17.0) (2026-09-30)
 
 
