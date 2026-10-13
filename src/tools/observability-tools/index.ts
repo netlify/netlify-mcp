@@ -16,12 +16,16 @@ const filtersDescription = `Optional JSON array of filter objects. Each filter h
 
 const sortByDescription = `Optional JSON array of sort objects. Each has "field" (Count, ErrorCount, Bandwidth, P50, P75, P90, P99, Key, FunctionInvocations, EdgeFunctionInvocations) and "order" (ASC or DESC). Default: [{"field":"Count","order":"DESC"}]`;
 
+const fromTsDescription = 'Start timestamp in milliseconds since Unix epoch (not seconds). How far back data goes depends on the team plan (typically 24 hours on free, 7 days on pro and business, 30 days on enterprise). An older start is clamped to that limit, and a window entirely before it fails with "requested window out of bounds".';
+
+const toTsDescription = 'End timestamp in milliseconds since Unix epoch (not seconds)';
+
 // ---- Tool: get-counts ----
 
 const getCountsSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
-  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch'),
-  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch'),
+  from_ts: z.number().describe(fromTsDescription),
+  to_ts: z.number().describe(toTsDescription),
   query_name: z.string().describe('Type of count: status_codes, content_types, user_agent_categories, methods, block_reasons, cache_status, function_names, edge_function_names'),
   filters: z.string().optional().describe(filtersDescription),
 });
@@ -46,11 +50,11 @@ const getCountsDomainTool: DomainTool<typeof getCountsSchema> = {
 
 const getTopKSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
-  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch'),
-  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch'),
+  from_ts: z.number().describe(fromTsDescription),
+  to_ts: z.number().describe(toTsDescription),
   query_name: z.string().describe('Breakdown type: user_agents, user_agent_categories, urls, urls_with_query, status_codes, referrers, functions, edge_functions, content_types, client_address, client_countries, connection_address'),
-  limit: z.number().optional().describe('Max items to return (default 10)'),
-  offset: z.number().optional().describe('Pagination offset (default 0)'),
+  page: z.number().optional().describe('Page number (1-based, default 1)'),
+  per_page: z.number().optional().describe('Items per page (default 10)'),
   filters: z.string().optional().describe(filtersDescription),
   sort_by: z.string().optional().describe(sortByDescription),
 });
@@ -59,14 +63,14 @@ const getTopKDomainTool: DomainTool<typeof getTopKSchema> = {
   domain: 'observability',
   operation: 'get-topk',
   description:
-    "Rank the top values of one dimension of a project's (site's) edge requests over a time window, such as the most-requested URLs, user agents, referrers, client IPs, countries, or functions. Supports filtering, sorting by count, errors, bandwidth or latency percentiles, and pagination.",
+    "Rank the top values of one dimension of a project's (site's) edge requests over a time window, such as the most-requested URLs, user agents, referrers, client IPs, countries, or functions. Supports filtering, sorting by count, errors, bandwidth or latency percentiles, and pagination. Latency percentiles (p50, p75, p90, p99) are in nanoseconds and bandwidth is in bytes.",
   inputSchema: getTopKSchema,
   toolAnnotations: { readOnlyHint: true },
-  cb: async ({ siteId, from_ts, to_ts, query_name, limit, offset, filters, sort_by }, { request }) => {
+  cb: async ({ siteId, from_ts, to_ts, query_name, page, per_page, filters, sort_by }, { request }) => {
     const result = await getTopK(siteId, from_ts, to_ts, {
       name: query_name,
-      limit: limit || 10,
-      offset: offset || 0,
+      page: page || 1,
+      per_page: per_page || 10,
       filters: parseFilters(filters),
       sort_by: parseSortBy(sort_by),
     }, request);
@@ -78,8 +82,8 @@ const getTopKDomainTool: DomainTool<typeof getTopKSchema> = {
 
 const getTimeSeriesSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
-  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch'),
-  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch'),
+  from_ts: z.number().describe(fromTsDescription),
+  to_ts: z.number().describe(toTsDescription),
   query_name: z.string().describe('Metric type: edge_requests_count, edge_requests_duration_percentiles, edge_requests_bandwidth'),
   interval: z.number().optional().describe('Bucket interval in milliseconds. If not set, the API picks a default based on the time window.'),
   filters: z.string().optional().describe(filtersDescription),
@@ -89,7 +93,7 @@ const getTimeSeriesDomainTool: DomainTool<typeof getTimeSeriesSchema> = {
   domain: 'observability',
   operation: 'get-timeseries',
   description:
-    "Get a time series of a project's (site's) edge traffic over a window: request counts, latency percentiles, or bandwidth, in buckets. Use it to see when a spike, slowdown, or error burst started and ended.",
+    "Get a time series of a project's (site's) edge traffic over a window: request counts, latency percentiles, or bandwidth, in buckets. Use it to see when a spike, slowdown, or error burst started and ended. Latency values are in nanoseconds.",
   inputSchema: getTimeSeriesSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, from_ts, to_ts, query_name, interval, filters }, { request }) => {
@@ -105,8 +109,8 @@ const getTimeSeriesDomainTool: DomainTool<typeof getTimeSeriesSchema> = {
 
 const getRequestLogsSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
-  from_ts: z.number().describe('Start timestamp in milliseconds since Unix epoch'),
-  to_ts: z.number().describe('End timestamp in milliseconds since Unix epoch'),
+  from_ts: z.number().describe(fromTsDescription),
+  to_ts: z.number().describe(toTsDescription),
   page: z.number().optional().describe('Page number (1-based, default 1)'),
   per_page: z.number().optional().describe('Items per page (default 20)'),
   filters: z.string().optional().describe(filtersDescription),

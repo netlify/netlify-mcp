@@ -21,8 +21,6 @@ interface RequestQuery {
   name: string;
   filters?: QueryFilter[];
   sort_by?: SortBy[];
-  limit?: number;
-  offset?: number;
   page?: number;
   per_page?: number;
 }
