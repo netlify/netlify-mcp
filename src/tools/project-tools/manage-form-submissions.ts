@@ -28,6 +28,9 @@ export const manageFormSubmissionsDomainTool: DomainTool<typeof manageFormSubmis
   cb: async ({ formId, siteId, limit, offset, action, submissionId }, {request}) => {
 
     if(action === 'delete-submission'){
+      if (!submissionId?.trim()) {
+        throw new Error('Please provide a nonempty submissionId to delete a form submission');
+      }
       await getAPIJSONResult<string>(`/api/v1/submissions/${submissionId}`, { method: 'DELETE' }, {}, request);
       return 'Submission deleted';
     }
