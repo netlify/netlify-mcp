@@ -65,7 +65,9 @@ export function installProcessGuards(): void {
     process.on('unhandledRejection', (reason: unknown) => {
       try {
         if (isTransientNetworkError(reason)) {
-          log.warn('transient network rejection swallowed', fields(reason));
+          // High-volume, unactionable background resets — debug so they don't
+          // flood steady-state logs (the http-guard handles most at the request).
+          log.debug('transient network rejection swallowed', fields(reason));
           return;
         }
         log.error('unhandled rejection', { err: reason });
@@ -82,7 +84,7 @@ export function installProcessGuards(): void {
     process.on('uncaughtException', (err: unknown) => {
       try {
         if (isTransientNetworkError(err)) {
-          log.warn('transient network exception swallowed', fields(err));
+          log.debug('transient network exception swallowed', fields(err));
           return;
         }
         log.error('uncaught exception', { err });
