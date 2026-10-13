@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
-import { handleClientRegistration } from './auth-flow.ts';
+import { handleClientRegistration, handleCodeExchange } from './auth-flow.ts';
+import { createJWE, decryptJWE } from './utils.ts';
 import { resolveClient } from './client-registry.ts';
 import { SUPPORTED_SCOPES } from './oauth-config.ts';
 
@@ -9,6 +11,56 @@ import { SUPPORTED_SCOPES } from './oauth-config.ts';
 // JWE_SECRET makes createJWE/decryptJWE use the fixed dev-only key.
 process.env.OAUTH_ISSUER = 'http://localhost:8888';
 delete process.env.JWE_SECRET;
+
+const codeVerifier = 'test-code-verifier';
+const codeState = {
+  response_type: 'code',
+  client_id: 'test-client',
+  redirect_uri: 'https://client.example/callback',
+  code_challenge: createHash('sha256').update(codeVerifier).digest('base64url'),
+  code_challenge_method: 'S256',
+};
+
+async function exchangeCode(payload: Record<string, unknown>) {
+  return handleCodeExchange(new Request('http://localhost:8888/oauth-server/token', {
+    method: 'POST',
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: await createJWE(payload),
+      client_id: codeState.client_id,
+      redirect_uri: codeState.redirect_uri,
+      code_verifier: codeVerifier,
+    }),
+  }));
+}
+
+for (const [name, payload] of Object.entries({
+  'access token': { accessToken: 'test-token' },
+  'refresh token': { accessToken: 'test-token', type: 'refresh' },
+  'null state': { accessToken: 'test-token', state: null },
+  'missing access token': { state: codeState },
+  'non-string access token': { accessToken: 42, state: codeState },
+  'non-string scope': { accessToken: 'test-token', state: { ...codeState, scope: 42 } },
+})) {
+  test(`code exchange rejects ${name} with invalid_grant`, async () => {
+    const response = await exchangeCode(payload);
+    assert.equal(response.statusCode, 400);
+    const body = JSON.parse(response.body!);
+    assert.equal(body.error, 'invalid_grant');
+    assert.equal(body.access_token, undefined);
+    assert.equal(body.refresh_token, undefined);
+  });
+}
+
+test('code exchange retains valid PKCE exchange and optional refresh issuance', async () => {
+  for (const scope of [undefined, 'offline_access']) {
+    const response = await exchangeCode({ accessToken: 'test-token', state: { ...codeState, scope } });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body!);
+    assert.equal((await decryptJWE(body.access_token)).accessToken, 'test-token');
+    assert.equal(typeof body.refresh_token, scope ? 'string' : 'undefined');
+  }
+});
 
 // register: issued stateless client_id is logged at info, which is not gated
 // by MCP_VERBOSE_LOGGING, so no env setup is needed to observe it.
