@@ -287,20 +287,20 @@ export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestIni
   }
 
   const currentTime = Date.now();
-  const maxDuration = 22000; // 22 seconds
+  const maxDurationSeconds = 22;
 
   let apiResults: unknown[] = [];
   let page = 1 + (apiInteractionOptions.pageOffset || 0);
 
   // avoid unbounded requests
   let pageLimit = apiInteractionOptions.pageLimit || 100;
-  const pageSize = apiInteractionOptions.pageSize || 20;
+  const pageSize = apiInteractionOptions.pageSize || 100;
 
   while (true) {
 
     const url = new URL(urlOrPath, 'https://api.netlify.com')
     url.searchParams.set('page', page.toString());
-    url.searchParams.set('page_size', pageSize.toString());
+    url.searchParams.set('per_page', pageSize.toString());
 
     const response = await authenticatedFetch(url.toString(), options, incomingRequest);
 
@@ -336,7 +336,7 @@ export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestIni
 
       page++;
 
-      if (result.length < pageSize || page > pageLimit || duration > maxDuration) {
+      if (result.length < pageSize || page > pageLimit || duration > maxDurationSeconds) {
         break;
       }
 
