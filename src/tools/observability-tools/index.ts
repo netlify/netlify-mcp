@@ -6,15 +6,26 @@ import {
   getTimeSeries,
   getLists,
   getRequestDetail,
-  parseFilters,
-  parseSortBy,
+  COUNT_QUERY_NAMES,
+  TOPK_QUERY_NAMES,
+  TIMESERIES_QUERY_NAMES,
+  FILTER_FIELDS,
+  FILTER_OPS,
+  SORT_FIELDS,
 } from './api-client.js';
 
 // ---- Shared descriptions ----
 
-const filtersDescription = `Optional JSON array of filter objects. Each filter has: "field" (StatusCode, URL, Method, UserAgent, ContentType, BlockReason, CacheStatus, EdgeFunctionName, FunctionName, LogText, RequestId, ClientAddress, ConnectionAddress, Branch), "op" (=, !=, >, <, >=, <=), and "value". Example: [{"field":"StatusCode","op":">=","value":500}]`;
+const filtersSchema = z.array(z.object({
+  field: z.enum(FILTER_FIELDS),
+  op: z.enum(FILTER_OPS),
+  value: z.union([z.string(), z.number()]).describe('A number for StatusCode, a string for everything else'),
+})).optional().describe('Filters to narrow the requests. Filters on different fields are ANDed; filters on the same field are ORed. Range operators (>, <, >=, <=) only apply to StatusCode. URL, UserAgent, RequestId, ClientAddress, ConnectionAddress and LogText only accept "=", and LogText matches text within function log lines. Example: [{"field":"StatusCode","op":">=","value":500}]');
 
-const sortByDescription = `Optional JSON array of sort objects. Each has "field" (Count, ErrorCount, Bandwidth, P50, P75, P90, P99, Key, FunctionInvocations, EdgeFunctionInvocations) and "order" (ASC or DESC). Default: [{"field":"Count","order":"DESC"}]`;
+const sortBySchema = z.array(z.object({
+  field: z.enum(SORT_FIELDS),
+  order: z.enum(['ASC', 'DESC']),
+})).optional().describe('Sort order. Default: [{"field":"Count","order":"DESC"}]');
 
 const fromTsDescription = 'Start timestamp in milliseconds since Unix epoch (not seconds). How far back data goes depends on the team plan (typically 24 hours on free, 7 days on pro and business, 30 days on enterprise). An older start is clamped to that limit, and a window entirely before it fails with "requested window out of bounds".';
 
@@ -26,8 +37,8 @@ const getCountsSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
   from_ts: z.number().describe(fromTsDescription),
   to_ts: z.number().describe(toTsDescription),
-  query_name: z.string().describe('Type of count: status_codes, content_types, user_agent_categories, methods, block_reasons, cache_status, function_names, edge_function_names'),
-  filters: z.string().optional().describe(filtersDescription),
+  query_name: z.enum(COUNT_QUERY_NAMES).describe('Which dimension to count requests by'),
+  filters: filtersSchema,
 });
 
 const getCountsDomainTool: DomainTool<typeof getCountsSchema> = {
@@ -40,7 +51,7 @@ const getCountsDomainTool: DomainTool<typeof getCountsSchema> = {
   cb: async ({ siteId, from_ts, to_ts, query_name, filters }, { request }) => {
     const result = await getCounts(siteId, from_ts, to_ts, {
       name: query_name,
-      filters: parseFilters(filters),
+      filters,
     }, request);
     return JSON.stringify(result);
   },
@@ -52,11 +63,11 @@ const getTopKSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
   from_ts: z.number().describe(fromTsDescription),
   to_ts: z.number().describe(toTsDescription),
-  query_name: z.string().describe('Breakdown type: user_agents, user_agent_categories, urls, urls_with_query, status_codes, referrers, functions, edge_functions, content_types, client_address, client_countries, connection_address'),
+  query_name: z.enum(TOPK_QUERY_NAMES).describe('Which dimension to rank'),
   page: z.number().optional().describe('Page number (1-based, default 1)'),
   per_page: z.number().optional().describe('Items per page (default 10)'),
-  filters: z.string().optional().describe(filtersDescription),
-  sort_by: z.string().optional().describe(sortByDescription),
+  filters: filtersSchema,
+  sort_by: sortBySchema,
 });
 
 const getTopKDomainTool: DomainTool<typeof getTopKSchema> = {
@@ -71,8 +82,8 @@ const getTopKDomainTool: DomainTool<typeof getTopKSchema> = {
       name: query_name,
       page: page || 1,
       per_page: per_page || 10,
-      filters: parseFilters(filters),
-      sort_by: parseSortBy(sort_by),
+      filters,
+      sort_by,
     }, request);
     return JSON.stringify(result);
   },
@@ -84,9 +95,9 @@ const getTimeSeriesSchema = z.object({
   siteId: z.string().describe('Netlify site ID'),
   from_ts: z.number().describe(fromTsDescription),
   to_ts: z.number().describe(toTsDescription),
-  query_name: z.string().describe('Metric type: edge_requests_count, edge_requests_duration_percentiles, edge_requests_bandwidth'),
+  query_name: z.enum(TIMESERIES_QUERY_NAMES).describe('Which metric to chart'),
   interval: z.number().optional().describe('Bucket interval in milliseconds. If not set, the API picks a default based on the time window.'),
-  filters: z.string().optional().describe(filtersDescription),
+  filters: filtersSchema,
 });
 
 const getTimeSeriesDomainTool: DomainTool<typeof getTimeSeriesSchema> = {
@@ -99,7 +110,7 @@ const getTimeSeriesDomainTool: DomainTool<typeof getTimeSeriesSchema> = {
   cb: async ({ siteId, from_ts, to_ts, query_name, interval, filters }, { request }) => {
     const result = await getTimeSeries(siteId, from_ts, to_ts, interval, {
       name: query_name,
-      filters: parseFilters(filters),
+      filters,
     }, request);
     return JSON.stringify(result);
   },
@@ -113,7 +124,7 @@ const getRequestLogsSchema = z.object({
   to_ts: z.number().describe(toTsDescription),
   page: z.number().optional().describe('Page number (1-based, default 1)'),
   per_page: z.number().optional().describe('Items per page (default 20)'),
-  filters: z.string().optional().describe(filtersDescription),
+  filters: filtersSchema,
 });
 
 const getRequestLogsDomainTool: DomainTool<typeof getRequestLogsSchema> = {
@@ -128,7 +139,7 @@ const getRequestLogsDomainTool: DomainTool<typeof getRequestLogsSchema> = {
       name: 'edge_requests_logs',
       page: page || 1,
       per_page: per_page || 20,
-      filters: parseFilters(filters),
+      filters,
     }, request);
     return JSON.stringify(result);
   },
