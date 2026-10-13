@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking.js';
+import { getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api-types.js';
 import { appendToLog } from '../../utils/logging.js';
@@ -33,6 +33,10 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 },
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
+    if ((deleteEnvVar || upsertEnvVar) && !envVarKey?.trim()) {
+      throw new Error('Please provide a nonempty envVarKey to delete or upsert an environment variable');
+    }
+
     const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request);
     const teamId = site?.account_id;
 
@@ -47,12 +51,16 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
     if(upsertEnvVar){
 
-      const existingEnvVarResp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, request);
-
-      let existingEnvVar = null;
-
-      if (existingEnvVarResp.status === 200) {
-        existingEnvVar = await existingEnvVarResp.json();
+      let existingEnvVar: NetlifyEnvVarResponse | undefined;
+      try {
+        existingEnvVar = await getAPIJSONResult<NetlifyEnvVarResponse>(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, { quietStatuses: [404] }, request);
+        if (!existingEnvVar || typeof existingEnvVar !== 'object' || Array.isArray(existingEnvVar)) {
+          throw new Error('Invalid environment variable lookup response');
+        }
+      } catch (error) {
+        if (!(error instanceof NetlifyApiError) || error.status !== 404) {
+          throw error;
+        }
       }
 
       let envVar = {
@@ -64,7 +72,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
       appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
 
-      if (existingEnvVar) {
+      if (existingEnvVar !== undefined) {
 
         const contextsToUpdate: (typeof availableContexts[number])[] = [];
 
@@ -84,12 +92,10 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           }, {}, request);
         }
       } else {
-        const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
+        await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
           method: 'POST',
           body: JSON.stringify([envVar])
-        }, request);
-
-        appendToLog(`create result${resp.status} ${await resp.text()}`);
+        }, {}, request);
       }
 
       return 'Environment variable upserted';
