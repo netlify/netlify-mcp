@@ -11,7 +11,7 @@ test('the root website and native Netlify 404 fallback serve the same content', 
   assert.equal(fallback, homepage);
   assert.match(homepage, /<!doctype html>/i);
   assert.match(homepage, /<html lang="en">/);
-  assert.match(homepage, /<h1>Netlify MCP Server<\/h1>/);
+  assert.match(homepage, /<h1>.*Fleet.*<\/h1>/i);
   assert.match(homepage, /<code>\/mcp<\/code>/);
 });
 
@@ -21,8 +21,19 @@ test('the website works at nested missing paths without relative assets or links
 
   assert.ok(references.length > 0);
   for (const [, reference] of references) {
-    assert.ok(reference.startsWith('/') || reference.startsWith('https://'), reference);
+    assert.ok(reference.startsWith('/') || reference.startsWith('https://') || reference.startsWith('#'), reference);
   }
+});
+
+test('official stores are external links and disconnected checkout is explicit', async () => {
+  const homepage = await readFile(new URL('index.html', root), 'utf8');
+  for (const url of ['https://www.tesla.com/', 'https://shop.tesla.com/', 'https://www.apple.com/store']) {
+    assert.ok(homepage.includes(`href="${url}"`));
+  }
+  assert.match(homepage, /not affiliated with Tesla or Apple/);
+  assert.match(homepage, /<button class="checkout-btn" disabled aria-describedby="checkout-status">/);
+  assert.match(homepage, /Shopify and Apple Pay are not connected/);
+  assert.doesNotMatch(homepage, /Ready for live Shopify checkout|function handleCheckout/);
 });
 
 test('the public website rewrite is last and does not override existing static assets', async () => {
