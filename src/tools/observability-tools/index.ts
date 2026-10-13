@@ -29,6 +29,8 @@ const getCountsSchema = z.object({
 const getCountsDomainTool: DomainTool<typeof getCountsSchema> = {
   domain: 'observability',
   operation: 'get-counts',
+  description:
+    "Count a project's (site's) edge requests over a time window, grouped by one dimension such as status code, content type, cache status, HTTP method, or block reason. Use it for a quick breakdown like how many requests were 5xx or blocked.",
   inputSchema: getCountsSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, from_ts, to_ts, query_name, filters }, { request }) => {
@@ -56,6 +58,8 @@ const getTopKSchema = z.object({
 const getTopKDomainTool: DomainTool<typeof getTopKSchema> = {
   domain: 'observability',
   operation: 'get-topk',
+  description:
+    "Rank the top values of one dimension of a project's (site's) edge requests over a time window, such as the most-requested URLs, user agents, referrers, client IPs, countries, or functions. Supports filtering, sorting by count, errors, bandwidth or latency percentiles, and pagination.",
   inputSchema: getTopKSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, from_ts, to_ts, query_name, limit, offset, filters, sort_by }, { request }) => {
@@ -84,6 +88,8 @@ const getTimeSeriesSchema = z.object({
 const getTimeSeriesDomainTool: DomainTool<typeof getTimeSeriesSchema> = {
   domain: 'observability',
   operation: 'get-timeseries',
+  description:
+    "Get a time series of a project's (site's) edge traffic over a window: request counts, latency percentiles, or bandwidth, in buckets. Use it to see when a spike, slowdown, or error burst started and ended.",
   inputSchema: getTimeSeriesSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, from_ts, to_ts, query_name, interval, filters }, { request }) => {
@@ -109,6 +115,8 @@ const getRequestLogsSchema = z.object({
 const getRequestLogsDomainTool: DomainTool<typeof getRequestLogsSchema> = {
   domain: 'observability',
   operation: 'get-request-logs',
+  description:
+    "List individual edge request log entries for a project (site) over a time window, paginated. Filter by status code, URL, request id, client address and more to narrow down to the requests of interest; each entry's request id can be used to fetch that request's full detail.",
   inputSchema: getRequestLogsSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, from_ts, to_ts, page, per_page, filters }, { request }) => {
@@ -134,6 +142,8 @@ const getRequestDetailSchema = z.object({
 const getRequestDetailDomainTool: DomainTool<typeof getRequestDetailSchema> = {
   domain: 'observability',
   operation: 'get-request-detail',
+  description:
+    "Get the full record of one edge request to a project (site) by its request id. The time window must bracket when the request happened, e.g. a minute either side.",
   inputSchema: getRequestDetailSchema,
   toolAnnotations: { readOnlyHint: true },
   cb: async ({ siteId, request_id, from_ts, to_ts }, { request }) => {
