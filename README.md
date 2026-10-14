@@ -146,6 +146,19 @@ edge function returns its own responses, preserving API routing and error codes.
 `404.html` remains a native fallback with the same content; keep both HTML files
 in sync.
 
-No separate website URL or HTML was supplied, and the repository had no existing
-website page. The landing page therefore uses the project's existing description
-and documentation links; replace both HTML files if a different website is supplied.
+The landing page is a demo fleet catalog (vehicles, parts/accessories, and
+telematics services) with external links to the official Tesla and Apple stores.
+It is not affiliated with either company. Products, specifications, and prices
+are illustrative; no payments or subscriptions are processed.
+
+Shopify and Apple Pay are not connected. Connecting them requires an authorized
+Shopify store, published product variant IDs, a Storefront Cart API implementation
+that redirects to Shopify's hosted checkout, and Apple Pay enabled through a
+supported payment provider. Setting environment variables alone does not connect
+the static page. Do not share or commit admin credentials.
+
+Custom domain setup requires the actual domain you administer and an authorized
+Netlify site/account. No DNS, CNAME, or deployment settings were changed to
+connect Tesla, Apple, or the previously attached domain. This repository's `/mcp`
+endpoint manages Netlify resources; it does not connect third-party stores or
+payment accounts. Keep both HTML files in sync.
