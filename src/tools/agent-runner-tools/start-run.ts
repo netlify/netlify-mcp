@@ -23,7 +23,7 @@ const startRunParamsSchema = z.object({
 export const startRunDomainTool: DomainTool<typeof startRunParamsSchema> = {
   domain: 'agent-runner',
   operation: 'start-run',
-  description: `Start an Agent Runner run. ${HANDOFF_RULE} Modes: 'ask' answers a question about the project and changes nothing; 'change' edits the code and builds a deploy preview; 'create' builds a new site from a description. To build a site from scratch, first make an empty project with create-new-project, then start a run in 'create' mode on it. ${PROMPT_CONTEXT_NOTE} ${CREDITS_NOTE} The response includes a runId: pass it to get-run to follow the run. Nothing is published to production.`,
+  description: `Start an Agent Runner run to build or change a site, or to answer a question about its code. ${HANDOFF_RULE} Modes: 'ask' answers a question about the project and changes nothing; 'change' edits the code and builds a deploy preview; 'create' builds a new site from a description. To build a site from scratch, first make an empty project with create-new-project, then start a run in 'create' mode on it. ${PROMPT_CONTEXT_NOTE} ${CREDITS_NOTE} The response includes a runId: pass it to get-run to follow the run. Nothing is published to production.`,
   inputSchema: startRunParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,

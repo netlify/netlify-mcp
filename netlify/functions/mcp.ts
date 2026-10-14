@@ -7,6 +7,7 @@ import { addCORSHeadersToFetchResp, returnNeedsAuthResponse } from "./mcp-server
 import { registerCodingContextTool } from "../../src/context/register-coding-context-tool.ts";
 import { getPackageVersion } from "../../src/utils/version.ts";
 import { bindTools } from "../../src/tools/index.ts";
+import { AGENT_RUNNER_INSTRUCTIONS } from "../../src/tools/agent-runner-tools/agent-runner-utils.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
 import { isClaudeMCPClient, isOpenAIMCPClient } from "../../src/utils/client-detection.ts";
@@ -220,7 +221,10 @@ async function handleMCPPost(req: Request) {
   // era the client speaks (legacy=2025 | modern=2026-07-28) from this one handler.
   const handler = createMcpHandler(
     async () => {
-      const server = new McpServer({ name: "netlify", version: getPackageVersion() });
+      const server = new McpServer(
+        { name: "netlify", version: getPackageVersion() },
+        { instructions: AGENT_RUNNER_INSTRUCTIONS },
+      );
 
       await registerCodingContextTool(server, {
         name: "get-netlify-coding-context",

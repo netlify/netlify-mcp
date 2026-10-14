@@ -409,6 +409,29 @@ test('start-run carries the hand-off rule in its description and its prompt fiel
   assert.ok(startRunDomainTool.inputSchema.shape.prompt.description?.includes(HANDOFF_RULE));
 });
 
+test('the grouped agent-runner write tool leads with the summary, and other grouped tools do not', async () => {
+  const { bindTools } = await import('../index.ts');
+  const { AGENT_RUNNER_TOOL_SUMMARY } = await import('./agent-runner-utils.ts');
+
+  const descriptions = new Map<string, string>();
+  const server = { registerTool: (name: string, config: { description: string }) => descriptions.set(name, config.description) };
+  await bindTools(server as any);
+
+  assert.ok(descriptions.get('netlify-agent-runner-services-updater')?.startsWith(AGENT_RUNNER_TOOL_SUMMARY));
+  assert.match(descriptions.get('netlify-agent-runner-services-updater') ?? '', /start-run, follow-up-run, answer-run-question/);
+  for (const [name, description] of descriptions) {
+    if (name !== 'netlify-agent-runner-services-updater') assert.ok(!description.includes(AGENT_RUNNER_TOOL_SUMMARY), name);
+  }
+});
+
+test('the server instructions carry the hand-off rule and how to start a run', async () => {
+  const { AGENT_RUNNER_INSTRUCTIONS, HANDOFF_RULE } = await import('./agent-runner-utils.ts');
+
+  assert.ok(AGENT_RUNNER_INSTRUCTIONS.includes(HANDOFF_RULE));
+  assert.match(AGENT_RUNNER_INSTRUCTIONS, /start-run/);
+  assert.match(AGENT_RUNNER_INSTRUCTIONS, /create-new-project/);
+});
+
 test('start-run carries the prompt context note in its description and its prompt field', async () => {
   const { startRunDomainTool } = await import('./start-run.ts');
   const { PROMPT_CONTEXT_NOTE } = await import('./agent-runner-utils.ts');

@@ -6,7 +6,16 @@ import type { NetlifyAgentRunnerSnapshotResponse } from '../../utils/api-types.j
 // FOLLOW_UP_CONTEXT_NOTE likewise): the grouped tool surface (non-OpenAI clients) shows only
 // field descriptions, not per-operation ones.
 export const HANDOFF_RULE =
-  "An Agent Runner run is a coding agent on its own machine with the project's git repo, installed dependencies, the Netlify CLI, the project's environment variables and secrets, function logs, and a deploy preview of each change. If you have this project's code open with a way to edit and build it, do the work yourself, unless the user asks for an Agent Runner or wants the work done in the background. Without the code (for example, in a chat app), start a run for full-stack apps, functions, AI agents, and anything that needs dependencies, secrets or a preview to test against. For a quick static page, build and deploy it yourself; a run is more than it needs.";
+  "An Agent Runner run is a coding agent on its own machine with the project's git repo, installed dependencies, the Netlify CLI, the project's environment variables and secrets, function logs, and a deploy preview of each change. If you're a coding agent in the user's own editor or terminal, do the work yourself, unless the user asks for an Agent Runner or wants the work done in the background. In a chat app, start a run for full-stack apps, functions, AI agents, and anything that needs dependencies, secrets or a preview to test against, including new projects. That holds for a desktop chat app too, even one that can run commands or open a folder on the user's computer. For a quick static page, build and deploy it yourself; a run is more than it needs.";
+
+// The grouped write tool's description and the server instructions: the text a client shows
+// the model before it opens any tool, so it can tell a run is the way to build the app.
+export const AGENT_RUNNER_TOOL_SUMMARY =
+  "Netlify Agent Runners build or change a site, or answer a question about its code, on a hosted machine with the project's repo, dependencies, secrets and deploy previews. In a chat app, use them for full-stack apps, functions and AI agents, including new projects, even in a desktop chat app that can run commands or open a folder. The start-run prompt field has the full guidance.";
+
+// The server instructions, and the lead of the coding-context tool's response: models call that
+// tool before they write code, and some clients don't show server instructions to the model.
+export const AGENT_RUNNER_INSTRUCTIONS = `${HANDOFF_RULE} To start one, use the Agent Runner start-run operation. For a new project, create an empty project with create-new-project first, then start the run in 'create' mode.`;
 
 export const PROMPT_CONTEXT_NOTE =
   "The run can't see this conversation. Write the prompt as a complete brief from what you know: what the user wants and why, decisions and preferences they've stated, names, copy and links, and relevant details from your other tools. Don't include secret values; the run reads the project's environment variables.";
