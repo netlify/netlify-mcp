@@ -9,7 +9,7 @@ import { getPackageVersion } from "../../src/utils/version.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
-import { isClaudeMCPClient, isOpenAIMCPClient } from "../../src/utils/client-detection.ts";
+import { isClaudeMCPClient, isOpenAIMCPClient, isOpenAIOrCodexClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
@@ -92,6 +92,16 @@ export default async (req: Request, context: Context) => {
 };
 
 
+// MCP methods that describe the server without touching anyone's Netlify data.
+// The tool list is the same for every caller, so it needs no token to build.
+const UNAUTHENTICATED_DISCOVERY_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'server/discover',
+  'ping',
+  'tools/list',
+]);
+
 async function handleMCPPost(req: Request) {
 
   // Read the body once as text so we can tell an empty body (probes/scanners)
@@ -147,9 +157,21 @@ async function handleMCPPost(req: Request) {
     auth: maskToken(req.headers.get('Authorization')),
   });
 
-  // Always auth-check (including init) — the MCP spec is inconsistent on when
-  // 401s may be returned.
-  if(!await userIsAuthenticated(req)){
+  // OpenAI and Codex clients may start a session and list tools before the user
+  // signs in (see isOpenAIOrCodexClient). Only when no token was sent: an
+  // expired token still gets the 401 below so the client refreshes it. Tool
+  // calls still need a token, and their 401 is what sends the user to sign in.
+  const unauthenticatedDiscovery =
+    !req.headers.get('authorization')
+    && isOpenAIOrCodexClient(req)
+    && UNAUTHENTICATED_DISCOVERY_METHODS.has(body?.method);
+
+  // Everything else is auth-checked (including init) — the MCP spec is
+  // inconsistent on when 401s may be returned.
+  if (unauthenticatedDiscovery) {
+    addLogContext({ unauthenticatedDiscovery: true });
+    log.debug('mcp discovery request allowed without sign-in');
+  } else if(!await userIsAuthenticated(req)){
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
     return returnNeedsAuthResponse(tokenPresented
@@ -164,7 +186,9 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  log.debug('mcp request auth passed');
+  if (!unauthenticatedDiscovery) {
+    log.debug('mcp request auth passed');
+  }
 
   if (body?.method === 'tools/call') {
     // Standalone tools (coding-context, design import) have no selectSchema.operation;
