@@ -14,9 +14,20 @@ const origLog = console.log;
 before(() => { console.log = () => {}; });
 after(() => { console.log = origLog; });
 
-const ALLOWED_UAS = ['openai-mcp/1.0.0', 'openai-mcp/1.0.0 (Codex)', 'codex-mcp-client/0.162.0-alpha.17.2'];
+const OPENAI_UA = 'openai-mcp/1.0.0';
+const CODEX_UA = 'codex-mcp-client/0.162.0-alpha.17.2';
+const ALLOWED_UAS = [OPENAI_UA, 'openai-mcp/1.0.0 (Codex)', CODEX_UA];
 
-function post(method: string, params: object, headers: Record<string, string>) {
+// Every method that may skip sign-in, with a valid message for each.
+const DISCOVERY_MESSAGES = [
+  { method: 'initialize', id: 1, params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0.0' } } },
+  { method: 'notifications/initialized' },
+  { method: 'server/discover', id: 1, params: {} },
+  { method: 'ping', id: 1 },
+  { method: 'tools/list', id: 1, params: {} },
+];
+
+function post(message: object, headers: Record<string, string>) {
   return mcp(new Request('https://mcp.example.com/mcp', {
     method: 'POST',
     headers: {
@@ -25,48 +36,57 @@ function post(method: string, params: object, headers: Record<string, string>) {
       'mcp-protocol-version': '2025-11-25',
       ...headers,
     },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    body: JSON.stringify({ jsonrpc: '2.0', ...message }),
   }), {} as any);
 }
 
-async function result(response: Response) {
+async function toolNames(userAgent: string) {
+  const response = await post({ method: 'tools/list', id: 1, params: {} }, { 'user-agent': userAgent });
+  assert.equal(response.status, 200, `${userAgent} should get the tool list`);
   const text = await response.text();
   const framed = text.match(/^event: message\ndata: (.*)$/m);
-  return JSON.parse(framed ? framed[1] : text).result;
+  return (JSON.parse(framed ? framed[1] : text).result.tools as any[]).map(t => t.name);
 }
 
-test('OpenAI and Codex clients can list tools without a token', async () => {
+test('OpenAI and Codex clients skip sign-in for every discovery method', async () => {
   for (const ua of ALLOWED_UAS) {
-    const response = await post('tools/list', {}, { 'user-agent': ua });
-    assert.equal(response.status, 200, `${ua} should get the tool list`);
-    const { tools } = await result(response);
-    assert.ok(tools.length > 0, `${ua} got an empty tool list`);
+    for (const message of DISCOVERY_MESSAGES) {
+      const response = await post(message, { 'user-agent': ua });
+      assert.notEqual(response.status, 401, `${ua} ${message.method} should not need sign-in`);
+      assert.ok(response.status < 500, `${ua} ${message.method} failed with ${response.status}`);
+    }
   }
 });
 
-test('OpenAI and Codex clients can initialize without a token', async () => {
-  for (const ua of ALLOWED_UAS) {
-    const response = await post('initialize', {
-      protocolVersion: '2025-06-18',
-      capabilities: {},
-      clientInfo: { name: 'test-client', version: '1.0.0' },
-    }, { 'user-agent': ua });
-    assert.equal(response.status, 200, `${ua} should be able to initialize`);
-    assert.ok((await result(response)).serverInfo, `${ua} got no initialize result`);
-  }
+test('Codex gets the grouped tools and openai-mcp the granular ones, without a token', async () => {
+  const codex = await toolNames(CODEX_UA);
+  assert.ok(codex.includes('netlify-project-services-updater'), 'Codex should get the grouped selector tool');
+  assert.equal(codex.includes('netlify-project-manage-env-vars'), false, 'Codex should not get per-operation tools');
+
+  const openai = await toolNames(OPENAI_UA);
+  assert.ok(openai.includes('netlify-project-manage-env-vars'), 'openai-mcp should get per-operation tools');
+  assert.equal(openai.includes('netlify-project-services-updater'), false, 'openai-mcp should not get the grouped tool');
 });
 
-test('OpenAI and Codex clients still need a token to call a tool', async () => {
+test('OpenAI and Codex clients still need a token for everything else', async () => {
+  const gated = [
+    { method: 'tools/call', id: 1, params: { name: 'netlify-user-services-reader', arguments: {} } },
+    { method: 'resources/list', id: 1, params: {} },
+    { method: 'prompts/list', id: 1, params: {} },
+    { method: 'events/list', id: 1, params: {} },
+  ];
   for (const ua of ALLOWED_UAS) {
-    const response = await post('tools/call', { name: 'netlify-user-services-reader', arguments: {} }, { 'user-agent': ua });
-    assert.equal(response.status, 401, `${ua} tool call should be rejected`);
-    assert.match(response.headers.get('WWW-Authenticate') ?? '', /resource_metadata=/);
+    for (const message of gated) {
+      const response = await post(message, { 'user-agent': ua });
+      assert.equal(response.status, 401, `${ua} ${message.method} should need sign-in`);
+      assert.match(response.headers.get('WWW-Authenticate') ?? '', /resource_metadata=/);
+    }
   }
 });
 
 test('an invalid token is still rejected so the client refreshes it', async () => {
-  const response = await post('tools/list', {}, {
-    'user-agent': 'codex-mcp-client/0.162.0',
+  const response = await post({ method: 'tools/list', id: 1, params: {} }, {
+    'user-agent': CODEX_UA,
     Authorization: 'Bearer not-a-real-token',
   });
   assert.equal(response.status, 401);
@@ -74,8 +94,8 @@ test('an invalid token is still rejected so the client refreshes it', async () =
 });
 
 test('every other client still needs a token to list tools', async () => {
-  for (const ua of ['Claude-User', 'claude-code/2.1.0 (cli)', 'cursor/1.0', '']) {
-    const response = await post('tools/list', {}, ua ? { 'user-agent': ua } : {});
+  for (const ua of ['Claude-User', 'claude-code/2.1.0 (cli)', 'cursor/1.0', 'some-proxy/1.0 codex-mcp-client', '']) {
+    const response = await post({ method: 'tools/list', id: 1, params: {} }, ua ? { 'user-agent': ua } : {});
     assert.equal(response.status, 401, `${ua || 'no user agent'} should be rejected`);
   }
 });

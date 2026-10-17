@@ -45,14 +45,13 @@ export function isOpenAIMCPClient(req?: Request): boolean {
 }
 
 // OpenAI's hosted client above, plus local Codex installs
-// (`codex-mcp-client/<version>`). Both may list tools before the user signs in.
-// Since Oct 6 2026 about 150k Codex installs that never signed in have retried
-// a rejected (401) tool fetch nonstop, 31M times a day. Matched on user-agent
-// for the same stateless reason as above.
+// (`codex-mcp-client/<version>`). Both may list tools before the user signs in:
+// Codex installs that were never signed in retry a rejected (401) tool fetch
+// nonstop. Matched on user-agent for the same stateless reason as above.
 const CODEX_MCP_USER_AGENT_PREFIX = 'codex-mcp-client';
 
 export function isOpenAIOrCodexClient(req?: Request): boolean {
-  const userAgent = (req?.headers.get('user-agent') ?? '').trim().toLowerCase();
-  return userAgent.startsWith(OPENAI_MCP_USER_AGENT_PREFIX)
-    || userAgent.startsWith(CODEX_MCP_USER_AGENT_PREFIX);
+  const userAgent = req?.headers.get('user-agent') ?? '';
+  return isOpenAIMCPClient(req)
+    || userAgent.trim().toLowerCase().startsWith(CODEX_MCP_USER_AGENT_PREFIX);
 }

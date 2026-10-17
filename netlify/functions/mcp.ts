@@ -170,6 +170,7 @@ async function handleMCPPost(req: Request) {
   // inconsistent on when 401s may be returned.
   if (unauthenticatedDiscovery) {
     addLogContext({ unauthenticatedDiscovery: true });
+    log.debug('mcp discovery request allowed without sign-in');
   } else if(!await userIsAuthenticated(req)){
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
@@ -185,7 +186,9 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  log.debug('mcp request auth passed');
+  if (!unauthenticatedDiscovery) {
+    log.debug('mcp request auth passed');
+  }
 
   if (body?.method === 'tools/call') {
     // Standalone tools (coding-context, design import) have no selectSchema.operation;
