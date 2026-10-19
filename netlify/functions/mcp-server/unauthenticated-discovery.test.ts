@@ -84,13 +84,19 @@ test('OpenAI and Codex clients still need a token for everything else', async ()
   }
 });
 
-test('an invalid token is still rejected so the client refreshes it', async () => {
-  const response = await post({ method: 'tools/list', id: 1, params: {} }, {
-    'user-agent': CODEX_UA,
-    Authorization: 'Bearer not-a-real-token',
-  });
-  assert.equal(response.status, 401);
-  assert.match(response.headers.get('WWW-Authenticate') ?? '', /error="invalid_token"/);
+test('an invalid token does not block the tool list, but still blocks a tool call', async () => {
+  for (const ua of ALLOWED_UAS) {
+    const headers = { 'user-agent': ua, Authorization: 'Bearer not-a-real-token' };
+    const list = await post({ method: 'tools/list', id: 1, params: {} }, headers);
+    assert.equal(list.status, 200, `${ua} should get the tool list despite a bad token`);
+
+    const call = await post(
+      { method: 'tools/call', id: 1, params: { name: 'netlify-user-services-reader', arguments: {} } },
+      headers,
+    );
+    assert.equal(call.status, 401, `${ua} tool call with a bad token should be rejected`);
+    assert.match(call.headers.get('WWW-Authenticate') ?? '', /error="invalid_token"/);
+  }
 });
 
 test('every other client still needs a token to list tools', async () => {

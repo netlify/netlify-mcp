@@ -157,13 +157,12 @@ async function handleMCPPost(req: Request) {
     auth: maskToken(req.headers.get('Authorization')),
   });
 
-  // OpenAI and Codex clients may start a session and list tools before the user
-  // signs in (see isOpenAIOrCodexClient). Only when no token was sent: an
-  // expired token still gets the 401 below so the client refreshes it. Tool
-  // calls still need a token, and their 401 is what sends the user to sign in.
+  // OpenAI and Codex clients may start a session and list tools without a
+  // valid token (see isOpenAIOrCodexClient), whether they sent one or not. Tool
+  // calls still need a valid token, and their 401 is what sends the user to
+  // sign in or refresh an expired token.
   const unauthenticatedDiscovery =
-    !req.headers.get('authorization')
-    && isOpenAIOrCodexClient(req)
+    isOpenAIOrCodexClient(req)
     && UNAUTHENTICATED_DISCOVERY_METHODS.has(body?.method);
 
   // Everything else is auth-checked (including init) — the MCP spec is
