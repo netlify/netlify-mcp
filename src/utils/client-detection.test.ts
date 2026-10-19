@@ -40,6 +40,7 @@ test('recognizes OpenAI and Codex clients by user-agent prefix', () => {
 
 test('rejects other agents, a prefix found mid-string, and missing signals', () => {
   assert.ok(!isOpenAIOrCodexClient(reqWithUA('some-proxy/1.0 codex-mcp-client')));
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA('some-proxy/1.0 openai-mcp/1.0.0')));
   assert.ok(!isOpenAIOrCodexClient(reqWithUA('Claude-User')));
   assert.ok(!isOpenAIOrCodexClient(reqWithUA('codex-cli/1.0')));
   assert.ok(!isOpenAIOrCodexClient(reqWithUA(undefined)));

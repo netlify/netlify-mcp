@@ -161,16 +161,13 @@ async function handleMCPPost(req: Request) {
   // valid token (see isOpenAIOrCodexClient), whether they sent one or not. Tool
   // calls still need a valid token, and their 401 is what sends the user to
   // sign in or refresh an expired token.
-  const unauthenticatedDiscovery =
+  const authCheckSkipped =
     isOpenAIOrCodexClient(req)
     && UNAUTHENTICATED_DISCOVERY_METHODS.has(body?.method);
 
   // Everything else is auth-checked (including init) — the MCP spec is
   // inconsistent on when 401s may be returned.
-  if (unauthenticatedDiscovery) {
-    addLogContext({ unauthenticatedDiscovery: true });
-    log.debug('mcp discovery request allowed without sign-in');
-  } else if(!await userIsAuthenticated(req)){
+  if (!authCheckSkipped && !await userIsAuthenticated(req)) {
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
     return returnNeedsAuthResponse(tokenPresented
@@ -185,7 +182,15 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  if (!unauthenticatedDiscovery) {
+  if (authCheckSkipped) {
+    // Flag only the requests no user is attached to, so a signed-in client
+    // listing tools isn't counted as signed out. Decided from the token alone:
+    // verifying it with the Netlify API would turn a rejection into a 401.
+    if (!identity) {
+      addLogContext({ unauthenticatedDiscovery: true });
+    }
+    log.debug('mcp auth check skipped for discovery');
+  } else {
     log.debug('mcp request auth passed');
   }
 
