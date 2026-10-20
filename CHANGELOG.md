@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.20.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.19.0...mcp-v1.20.0) (2026-10-20)
+
+
+### Features
+
+* **logging:** log Codex session, thread and turn ids on tool calls ([#79](https://github.com/netlify/netlify-mcp/issues/79)) ([8b88c6f](https://github.com/netlify/netlify-mcp/commit/8b88c6fb3e3fceae2155d9f6356f5a7fd5ef4fac))
+
+
+### Bug Fixes
+
+* **auth:** let OpenAI and Codex clients list tools before sign-in ([#77](https://github.com/netlify/netlify-mcp/issues/77)) ([2d4bf2c](https://github.com/netlify/netlify-mcp/commit/2d4bf2ca2c360ccf8d370f8e16d649b334aef3e6))
+
 ## [1.19.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.18.0...mcp-v1.19.0) (2026-10-13)
 
 
