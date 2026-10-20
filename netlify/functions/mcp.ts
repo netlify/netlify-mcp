@@ -131,7 +131,13 @@ async function handleMCPPost(req: Request) {
   // version appears. Client title and the NAMES of declared capabilities are
   // safe, value-free shape; capabilities on non-init requests are undefined and
   // simply omitted from the log line.
+  //
+  // Codex (codex-mcp-client) sends no custom headers; the conversation a call
+  // belongs to is in `_meta["x-codex-turn-metadata"]`, and only on tools/call —
+  // discovery requests carry nothing. The ids are opaque UUIDs, logged so one
+  // Codex session's calls can be grouped in Humio.
   const clientCapabilities = body?.params?.capabilities;
+  const codexTurn = body?.params?._meta?.['x-codex-turn-metadata'];
   addLogContext({
     mcpMethod: body?.method,
     mcpId: body?.id,
@@ -143,6 +149,9 @@ async function handleMCPPost(req: Request) {
       clientCapabilities && typeof clientCapabilities === 'object'
         ? Object.keys(clientCapabilities)
         : undefined,
+    codexSessionId: truncateForLog(codexTurn?.session_id),
+    codexThreadId: truncateForLog(codexTurn?.thread_id),
+    codexTurnId: truncateForLog(codexTurn?.turn_id),
   });
 
   // Log the SHAPE of the call only — tool name + argument names, never values.
