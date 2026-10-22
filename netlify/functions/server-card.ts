@@ -2,7 +2,7 @@
 // dependency-light function so a discovery crawler fetching the card neither
 // pays the MCP function's cold start nor hits its auth gate.
 import type { Config } from '@netlify/functions';
-import { buildServerCard, SERVER_CARD_PATH } from './mcp-server/server-card.ts';
+import { buildServerCard } from './mcp-server/server-card.ts';
 
 export default async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -30,7 +30,9 @@ export default async (req: Request) => {
 };
 
 export const config: Config = {
-  // The extension's recommended location, plus the single-server well-known
-  // path that some scanners (and older drafts) still probe.
-  path: [SERVER_CARD_PATH, '/.well-known/mcp/server-card.json'],
+  // The extension's recommended location (SERVER_CARD_PATH), plus the
+  // single-server well-known path that some scanners (and older drafts) still
+  // probe. Literals only: Netlify reads `config` statically at bundle time and
+  // rejects anything it can't evaluate, such as an imported constant.
+  path: ['/mcp/server-card', '/.well-known/mcp/server-card.json'],
 };
