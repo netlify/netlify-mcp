@@ -38,14 +38,31 @@ export class NetlifyUnauthError extends Error {
 // Thrown when the Netlify API returns a non-OK status. Carries the status so
 // callers can tell an expected client outcome (4xx: not-found, validation) apart
 // from a genuine server/network failure (5xx), and log at the right severity.
-// The message is unchanged (`Failed to fetch API: <status>`) for compatibility.
+// The default message is unchanged (`Failed to fetch API: <status>`) for
+// compatibility; callers that know what the status means for their endpoint can
+// pass a message the agent can act on instead.
 export class NetlifyApiError extends Error {
   readonly status: number;
-  constructor(status: number) {
-    super(`Failed to fetch API: ${status}`);
+  constructor(status: number, message?: string) {
+    super(message ?? `Failed to fetch API: ${status}`);
     this.name = 'NetlifyApiError';
     this.status = status;
   }
+}
+
+export interface AuthenticatedFetchOptions {
+  // Statuses the caller is about to silently retry (e.g. a 422 name conflict)
+  // and so doesn't want logged as a failure — anything not listed here still
+  // logs as usual.
+  quietStatuses?: number[];
+  // Some Netlify endpoints answer 401 for reasons that have nothing to do with
+  // the token (the observability API says 401 "requested window out of bounds"
+  // when a query exceeds the team plan's retention). By default a 401 flags the
+  // request for an OAuth challenge, which would tell the agent its token is
+  // invalid and send it back through sign-in. Set this when the caller will read
+  // the 401 body and decide for itself: it then gets the raw response, and must
+  // call flagAuthChallenge() for any 401 that really is an auth failure.
+  callerHandles401?: boolean;
 }
 
 const readTokenFromEnv = async () => {
@@ -189,7 +206,8 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 }
 
 
-export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request, quietStatuses?: number[]) => {
+export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request, fetchOptions?: number[] | AuthenticatedFetchOptions) => {
+  const { quietStatuses, callerHandles401 }: AuthenticatedFetchOptions = Array.isArray(fetchOptions) ? { quietStatuses: fetchOptions } : (fetchOptions ?? {});
   const token = await getNetlifyAccessToken(incomingRequest);
   const url = new URL(urlOrPath, 'https://api.netlify.com')
   const method = (options.method || 'GET').toString().toUpperCase();
@@ -208,7 +226,11 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     // This runs inside the request's log context, so failures carry the
     // requestId/userId/toolName that triggered them.
     if (!response.ok) {
-      if (response.status === 401) {
+      if (response.status === 401 && callerHandles401) {
+        // The endpoint uses 401 for non-auth rejections too; the caller owns the
+        // decision (and flags the challenge itself if it was auth after all).
+        log.debug('netlify api returned 401, caller is classifying it', { method, apiPath: url.pathname });
+      } else if (response.status === 401) {
         // A 401 is a routine token-expiry signal, not an API failure — it's
         // expected and handled, so log it as an auth event rather than warning.
         // On remote MCP, flag the request so the HTTP handler answers with a

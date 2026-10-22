@@ -1,4 +1,5 @@
-import { authenticatedFetch } from '../../utils/api-networking.js';
+import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
+import { flagAuthChallenge } from '../../../netlify/functions/mcp-server/request-signals.ts';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -193,12 +194,51 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 
 // ---- API Methods ----
 
+// The observability API answers 401 with this message when the requested window
+// reaches further back than the team plan's log retention. It is a plan limit,
+// not an auth failure: by the time a tool runs, the MCP handler has already
+// verified the token with a /user lookup.
+export const OUT_OF_BOUNDS_MSG = 'requested window out of bounds';
+
+const OUT_OF_BOUNDS_GUIDANCE =
+  'The requested time window is outside this team\'s log retention (typically 24 hours on free, 7 days on pro and business, 30 days on enterprise). Move from_ts later so the whole window falls inside the retention period and try again.';
+
+const parseApiMessage = (text: string): string | undefined => {
+  try {
+    const body = JSON.parse(text);
+    return typeof body?.msg === 'string' ? body.msg : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// Turn a non-OK observability response into the right error class, so the tool
+// dispatcher can tell an expected client outcome (4xx, logged at warn) from a
+// real failure (5xx, logged at error), and so the agent gets a message it can
+// act on rather than a bare status.
+export const classifyFailure = (status: number, text: string): Error => {
+  const msg = parseApiMessage(text);
+
+  if (status === 401) {
+    // Loose match: if the upstream wording drifts, failing back to an OAuth
+    // challenge would be the worse outcome.
+    if (msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
+      return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
+    }
+    // Any other 401 is treated as the token failing after all: flag the OAuth
+    // challenge, exactly as authenticatedFetch would have.
+    flagAuthChallenge('The Netlify access token is no longer valid');
+    return new NetlifyUnauthError(`Unauthenticated request to Netlify observability API (${msg ?? 'no message'})`);
+  }
+
+  return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
+};
+
 const request = async <T>(path: string, params: URLSearchParams, init: RequestInit, incomingRequest?: Request): Promise<T> => {
-  const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest);
+  const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest, { callerHandles401: true });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Observability API error (HTTP ${response.status}): ${text}`);
+    throw classifyFailure(response.status, await response.text());
   }
 
   return await response.json() as T;
