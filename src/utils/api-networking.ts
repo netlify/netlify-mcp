@@ -55,13 +55,11 @@ export interface AuthenticatedFetchOptions {
   // and so doesn't want logged as a failure — anything not listed here still
   // logs as usual.
   quietStatuses?: number[];
-  // Some Netlify endpoints answer 401 for reasons that have nothing to do with
-  // the token (the observability API says 401 "requested window out of bounds"
-  // when a query exceeds the team plan's retention). By default a 401 flags the
-  // request for an OAuth challenge, which would tell the agent its token is
-  // invalid and send it back through sign-in. Set this when the caller will read
-  // the 401 body and decide for itself: it then gets the raw response, and must
-  // call flagAuthChallenge() for any 401 that really is an auth failure.
+  // Some endpoints answer 401 for non-auth reasons (the observability API says
+  // 401 "requested window out of bounds" past the plan's retention). By default a
+  // 401 flags an OAuth challenge that sends the agent back through sign-in. Set
+  // this to get the raw 401 instead; the caller must then flagAuthChallenge()
+  // for any 401 that really is an auth failure.
   callerHandles401?: boolean;
 }
 
