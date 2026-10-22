@@ -49,6 +49,19 @@ test('any other 401 is still an auth failure and flags the OAuth challenge', asy
   });
 });
 
+test('a 401 whose body cannot be read is still an auth failure with the challenge flagged', async () => {
+  globalThis.fetch = (async () => {
+    const response = new Response('', { status: 401 });
+    response.text = async () => { throw new Error('socket closed mid-body'); };
+    return response;
+  }) as typeof fetch;
+
+  await withRequestSignals(async () => {
+    await assert.rejects(callLists(), NetlifyUnauthError);
+    assert.deepEqual(getAuthChallenge(), { errorDescription: 'The Netlify access token is no longer valid' });
+  });
+});
+
 test('a 404 is a NetlifyApiError carrying the status and API message', async () => {
   stubFetch(404, JSON.stringify({ code: 404, msg: 'site not found' }));
 

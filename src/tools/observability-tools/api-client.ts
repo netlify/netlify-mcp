@@ -234,11 +234,22 @@ export const classifyFailure = (status: number, text: string): Error => {
   return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
 };
 
+// A body read can fail when the connection drops mid-download. The status is
+// still known, so classify on it with an empty body rather than losing the
+// classification (and, for a 401, the OAuth challenge) to a body-read error.
+const readBodyText = async (response: Response): Promise<string> => {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+};
+
 const request = async <T>(path: string, params: URLSearchParams, init: RequestInit, incomingRequest?: Request): Promise<T> => {
   const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest, { callerHandles401: true });
 
   if (!response.ok) {
-    throw classifyFailure(response.status, await response.text());
+    throw classifyFailure(response.status, await readBodyText(response));
   }
 
   return await response.json() as T;
