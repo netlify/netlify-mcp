@@ -9,9 +9,11 @@ process.env.JWE_SECRET = 'b'.repeat(32);
 const {
   handleAuthStart,
   handleClientRegistration,
+  handleClientSideAuthExchange,
   handleCodeExchange,
   handleServerSideAuthRedirect,
 } = await import('./auth-flow.ts');
+const { safeBodySummary } = await import('./logging.ts');
 const { createJWE, decryptJWE } = await import('./utils.ts');
 const { getNetlifyAccessToken, NetlifyUnauthError } = await import('../../../src/utils/api-networking.ts');
 const { handleProxy } = await import('../../edge-functions/proxy.ts');
@@ -65,10 +67,11 @@ async function authorize(clientId: string, redirectUri: string): Promise<string>
 }
 
 function serverRedirect(initState: string) {
-  const url = new URL(`${ISSUER}/oauth-server/server-redirect`);
-  url.searchParams.set('token', 'nfp_upstream_token');
-  url.searchParams.set('init-state', initState);
-  return handleServerSideAuthRedirect(new Request(url));
+  return handleServerSideAuthRedirect(new Request(`${ISSUER}/oauth-server/server-redirect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token: 'nfp_upstream_token', 'init-state': initState }),
+  }));
 }
 
 /** Reads a JWS payload the way Netlify's consent screen does: no key. */
@@ -169,6 +172,48 @@ test('server-redirect refuses a state signed with a different key', async () => 
 
   const res = await serverRedirect(foreign);
   assert.equal(res.statusCode, 400);
+});
+
+test('server-redirect refuses a GET and never reads the query string', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const initState = await authorize(clientId, CLIENT_REDIRECT);
+  let fetched = false;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { fetched = true; return new Response('{}', { status: 401 }); }) as typeof fetch;
+  try {
+    for (const query of ['token=x&init-state=y', new URLSearchParams({ token: 'nfp_upstream_token', 'init-state': initState }).toString()]) {
+      const res = await handleServerSideAuthRedirect(new Request(`${ISSUER}/oauth-server/server-redirect?${query}`));
+      assert.equal(res.statusCode, 405);
+      assert.equal(JSON.parse(res.body as string).error, 'invalid_request');
+      assert.equal(res.headers!.Location, undefined);
+      assert.equal(res.headers!['Referrer-Policy'], 'no-referrer');
+    }
+    assert.equal(fetched, false, 'identity lookup must not run');
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('server-redirect responses carry Referrer-Policy: no-referrer', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const res = await serverRedirect(await authorize(clientId, CLIENT_REDIRECT));
+  assert.equal(res.statusCode, 302);
+  assert.equal(res.headers!['Referrer-Policy'], 'no-referrer');
+});
+
+test('client-redirect page posts the token in a form body and clears the fragment', async () => {
+  const res = await handleClientSideAuthExchange();
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['Referrer-Policy'], 'no-referrer');
+  assert.match(res.headers['Cache-Control'], /no-store/);
+  assert.ok(res.body.includes('method="POST"'), 'form uses POST');
+  assert.ok(res.body.includes('history.replaceState'));
+  assert.ok(!res.body.includes('server-redirect' + '?token'), 'token is never placed in a URL');
+});
+
+test('verbose body logging does not print the sign-in token from the server-redirect form', () => {
+  const summary = JSON.stringify(safeBodySummary(new URLSearchParams({ token: 'nfp_upstream_token', 'init-state': 'x.y.z' }).toString()));
+  assert.ok(!summary.includes('nfp_upstream_token'));
 });
 
 test('issued tokens are typed', async () => {

@@ -261,6 +261,7 @@ export async function handleClientSideAuthExchange(){
     headers: {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Referrer-Policy': 'no-referrer',
     },
     body: `
 <!DOCTYPE html>
@@ -270,6 +271,11 @@ export async function handleClientSideAuthExchange(){
 </head>
 <body>
   <p>Redirecting to the client application...</p>
+
+  <form id="exchange" method="POST" action="/oauth-server/server-redirect">
+    <input type="hidden" name="token" value="">
+    <input type="hidden" name="init-state" value="">
+  </form>
 
   <script>
     let hash = window.location.hash;
@@ -298,7 +304,14 @@ export async function handleClientSideAuthExchange(){
       hashToken = hash;
     }
 
-    window.location.href = '/oauth-server/server-redirect?token=' + encodeURIComponent(hashToken) + '&init-state=' + encodeURIComponent(hashState);
+    // Drop the fragment from the address bar and history entry, then hand the
+    // values to the server in a POST body so they never appear in a URL.
+    window.history.replaceState(null, '', window.location.pathname);
+
+    const form = document.getElementById('exchange');
+    form.elements['token'].value = hashToken;
+    form.elements['init-state'].value = hashState;
+    form.submit();
   </script>
 </body>
 </html>
@@ -307,10 +320,21 @@ export async function handleClientSideAuthExchange(){
 }
 
 
-export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {  
-  const parsedUrl = new URL(req.url);
-  const initState = parsedUrl.searchParams.get('init-state');
-  const token = parsedUrl.searchParams.get('token');
+export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
+  const resp = await serverSideAuthRedirect(req);
+  return { ...resp, headers: { ...resp.headers, 'Referrer-Policy': 'no-referrer' } };
+}
+
+async function serverSideAuthRedirect(req: Request): Promise<HandlerResponse> {
+  // The sign-in token arrives in a form body, never the URL. A GET (or anything
+  // else) is refused without looking at the query string.
+  if (req.method !== 'POST') {
+    return oauthError(405, 'invalid_request', 'Use POST', 'server-redirect', { method: req.method });
+  }
+
+  const bodyParams = new URLSearchParams(await req.text());
+  const initState = bodyParams.get('init-state');
+  const token = bodyParams.get('token');
 
   if (!initState || !token) {
     return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
