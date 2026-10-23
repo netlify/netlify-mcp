@@ -168,6 +168,7 @@ function oauthError(
   errorDescription: string,
   op?: string,
   context?: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): HandlerResponse {
   log.error('oauth error', {
     op: op ?? 'unknown',
@@ -181,6 +182,7 @@ function oauthError(
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      ...headers,
     },
     body: JSON.stringify({
       error,
@@ -277,7 +279,7 @@ export async function handleClientSideAuthExchange(){
     <title>OAuth Client Redirect</title>
 </head>
 <body>
-  <p>Redirecting to the client application...</p>
+  <p id="status">Redirecting to the client application...</p>
 
   <script>
     let hash = window.location.hash;
@@ -309,18 +311,23 @@ export async function handleClientSideAuthExchange(){
     // Drop the token from the address bar and session history.
     history.replaceState(null, '', window.location.pathname);
 
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/oauth-server/server-redirect';
-    for (const [name, value] of [['access_token', hashToken], ['state', hashState]]) {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
+    // A reload or back-navigation lands here with the fragment already gone.
+    if (!hashToken || !hashState) {
+      document.getElementById('status').textContent = 'This sign-in link has expired. Please start signing in again from your client.';
+    } else {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/oauth-server/server-redirect';
+      for (const [name, value] of [['access_token', hashToken], ['state', hashState]]) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit();
     }
-    document.body.appendChild(form);
-    form.submit();
   </script>
 </body>
 </html>
@@ -334,7 +341,15 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   // handleClientSideAuthExchange). A GET would mean it's in the URL, which gets
   // logged, so refuse it rather than mint a code from it.
   if (req.method !== 'POST') {
-    return oauthError(405, 'invalid_request', 'server-redirect only accepts POST', 'server-redirect', { method: req.method });
+    return oauthError(405, 'invalid_request', 'server-redirect only accepts POST', 'server-redirect', { method: req.method }, { 'Allow': 'POST' });
+  }
+
+  // The only legitimate caller is our own client-redirect page, so refuse a POST
+  // another site auto-submitted (login CSRF). Browsers that don't send
+  // Sec-Fetch-Site are let through; the signed state still has to verify.
+  const fetchSite = req.headers.get('sec-fetch-site');
+  if (fetchSite && fetchSite !== 'same-origin') {
+    return oauthError(403, 'invalid_request', 'server-redirect only accepts same-origin requests', 'server-redirect', { fetchSite });
   }
 
   const bodyParams = new URLSearchParams(await req.text());

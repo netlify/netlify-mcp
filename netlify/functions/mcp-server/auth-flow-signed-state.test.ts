@@ -142,15 +142,41 @@ test('server-redirect refuses the upstream token in the query string', async () 
   const res = await handleServerSideAuthRedirect(new Request(url));
 
   assert.equal(res.statusCode, 405);
+  assert.equal(res.headers!.Allow, 'POST');
   assert.equal(res.headers!.Location, undefined);
+});
+
+test('server-redirect refuses a cross-site POST', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const initState = await authorize(clientId, CLIENT_REDIRECT);
+
+  for (const fetchSite of ['cross-site', 'same-site', 'none']) {
+    const res = await handleServerSideAuthRedirect(new Request(`${ISSUER}/oauth-server/server-redirect`, {
+      method: 'POST',
+      headers: { 'Sec-Fetch-Site': fetchSite },
+      body: new URLSearchParams({ access_token: 'nfp_upstream_token', state: initState }),
+    }));
+    assert.equal(res.statusCode, 403, fetchSite);
+    assert.equal(res.headers!.Location, undefined);
+  }
+});
+
+test('server-redirect accepts a same-origin POST', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const res = await handleServerSideAuthRedirect(new Request(`${ISSUER}/oauth-server/server-redirect`, {
+    method: 'POST',
+    headers: { 'Sec-Fetch-Site': 'same-origin' },
+    body: new URLSearchParams({ access_token: 'nfp_upstream_token', state: await authorize(clientId, CLIENT_REDIRECT) }),
+  }));
+  assert.equal(res.statusCode, 303);
 });
 
 test('client-redirect posts the upstream token instead of putting it in a URL', async () => {
   const res = await handleClientSideAuthExchange();
   const html = res.body as string;
 
-  assert.match(html, /form\.method = 'POST'/);
-  assert.match(html, /form\.action = '\/oauth-server\/server-redirect'/);
+  assert.match(html, /POST/);
+  assert.match(html, /\/oauth-server\/server-redirect/);
   assert.doesNotMatch(html, /server-redirect\?/);
   assert.doesNotMatch(html, /location\.href\s*=/);
 });
