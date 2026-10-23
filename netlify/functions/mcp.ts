@@ -12,7 +12,8 @@ import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-netwo
 import { isClaudeMCPClient, isOpenAIMCPClient, isOpenAIOrCodexClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
-import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
+import { withRequestSignals, getNetlify401 } from "./mcp-server/request-signals.ts";
+import { netlifyRejectedToken } from "./mcp-server/confirm-netlify-401.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
@@ -49,8 +50,8 @@ export default async (req: Request, context: Context) => {
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
     // Open a request-signals scope around the whole request so tool/API code can
-    // flag an auth challenge (see request-signals.ts) that handleMCPPost reads
-    // back after the MCP SDK has produced its response.
+    // record a Netlify 401 there; handleMCPPost confirms it with /api/v1/user
+    // before issuing an OAuth challenge.
     () => withRequestSignals(async () => {
       try {
 
@@ -295,16 +296,16 @@ async function handleMCPPost(req: Request) {
 
   const response = await handler.fetch(reqWithBody);
 
-  // If any authenticated Netlify API call returned 401 during tool execution, the
-  // SDK has already turned that into a normal 200 tool result — so we translate
-  // it back into a real OAuth challenge here, driven by the flag that
-  // authenticatedFetch set (see request-signals.ts), not by inspecting the body.
-  const authChallenge = getAuthChallenge();
-  if (authChallenge) {
-    log.warn('netlify api returned 401 during tool execution; issuing auth challenge');
+  // If a Netlify API call during tool execution returned 401, the SDK has already
+  // turned that into a normal 200 tool result. A 401 isn't always a bad token
+  // (e.g. a plan limit), so confirm once with /user and only then translate it
+  // into a real OAuth challenge. The record comes from authenticatedFetch (see
+  // request-signals.ts), not from inspecting the body.
+  const netlify401 = getNetlify401();
+  if (netlify401 && await netlifyRejectedToken(req, netlify401.path)) {
     return returnNeedsAuthResponse({
       error: 'invalid_token',
-      errorDescription: authChallenge.errorDescription ?? 'The Netlify access token is no longer valid',
+      errorDescription: 'The Netlify access token is no longer valid',
     });
   }
 

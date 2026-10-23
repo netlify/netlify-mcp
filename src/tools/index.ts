@@ -134,11 +134,12 @@ const registerDomainTools = (
         try {
           result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
         } catch (err) {
-          // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-          // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
-          // validation) is an expected client outcome, so log it at warn; only
-          // genuine 5xx/unexpected failures are logged at error. Rethrow either way
-          // so the client still gets its error result.
+          // NetlifyUnauthError only comes from token resolution; rethrow it for the
+          // OAuth challenge. A 401 from a Netlify call is recorded on the request
+          // and confirmed with /user upstream before any sign-in prompt. An API 4xx
+          // (not-found, validation, 401) is an expected client outcome, so log it at
+          // warn; only genuine 5xx/unexpected failures are logged at error. Rethrow
+          // either way so the client still gets its error result.
           if (err instanceof NetlifyUnauthError) throw err;
           if (err instanceof NetlifyApiError && err.status < 500) {
             // `operation` must match what the call line in mcp.ts recorded, or
@@ -217,11 +218,12 @@ const registerDomainTools = (
       try {
         result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
       } catch (err) {
-        // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-        // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
-        // validation) is an expected client outcome, so log it at warn; only
-        // genuine 5xx/unexpected failures are logged at error. Rethrow either way
-        // so the client still gets its error result.
+        // NetlifyUnauthError only comes from token resolution; rethrow it for the
+        // OAuth challenge. A 401 from a Netlify call is recorded on the request
+        // and confirmed with /user upstream before any sign-in prompt. An API 4xx
+        // (not-found, validation, 401) is an expected client outcome, so log it at
+        // warn; only genuine 5xx/unexpected failures are logged at error. Rethrow
+        // either way so the client still gets its error result.
         if (err instanceof NetlifyUnauthError) throw err;
         if (err instanceof NetlifyApiError && err.status < 500) {
           log.warn('tool operation client error', { domain, operation, toolName, status: err.status });

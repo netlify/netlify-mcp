@@ -7,7 +7,7 @@ import { loginSpawnEnv } from './login-attribution.ts';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
 import { isTokenTypeAllowed, TOKEN_TYPE } from '../../netlify/functions/mcp-server/token-types.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
-import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
+import { flagNetlify401 } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
 interface APIInteractionOptions {
@@ -38,11 +38,13 @@ export class NetlifyUnauthError extends Error {
 // Thrown when the Netlify API returns a non-OK status. Carries the status so
 // callers can tell an expected client outcome (4xx: not-found, validation) apart
 // from a genuine server/network failure (5xx), and log at the right severity.
-// The message is unchanged (`Failed to fetch API: <status>`) for compatibility.
+// The default message is unchanged (`Failed to fetch API: <status>`) for
+// compatibility; callers that know what the status means for their endpoint can
+// pass a message the agent can act on instead.
 export class NetlifyApiError extends Error {
   readonly status: number;
-  constructor(status: number) {
-    super(`Failed to fetch API: ${status}`);
+  constructor(status: number, message?: string) {
+    super(message ?? `Failed to fetch API: ${status}`);
     this.name = 'NetlifyApiError';
     this.status = status;
   }
@@ -70,7 +72,8 @@ export const userIsAuthenticated = async (request?: Request): Promise<boolean> =
     if (!token) {
       return false;
     }
-    const response = await authenticatedFetch('/api/v1/user', {}, request);
+    // An expired token here is routine, so keep its 401 at debug.
+    const response = await authenticatedFetch('/api/v1/user', {}, request, [401]);
     if(response.status === 401) {
       return false;
     }
@@ -208,16 +211,17 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     // This runs inside the request's log context, so failures carry the
     // requestId/userId/toolName that triggered them.
     if (!response.ok) {
-      if (response.status === 401) {
-        // A 401 is a routine token-expiry signal, not an API failure — it's
-        // expected and handled, so log it as an auth event rather than warning.
-        // On remote MCP, flag the request so the HTTP handler answers with a
-        // proper OAuth challenge, no matter what the calling tool does with this
-        // response (throw a generic error, run a failureCallback, paginate,
-        // etc.). The local CLI path (no incomingRequest) resolves auth differently.
+      if (response.status === 401 && !incomingRequest) {
+        // The local CLI path resolves auth differently: nothing to record.
         log.debug('netlify api returned 401', { method, apiPath: url.pathname });
-        if (incomingRequest) {
-          flagAuthChallenge('The Netlify access token is no longer valid');
+      } else if (response.status === 401) {
+        // Record it so the HTTP handler can confirm the token whatever the
+        // calling tool does with this response.
+        flagNetlify401(url.pathname);
+        if (quietStatuses?.includes(401)) {
+          log.debug('netlify api call failed (expected, caller is handling it)', { method, apiPath: url.pathname, status: 401 });
+        } else {
+          log.warn('netlify api call failed', { method, apiPath: url.pathname, status: 401 });
         }
       } else if (quietStatuses?.includes(response.status)) {
         log.debug('netlify api call failed (expected, caller is handling it)', { method, apiPath: url.pathname, status: response.status });
@@ -252,8 +256,10 @@ export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestIni
   if(!apiInteractionOptions.pagination){
     const response = await authenticatedFetch(urlOrPath, options, incomingRequest, apiInteractionOptions.quietStatuses);
 
-    if(response.status === 401 && incomingRequest) {
-      throw new NetlifyUnauthError(`Unauthedenticated request to Netlify API. ${urlOrPath}`);
+    // A remote 401 is recorded on the request; don't let a failureCallback turn
+    // it into a normal tool result.
+    if (response.status === 401 && incomingRequest) {
+      throw new NetlifyApiError(401);
     }
 
     if (!response.ok) {
