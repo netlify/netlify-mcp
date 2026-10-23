@@ -27,7 +27,7 @@ function abs(path: string): string {
  *
  * `authorization_response_iss_parameter_supported` is intentionally omitted (not
  * set false): we still EMIT `iss` on the authorization redirect
- * (handleServerSideAuthRedirect), we just don't advertise it — omission and
+ * (handleNetlifyCallback), we just don't advertise it — omission and
  * false are equivalent to a client, and some Codex builds break when it is
  * advertised true. See getsentry/sentry-mcp#1223.
  */

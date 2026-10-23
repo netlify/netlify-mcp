@@ -1,5 +1,5 @@
 import type { Handler, HandlerResponse } from "@netlify/functions";
-import { handleAuthStart, handleClientRegistration, handleCodeExchange, handleNetlifyCallback, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
+import { handleAuthStart, handleClientRegistration, handleCodeExchange, handleNetlifyCallback } from "./mcp-server/auth-flow.ts";
 import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
 import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
@@ -96,9 +96,6 @@ const oAuthHandler: Handler = async (req) => {
   }
   if (pathname.endsWith(OAUTH_ROUTES.clientRedirect)) {
     return await handleNetlifyCallback(reqObj);
-  }
-  if (pathname.endsWith(OAUTH_ROUTES.serverRedirect)) {
-    return await handleServerSideAuthRedirect(reqObj);
   }
   if (pathname.endsWith(OAUTH_ROUTES.token)) {
     return await handleCodeExchange(reqObj);

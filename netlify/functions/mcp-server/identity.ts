@@ -1,6 +1,6 @@
 // Resolve the authenticated user's identity from a raw Netlify access token.
 //
-// Done ONCE at token-issue time (server-redirect), so the resulting userId and
+// Done ONCE at token-issue time (client-redirect), so the resulting userId and
 // team (account) id can be embedded in the JWEs we mint and ride along on every
 // later request with no extra lookup. Best-effort: any failure returns null and
 // token issuance proceeds without identity — authentication must never break

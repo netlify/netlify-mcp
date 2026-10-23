@@ -101,7 +101,7 @@ interface CODE_JWE_PAYLOAD {
   typ?: typeof TOKEN_TYPE.code;
   state: Partial<AUTH_REQUEST_STATE>;
   accessToken: string;
-  // Resolved once at server-redirect and carried through so it can be attached
+  // Resolved once when the code is issued and carried through so it can be attached
   // to logs on later requests. Optional: absent on failure and on tokens issued
   // before identity resolution existed.
   identity?: TokenIdentity;
@@ -229,7 +229,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   // Validate the redirect_uri against the client's registration BEFORE it enters
   // the round-tripped state. This is the primary defense against an open redirect:
   // an unregistered redirect_uri never makes it into the authorization code, so
-  // handleServerSideAuthRedirect can only ever 302 to a URI the client registered.
+  // handleNetlifyCallback can only ever 302 to a URI the client registered.
   const { error: redirectError, client } = await validateClientRedirect(clientId, redirectUri, 'authorize');
   if (redirectError) {
     return redirectError;
@@ -250,7 +250,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
     }
   }
 
-  // Signed so server-redirect can trust it and Netlify's consent screen can show
+  // Signed so client-redirect can trust it and Netlify's consent screen can show
   // where the code will go (see init-state.ts). A compact JWS is URL-safe.
   const paramsState = await signInitState(paramsObj);
   const netlifyRedirectUri = netlifyCallbackUrl(parsedUrl.origin);
@@ -363,24 +363,6 @@ async function exchangeNetlifyCode(code: string, redirectUri: string): Promise<{
       errorName: error instanceof Error ? error.name : typeof error,
     }) };
   }
-}
-
-
-export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {  
-  const parsedUrl = new URL(req.url);
-  const initState = parsedUrl.searchParams.get('init-state');
-  const token = parsedUrl.searchParams.get('token');
-
-  if (!initState || !token) {
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
-  }
-
-  const verified = await verifyReturnedState(initState);
-  if ('error' in verified) {
-    return verified.error;
-  }
-
-  return issueAuthorizationCode(token, verified.state);
 }
 
 /**
@@ -705,7 +687,7 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
 
   // The confident "user authenticated" point: the full OAuth handshake has
   // completed here (PKCE validated, session token minted) after Netlify
-  // authenticated the human at server-redirect. Fires once per interactive
+  // authenticated the human at client-redirect. Fires once per interactive
   // login; a silent refresh (handleRefreshTokenGrant) is deliberately NOT this.
   log.info('user authenticated', {
     userId: identity?.userId,

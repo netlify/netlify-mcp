@@ -36,7 +36,6 @@ export const OAUTH_ROUTES = {
   token: '/oauth-server/token',
   registration: '/oauth-server/reg',
   clientRedirect: '/oauth-server/client-redirect',
-  serverRedirect: '/oauth-server/server-redirect',
 } as const;
 
 // The protected resource this AS guards (the MCP server). Advertised as the

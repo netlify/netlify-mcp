@@ -4,13 +4,13 @@ import { getSecretKey } from "./utils.ts";
 
 // The authorize request (client_id, redirect_uri, PKCE challenge, the client's
 // own state) round-trips through app.netlify.com as the `state` parameter and
-// comes back to /oauth-server/server-redirect, which mints the authorization
+// comes back to /oauth-server/client-redirect, which mints the authorization
 // code and sends it to that redirect_uri.
 //
 // It is SIGNED, not encrypted, on purpose. Netlify's consent screen decodes the
 // payload and shows the user the origin the code will be sent to before they
 // authorize. It doesn't need to verify the signature to do that safely:
-// server-redirect refuses anything we didn't sign and only ever redirects to
+// client-redirect refuses anything we didn't sign and only ever redirects to
 // the redirect_uri inside the signed payload, so what the screen shows is
 // exactly where the code goes. An attacker can't edit the destination (the
 // signature breaks), and a state they get signed by running /authorize for their
