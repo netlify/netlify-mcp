@@ -172,6 +172,7 @@ test('authorize asks Netlify for a code and returns to client-redirect', async (
   assert.equal(location.origin, 'https://app.netlify.com');
   assert.equal(location.searchParams.get('response_type'), 'code');
   assert.equal(location.searchParams.get('redirect_uri'), `${ISSUER}/oauth-server/client-redirect`);
+  assert.ok((res.headers!.Location as string).includes(`redirect_uri=${encodeURIComponent(`${ISSUER}/oauth-server/client-redirect`)}&`), 'redirect_uri is percent-encoded');
 });
 
 test('callback exchanges the Netlify code on the server and sends an MCP code to the signed redirect', async () => {
@@ -276,6 +277,30 @@ test('callback refuses a code Netlify rejects and sends nothing to the client', 
   assert.equal(res.statusCode, 400);
   assert.equal(errorOf(res), 'invalid_grant');
   assert.equal(res.headers!.Location, undefined);
+});
+
+test('callback reports rejected client credentials as a server error and logs Netlify\'s error code', async () => {
+  const netlify = stubNetlify(() => Response.json({ error: 'invalid_client', error_description: 'ECHOED-DESCRIPTION' }, { status: 401 }));
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const state = await authorize(clientId, CLIENT_REDIRECT);
+
+  const lines: string[] = [];
+  const capture = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+  const consoleBefore = { log: console.log, warn: console.warn, error: console.error };
+  Object.assign(console, { log: capture, warn: capture, error: capture });
+  let res;
+  try {
+    res = await callback({ code: NETLIFY_CODE, state });
+  } finally {
+    Object.assign(console, consoleBefore);
+  }
+
+  assert.equal(netlify.tokenCalls().length, 1);
+  assert.equal(res.statusCode, 500);
+  assert.equal(errorOf(res), 'server_error');
+  assert.equal(res.headers!.Location, undefined);
+  assert.ok(lines.some((line) => line.includes('invalid_client')), 'Netlify error code is logged');
+  assert.ok(!lines.some((line) => line.includes('ECHOED-DESCRIPTION')), 'error_description is not logged');
 });
 
 test('callback treats a failed, empty or timed-out token response as a server error', async () => {

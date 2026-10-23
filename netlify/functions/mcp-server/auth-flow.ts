@@ -124,7 +124,7 @@ interface REFRESH_TOKEN_PAYLOAD {
 
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
 const NETLIFY_OAUTH_TOKEN_URL = 'https://api.netlify.com/oauth/token';
-const NETLIFY_TOKEN_TIMEOUT_MS = 10_000;
+const NETLIFY_TOKEN_TIMEOUT_MS = 5_000;
 const AUTH_REQUIRED_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method'] as const;
 const AUTH_OPTIONAL_PARAMS = ['state', 'scope', 'nonce'] as const;
 
@@ -258,7 +258,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   return {
     statusCode: 302,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=code&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
+      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=code&state=${paramsState}&redirect_uri=${encodeURIComponent(netlifyRedirectUri)}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
     },
     body: ''
   };
@@ -314,6 +314,16 @@ async function processNetlifyCallback(req: Request): Promise<HandlerResponse> {
   return issueAuthorizationCode(exchanged.accessToken, verified.state);
 }
 
+// Best effort: a non-JSON or empty body just yields undefined.
+async function readUpstreamErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: unknown } | null;
+    return typeof body?.error === 'string' ? truncateForLog(body.error) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Trade Netlify's one-time code for the user's Netlify access token. Fails
  * closed when the client secret isn't configured. Logs statuses and reasons
@@ -342,7 +352,14 @@ async function exchangeNetlifyCode(code: string, redirectUri: string): Promise<{
     // A 4xx is Netlify refusing the exchange, most often a used or expired
     // code; anything else non-2xx is Netlify failing to answer.
     if (response.status >= 400 && response.status < 500) {
-      return { error: oauthError(400, 'invalid_grant', 'Invalid or expired Netlify authorization code', 'server-redirect', { upstreamStatus: response.status }) };
+      // Only Netlify's `error` code string is read and logged, never the description.
+      const upstreamError = await readUpstreamErrorCode(response);
+      // A 401 means Netlify rejected this server's own client credentials
+      // (e.g. a wrong secret), which no user action can fix.
+      if (response.status === 401) {
+        return { error: oauthError(500, 'server_error', "Netlify rejected this server's OAuth client credentials", 'server-redirect', { upstreamStatus: response.status, upstreamError }) };
+      }
+      return { error: oauthError(400, 'invalid_grant', 'Invalid or expired Netlify authorization code', 'server-redirect', { upstreamStatus: response.status, upstreamError }) };
     }
     if (!response.ok) {
       return { error: oauthError(502, 'server_error', 'Netlify token exchange failed', 'server-redirect', { upstreamStatus: response.status }) };
@@ -466,7 +483,7 @@ async function issueAuthorizationCode(accessToken: string, state: AUTH_REQUEST_S
     };
   
   } catch (error) {
-    return oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state invalid', detail: error instanceof Error ? error.message : String(error) });
+    return oauthError(500, 'server_error', 'Could not issue authorization code', 'server-redirect', { reason: 'code issue failed', detail: error instanceof Error ? error.message : String(error) });
   }
 }
 
