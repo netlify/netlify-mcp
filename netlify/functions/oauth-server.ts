@@ -1,5 +1,5 @@
 import type { Handler, HandlerResponse } from "@netlify/functions";
-import { handleAuthStart, handleClientRegistration, handleClientSideAuthExchange, handleCodeExchange, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
+import { handleAuthStart, handleClientRegistration, handleCodeExchange, handleNetlifyCallback, handleServerSideAuthRedirect } from "./mcp-server/auth-flow.ts";
 import { buildAuthServerMetadata, buildProtectedResourceMetadata } from "./mcp-server/metadata.ts";
 import { SUPPORTED_SCOPES, OAUTH_ROUTES } from "./mcp-server/oauth-config.ts";
 import { addCommonHeadersToHandlerResp, headersToHeadersObject, getParsedUrl } from "./mcp-server/utils.ts";
@@ -42,7 +42,8 @@ function jsonResponse(statusCode: number, body: unknown): HandlerResponse {
 }
 
 const oAuthHandler: Handler = async (req) => {
-  log.debug('oauth request', { url: req.rawUrl });
+  // Path only: the query on Netlify's callback carries a one-time code.
+  log.debug('oauth request', { url: req.rawUrl.split('?')[0] });
 
   // Handle CORS preflight requests
   if (req.httpMethod === 'OPTIONS') {
@@ -94,7 +95,7 @@ const oAuthHandler: Handler = async (req) => {
     return await handleAuthStart(reqObj);
   }
   if (pathname.endsWith(OAUTH_ROUTES.clientRedirect)) {
-    return await handleClientSideAuthExchange();
+    return await handleNetlifyCallback(reqObj);
   }
   if (pathname.endsWith(OAUTH_ROUTES.serverRedirect)) {
     return await handleServerSideAuthRedirect(reqObj);

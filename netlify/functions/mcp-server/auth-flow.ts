@@ -123,6 +123,8 @@ interface REFRESH_TOKEN_PAYLOAD {
 }
 
 const NTL_AUTH_CLIENT_ID = process.env.NTL_AUTH_CLIENT_ID || '';
+const NETLIFY_OAUTH_TOKEN_URL = 'https://api.netlify.com/oauth/token';
+const NETLIFY_TOKEN_TIMEOUT_MS = 10_000;
 const AUTH_REQUIRED_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method'] as const;
 const AUTH_OPTIONAL_PARAMS = ['state', 'scope', 'nonce'] as const;
 
@@ -189,6 +191,14 @@ function oauthError(
   };
 }
 
+/**
+ * Where Netlify sends the user back after its consent screen. The code
+ * exchange must name this exact URL again, so both sides build it here.
+ */
+function netlifyCallbackUrl(origin: string): string {
+  return `${origin}/oauth-server/client-redirect`;
+}
+
 
 export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 
@@ -243,7 +253,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   // Signed so server-redirect can trust it and Netlify's consent screen can show
   // where the code will go (see init-state.ts). A compact JWS is URL-safe.
   const paramsState = await signInitState(paramsObj);
-  const netlifyRedirectUri = `${parsedUrl.origin}/oauth-server/client-redirect`;
+  const netlifyRedirectUri = netlifyCallbackUrl(parsedUrl.origin);
 
   return {
     statusCode: 302,
@@ -255,55 +265,104 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 }
 
 
-export async function handleClientSideAuthExchange(){
-  return {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'text/html',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-    },
-    body: `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>OAuth Client Redirect</title>
-</head>
-<body>
-  <p>Redirecting to the client application...</p>
+// The callback URL carries Netlify's one-time code and our signed state. Keep
+// every response out of caches, and keep that URL out of the Referer sent to
+// wherever the user goes next.
+const CALLBACK_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+};
 
-  <script>
-    let hash = window.location.hash;
-    let hashToken = '';
-    let hashState = '';
+/**
+ * Netlify's redirect back from its consent screen. The signed state is checked
+ * before anything touches the network; only then is Netlify's one-time code
+ * exchanged, server to server, for the user's Netlify token, which goes into
+ * the MCP's own authorization code. The browser never holds that token.
+ *
+ * Failures log under op 'server-redirect', the name the code-issuing log line
+ * uses, so one query covers the whole step.
+ */
+export async function handleNetlifyCallback(req: Request): Promise<HandlerResponse> {
+  const response = await processNetlifyCallback(req);
+  return { ...response, headers: { ...response.headers, ...CALLBACK_HEADERS } };
+}
 
-    if(hash.startsWith('#')){
-      hash = hash.slice(1);
+async function processNetlifyCallback(req: Request): Promise<HandlerResponse> {
+  const parsedUrl = new URL(req.url);
+  const params = parsedUrl.searchParams;
+
+  // The user declined, or Netlify couldn't authorize: there is nothing to exchange.
+  const netlifyError = params.get('error');
+  if (netlifyError) {
+    return oauthError(400, 'access_denied', 'Netlify did not authorize the request', 'server-redirect', { netlifyError: truncateForLog(netlifyError) });
+  }
+
+  const missingParams = (['code', 'state'] as const).filter((param) => !params.get(param));
+  if (missingParams.length > 0) {
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${missingParams.join(', ')}`, 'server-redirect', { missingParams });
+  }
+
+  const verified = await verifyReturnedState(params.get('state') as string);
+  if ('error' in verified) {
+    return verified.error;
+  }
+
+  const exchanged = await exchangeNetlifyCode(params.get('code') as string, netlifyCallbackUrl(parsedUrl.origin));
+  if ('error' in exchanged) {
+    return exchanged.error;
+  }
+
+  return issueAuthorizationCode(exchanged.accessToken, verified.state);
+}
+
+/**
+ * Trade Netlify's one-time code for the user's Netlify access token. Fails
+ * closed when the client secret isn't configured. Logs statuses and reasons
+ * only: never the code, the token or the secret.
+ */
+async function exchangeNetlifyCode(code: string, redirectUri: string): Promise<{ accessToken: string } | { error: HandlerResponse }> {
+  const clientSecret = process.env.NTL_AUTH_CLIENT_SECRET;
+  if (!clientSecret) {
+    return { error: oauthError(500, 'server_error', 'Netlify sign-in is not configured on this server', 'server-redirect', { reason: 'NTL_AUTH_CLIENT_SECRET is not set' }) };
+  }
+
+  try {
+    const response = await fetch(NETLIFY_OAUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'user-agent': 'netlify-mcp' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: NTL_AUTH_CLIENT_ID,
+        client_secret: clientSecret,
+      }),
+      signal: AbortSignal.timeout(NETLIFY_TOKEN_TIMEOUT_MS),
+    });
+
+    // A 4xx is Netlify refusing the exchange, most often a used or expired
+    // code; anything else non-2xx is Netlify failing to answer.
+    if (response.status >= 400 && response.status < 500) {
+      return { error: oauthError(400, 'invalid_grant', 'Invalid or expired Netlify authorization code', 'server-redirect', { upstreamStatus: response.status }) };
+    }
+    if (!response.ok) {
+      return { error: oauthError(502, 'server_error', 'Netlify token exchange failed', 'server-redirect', { upstreamStatus: response.status }) };
     }
 
-    if(hash.startsWith('?')){
-      hash = hash.slice(1);
+    const body = (await response.json()) as { access_token?: unknown } | null;
+    if (typeof body?.access_token !== 'string' || !body.access_token) {
+      return { error: oauthError(502, 'server_error', 'Netlify token exchange failed', 'server-redirect', { upstreamStatus: response.status, reason: 'no access_token in response' }) };
     }
 
-    if(hash.includes('=')) {
-      const params = new URLSearchParams(hash);
-      const token = params.get('access_token') || params.get('token');
-      const state = params.get('state');
-      if(state) {
-        hashState = state;
-      }
-      if(token) {
-        hashToken = token;
-      }
-    }else {
-      hashToken = hash;
-    }
-
-    window.location.href = '/oauth-server/server-redirect?token=' + encodeURIComponent(hashToken) + '&init-state=' + encodeURIComponent(hashState);
-  </script>
-</body>
-</html>
-`
-  };
+    return { accessToken: body.access_token };
+  } catch (error) {
+    // Timeout, network failure or an unparseable body. Only the error's name is
+    // logged, since a message could quote the response.
+    return { error: oauthError(502, 'server_error', 'Netlify token exchange failed', 'server-redirect', {
+      reason: 'token request failed',
+      errorName: error instanceof Error ? error.name : typeof error,
+    }) };
+  }
 }
 
 
@@ -316,6 +375,19 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
+  const verified = await verifyReturnedState(initState);
+  if ('error' in verified) {
+    return verified.error;
+  }
+
+  return issueAuthorizationCode(token, verified.state);
+}
+
+/**
+ * Verify the state that comes back through Netlify and rebuild the authorize
+ * request from it.
+ */
+async function verifyReturnedState(initState: string): Promise<{ state: AUTH_REQUEST_STATE } | { error: HandlerResponse }> {
   // Only a state we signed at /authorize is accepted. An unsigned or edited one
   // would let a crafted link skip /authorize and choose where the code goes,
   // without that destination ever being shown on Netlify's consent screen.
@@ -323,10 +395,10 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
   try {
     stateObj = await verifyInitState(initState);
   } catch (error) {
-    return oauthError(400, 'invalid_request', 'Invalid or expired init-state parameter', 'server-redirect', {
+    return { error: oauthError(400, 'invalid_request', 'Invalid or expired init-state parameter', 'server-redirect', {
       reason: 'init-state verification failed',
       detail: error instanceof Error ? error.message : String(error),
-    });
+    }) };
   }
 
   try {
@@ -340,7 +412,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     for (const param of requiredStateParams) {
       if (!stateObj[param]) {
-        return oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`, 'server-redirect', { missingStateParam: param });
+        return { error: oauthError(400, 'invalid_request', `Missing required parameter in init-state: ${param}`, 'server-redirect', { missingStateParam: param }) };
       }
     }
 
@@ -352,7 +424,7 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     for (const [param, expectedValue] of Object.entries(expectedStateValues)) {
       const value = stateObj[param as keyof typeof expectedStateValues];
       if (value !== expectedValue) {
-        return oauthError(400, 'invalid_request', `Invalid ${param} in init-state`, 'server-redirect', { param, value, expected: expectedValue });
+        return { error: oauthError(400, 'invalid_request', `Invalid ${param} in init-state`, 'server-redirect', { param, value, expected: expectedValue }) };
       }
     }
 
@@ -375,35 +447,47 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
     // registration before we 302 to it, even though we signed it ourselves.
     const { error: redirectError } = await validateClientRedirect(validatedState.client_id, validatedState.redirect_uri, 'server-redirect');
     if (redirectError) {
-      return redirectError;
+      return { error: redirectError };
     }
 
-    const rediredctURL = new URL(validatedState.redirect_uri);
+    return { state: validatedState };
+  } catch (error) {
+    return { error: oauthError(400, 'invalid_request', 'Invalid init-state parameter', 'server-redirect', { reason: 'init-state invalid', detail: error instanceof Error ? error.message : String(error) }) };
+  }
+}
 
-    if(validatedState.state) {
-      rediredctURL.searchParams.set('state', validatedState.state);
+/**
+ * Wrap the user's Netlify token in the MCP's authorization code and send it to
+ * the redirect_uri from the verified state.
+ */
+async function issueAuthorizationCode(accessToken: string, state: AUTH_REQUEST_STATE): Promise<HandlerResponse> {
+  try {
+    const redirectURL = new URL(state.redirect_uri);
+
+    if(state.state) {
+      redirectURL.searchParams.set('state', state.state);
     }
 
     // RFC 9207: Include iss parameter in authorization response
-    rediredctURL.searchParams.set('iss', getOAuthIssuer());
+    redirectURL.searchParams.set('iss', getOAuthIssuer());
 
     // Resolve the user/team for this token once, here, so it can be embedded in
     // the code (and downstream access/refresh tokens) without a per-request
     // lookup. Best-effort — never blocks issuing the code.
-    const identity = await resolveIdentity(token);
+    const identity = await resolveIdentity(accessToken);
 
     // TODO: future, we will add specific tools and other context to this for
     // downstream validation
-    log.info('server redirect: issuing authorization code', { client_id: maskToken(validatedState.client_id), redirect_host: redirectHostForLog(validatedState.redirect_uri), scope: truncateForLog(validatedState.scope), hasIdentity: !!identity });
+    log.info('server redirect: issuing authorization code', { client_id: maskToken(state.client_id), redirect_host: redirectHostForLog(state.redirect_uri), scope: truncateForLog(state.scope), hasIdentity: !!identity });
 
-    const jwe = await createJWE({ typ: TOKEN_TYPE.code, state: validatedState, accessToken: token, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
+    const jwe = await createJWE({ typ: TOKEN_TYPE.code, state, accessToken, ...(identity ? { identity } : {}) } satisfies CODE_JWE_PAYLOAD);
 
-    rediredctURL.searchParams.set('code', jwe);
+    redirectURL.searchParams.set('code', jwe);
 
     return {
       statusCode: 302,
       headers: {
-        'Location': rediredctURL.toString(),
+        'Location': redirectURL.toString(),
       },
       body: ''
     };

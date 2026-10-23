@@ -93,6 +93,14 @@ test('authorize and token endpoints are still routed to their handlers', async (
   assert.equal(token.json.error, 'invalid_request');
 });
 
+test('client-redirect is answered by the server-side callback, not a page', async () => {
+  // No code or state -> the callback rejects with JSON rather than serving HTML.
+  const r = await call('GET', '/oauth-server/client-redirect');
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error, 'invalid_request');
+  assert.ok(!r.body.includes('<script'));
+});
+
 test('removed endpoints return a clean 404 invalid_request', async () => {
   // Everything that used to be served by the OIDC provider catch-all is gone.
   for (const path of [
