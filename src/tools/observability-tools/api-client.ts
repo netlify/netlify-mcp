@@ -1,4 +1,4 @@
-import { authenticatedFetch, NetlifyApiError } from '../../utils/api-networking.js';
+import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError, userIsAuthenticated } from '../../utils/api-networking.js';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -220,19 +220,19 @@ const parseApiMessage = (text: string): string | undefined => {
   return raw ? capDetail(raw) : undefined;
 };
 
+const isOutOfBounds = (text: string): boolean =>
+  !!parseApiMessage(text)?.toLowerCase().includes(OUT_OF_BOUNDS_MSG);
+
 // Turn a non-OK observability response into the right error class, so the tool
 // dispatcher can tell an expected client outcome (4xx, logged at warn) from a
 // real failure (5xx, logged at error), and so the agent gets a message it can
 // act on rather than a bare status.
 export const classifyFailure = (status: number, text: string): Error => {
-  const msg = parseApiMessage(text);
-
-  // No 401 here flags an OAuth challenge: the handler's /user gate already
-  // passed in this request, so a 401 is not an expired token.
-  if (status === 401 && msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
+  if (status === 401 && isOutOfBounds(text)) {
     return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
   }
 
+  const msg = parseApiMessage(text);
   return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
 };
 
@@ -251,7 +251,15 @@ const request = async <T>(path: string, params: URLSearchParams, init: RequestIn
   const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest, { callerHandles401: true });
 
   if (!response.ok) {
-    throw classifyFailure(response.status, await readBodyText(response));
+    const text = await readBodyText(response);
+    // This API also answers 401 for non-auth reasons, so a 401 alone doesn't mean
+    // the token failed. Unless it's the retention limit, re-check with /user in
+    // case the token was revoked mid-request; userIsAuthenticated flags the
+    // OAuth challenge if so.
+    if (response.status === 401 && !isOutOfBounds(text) && !(await userIsAuthenticated(incomingRequest))) {
+      throw new NetlifyUnauthError('Unauthenticated request to Netlify observability API');
+    }
+    throw classifyFailure(response.status, text);
   }
 
   return await response.json() as T;

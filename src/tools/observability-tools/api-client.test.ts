@@ -1,7 +1,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { withRequestSignals, getAuthChallenge } from '../../../netlify/functions/mcp-server/request-signals.ts';
-import { NetlifyApiError } from '../../utils/api-networking.ts';
+import { NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.ts';
 import { getLists, OUT_OF_BOUNDS_MSG } from './api-client.ts';
 
 // A raw PAT bearer is used as-is, so no JWE secret or decryption is involved.
@@ -15,16 +15,25 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-const stubFetch = (status: number, body: string) => {
-  globalThis.fetch = (async () =>
-    new Response(body, { status, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+// A 401 other than the retention limit makes the client re-check /api/v1/user,
+// so the stub answers that path separately. Returns the paths fetched.
+const stubFetch = (status: number, body: string, userStatus = 200) => {
+  const paths: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    return path === '/api/v1/user'
+      ? new Response('{}', { status: userStatus })
+      : new Response(body, { status, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  return paths;
 };
 
 const callLists = () =>
   getLists('site-123', 1, 2, { name: 'edge_requests_logs', page: 1, per_page: 1 }, incoming());
 
 test('a 401 "requested window out of bounds" is a client error with guidance, not an auth challenge', async () => {
-  stubFetch(401, JSON.stringify({ code: 401, msg: OUT_OF_BOUNDS_MSG, error_id: 'x' }));
+  const paths = stubFetch(401, JSON.stringify({ code: 401, msg: OUT_OF_BOUNDS_MSG, error_id: 'x' }));
 
   await withRequestSignals(async () => {
     const err = await callLists().then(() => null, (e: unknown) => e);
@@ -39,6 +48,7 @@ test('a 401 "requested window out of bounds" is a client error with guidance, no
     assert.ok(err.status < 500);
     // And the handler must not turn this into an OAuth re-auth challenge.
     assert.equal(getAuthChallenge(), undefined);
+    assert.ok(!paths.includes('/api/v1/user'), 'the retention limit needs no token re-check');
   });
 });
 
@@ -54,8 +64,8 @@ test('the out-of-bounds match ignores casing and extra words', async () => {
   });
 });
 
-test('any other 401 is a NetlifyApiError and does not flag the OAuth challenge', async () => {
-  stubFetch(401, JSON.stringify({ code: 401, msg: 'Unauthorized' }));
+test('any other 401 with a still-valid token is a NetlifyApiError and does not flag the OAuth challenge', async () => {
+  const paths = stubFetch(401, JSON.stringify({ code: 401, msg: 'Unauthorized' }));
 
   await withRequestSignals(async () => {
     const err = await callLists().then(() => null, (e: unknown) => e);
@@ -63,11 +73,22 @@ test('any other 401 is a NetlifyApiError and does not flag the OAuth challenge',
     assert.equal(err.status, 401);
     assert.match(err.message, /Unauthorized/);
     assert.equal(getAuthChallenge(), undefined);
+    assert.ok(paths.includes('/api/v1/user'));
+  });
+});
+
+test('a 401 after the token was revoked mid-request flags the OAuth challenge', async () => {
+  stubFetch(401, JSON.stringify({ code: 401, msg: 'Unauthorized' }), 401);
+
+  await withRequestSignals(async () => {
+    await assert.rejects(callLists(), NetlifyUnauthError);
+    assert.deepEqual(getAuthChallenge(), { errorDescription: 'The Netlify access token is no longer valid' });
   });
 });
 
 test('a 401 whose body cannot be read is a NetlifyApiError with no challenge flagged', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (new URL(String(input)).pathname === '/api/v1/user') return new Response('{}', { status: 200 });
     const response = new Response('', { status: 401 });
     response.text = async () => { throw new Error('socket closed mid-body'); };
     return response;
