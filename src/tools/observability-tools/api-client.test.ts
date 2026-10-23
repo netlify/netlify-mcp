@@ -124,6 +124,15 @@ test('a long non-JSON error body is capped', async () => {
   assert.doesNotMatch(err.message, /x{501}/);
 });
 
+test('a long JSON msg is capped', async () => {
+  stubFetch(400, JSON.stringify({ code: 400, msg: 'y'.repeat(2000) }));
+
+  const err = await callLists().then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.match(err.message, /y{500}\.\.\.$/);
+  assert.doesNotMatch(err.message, /y{501}/);
+});
+
 test('a 200 returns the parsed body', async () => {
   stubFetch(200, JSON.stringify({ data: [], meta: { responses: [] } }));
   const result = await callLists();

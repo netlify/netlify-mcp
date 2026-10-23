@@ -204,18 +204,20 @@ const OUT_OF_BOUNDS_GUIDANCE =
 
 const MAX_DETAIL_LENGTH = 500;
 
+const capDetail = (detail: string): string =>
+  detail.length > MAX_DETAIL_LENGTH ? `${detail.slice(0, MAX_DETAIL_LENGTH)}...` : detail;
+
 // The API's own message: the JSON `msg` when there is one, else the raw body so
 // the agent still sees what went wrong.
 const parseApiMessage = (text: string): string | undefined => {
   try {
     const body = JSON.parse(text);
-    if (typeof body?.msg === 'string') return body.msg;
+    if (typeof body?.msg === 'string') return capDetail(body.msg);
   } catch {
     // not JSON; fall through to the raw text
   }
   const raw = text.trim();
-  if (!raw) return undefined;
-  return raw.length > MAX_DETAIL_LENGTH ? `${raw.slice(0, MAX_DETAIL_LENGTH)}...` : raw;
+  return raw ? capDetail(raw) : undefined;
 };
 
 // Turn a non-OK observability response into the right error class, so the tool
