@@ -58,8 +58,8 @@ export interface AuthenticatedFetchOptions {
   // Some endpoints answer 401 for non-auth reasons (the observability API says
   // 401 "requested window out of bounds" past the plan's retention). By default a
   // 401 flags an OAuth challenge that sends the agent back through sign-in. Set
-  // this to get the raw 401 instead; the caller must then flagAuthChallenge()
-  // for any 401 that really is an auth failure.
+  // this to get the raw 401 instead; the caller decides what it means and calls
+  // flagAuthChallenge() itself only for a real auth failure.
   callerHandles401?: boolean;
 }
 
@@ -226,7 +226,7 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     if (!response.ok) {
       if (response.status === 401 && callerHandles401) {
         // The endpoint uses 401 for non-auth rejections too; the caller owns the
-        // decision (and flags the challenge itself if it was auth after all).
+        // decision (and flags the challenge itself if it is a real auth failure).
         log.debug('netlify api returned 401, caller is classifying it', { method, apiPath: url.pathname });
       } else if (response.status === 401) {
         // A 401 is a routine token-expiry signal, not an API failure — it's

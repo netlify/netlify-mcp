@@ -1,5 +1,4 @@
-import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
-import { flagAuthChallenge } from '../../../netlify/functions/mcp-server/request-signals.ts';
+import { authenticatedFetch, NetlifyApiError } from '../../utils/api-networking.js';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -201,15 +200,22 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 export const OUT_OF_BOUNDS_MSG = 'requested window out of bounds';
 
 const OUT_OF_BOUNDS_GUIDANCE =
-  'The requested time window is outside this team\'s log retention (typically 24 hours on free, 7 days on pro and business, 30 days on enterprise). Move from_ts later so the whole window falls inside the retention period and try again.';
+  'The entire requested time window is older than this team\'s log retention (24 hours on free, 7 days on pro and business, 30 days on enterprise), so that data is no longer available. A query needs a window whose end (to_ts) falls within retention; a single request older than retention can\'t be retrieved.';
 
+const MAX_DETAIL_LENGTH = 500;
+
+// The API's own message: the JSON `msg` when there is one, else the raw body so
+// the agent still sees what went wrong.
 const parseApiMessage = (text: string): string | undefined => {
   try {
     const body = JSON.parse(text);
-    return typeof body?.msg === 'string' ? body.msg : undefined;
+    if (typeof body?.msg === 'string') return body.msg;
   } catch {
-    return undefined;
+    // not JSON; fall through to the raw text
   }
+  const raw = text.trim();
+  if (!raw) return undefined;
+  return raw.length > MAX_DETAIL_LENGTH ? `${raw.slice(0, MAX_DETAIL_LENGTH)}...` : raw;
 };
 
 // Turn a non-OK observability response into the right error class, so the tool
@@ -219,16 +225,10 @@ const parseApiMessage = (text: string): string | undefined => {
 export const classifyFailure = (status: number, text: string): Error => {
   const msg = parseApiMessage(text);
 
-  if (status === 401) {
-    // Loose match: if the upstream wording drifts, failing back to an OAuth
-    // challenge would be the worse outcome.
-    if (msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
-      return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
-    }
-    // Any other 401 is treated as the token failing after all: flag the OAuth
-    // challenge, exactly as authenticatedFetch would have.
-    flagAuthChallenge('The Netlify access token is no longer valid');
-    return new NetlifyUnauthError(`Unauthenticated request to Netlify observability API (${msg ?? 'no message'})`);
+  // No 401 here flags an OAuth challenge: the handler's /user gate already
+  // passed in this request, so a 401 is not an expired token.
+  if (status === 401 && msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
+    return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
   }
 
   return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
@@ -236,7 +236,7 @@ export const classifyFailure = (status: number, text: string): Error => {
 
 // A body read can fail when the connection drops mid-download. The status is
 // still known, so classify on it with an empty body rather than losing the
-// classification (and, for a 401, the OAuth challenge) to a body-read error.
+// classification to a body-read error.
 const readBodyText = async (response: Response): Promise<string> => {
   try {
     return await response.text();

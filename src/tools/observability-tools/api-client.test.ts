@@ -1,7 +1,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { withRequestSignals, getAuthChallenge } from '../../../netlify/functions/mcp-server/request-signals.ts';
-import { NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.ts';
+import { NetlifyApiError } from '../../utils/api-networking.ts';
 import { getLists, OUT_OF_BOUNDS_MSG } from './api-client.ts';
 
 // A raw PAT bearer is used as-is, so no JWE secret or decryption is involved.
@@ -32,6 +32,8 @@ test('a 401 "requested window out of bounds" is a client error with guidance, no
     assert.equal(err.status, 401);
     assert.match(err.message, /requested window out of bounds/);
     assert.match(err.message, /retention/);
+    assert.match(err.message, /to_ts/);
+    assert.doesNotMatch(err.message, /Move from_ts later/);
     // The dispatcher classifies NetlifyApiError < 500 as a warning; this is the
     // bit that keeps plan-limit rejections out of the failure-rate monitor.
     assert.ok(err.status < 500);
@@ -40,16 +42,31 @@ test('a 401 "requested window out of bounds" is a client error with guidance, no
   });
 });
 
-test('any other 401 is still an auth failure and flags the OAuth challenge', async () => {
-  stubFetch(401, JSON.stringify({ code: 401, msg: 'Unauthorized' }));
+test('the out-of-bounds match ignores casing and extra words', async () => {
+  stubFetch(401, JSON.stringify({ code: 401, msg: 'Requested window out of bounds: from_ts too old' }));
 
   await withRequestSignals(async () => {
-    await assert.rejects(callLists(), NetlifyUnauthError);
-    assert.deepEqual(getAuthChallenge(), { errorDescription: 'The Netlify access token is no longer valid' });
+    const err = await callLists().then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof NetlifyApiError);
+    assert.equal(err.status, 401);
+    assert.match(err.message, /to_ts/);
+    assert.equal(getAuthChallenge(), undefined);
   });
 });
 
-test('a 401 whose body cannot be read is still an auth failure with the challenge flagged', async () => {
+test('any other 401 is a NetlifyApiError and does not flag the OAuth challenge', async () => {
+  stubFetch(401, JSON.stringify({ code: 401, msg: 'Unauthorized' }));
+
+  await withRequestSignals(async () => {
+    const err = await callLists().then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof NetlifyApiError, `expected NetlifyApiError, got ${String(err)}`);
+    assert.equal(err.status, 401);
+    assert.match(err.message, /Unauthorized/);
+    assert.equal(getAuthChallenge(), undefined);
+  });
+});
+
+test('a 401 whose body cannot be read is a NetlifyApiError with no challenge flagged', async () => {
   globalThis.fetch = (async () => {
     const response = new Response('', { status: 401 });
     response.text = async () => { throw new Error('socket closed mid-body'); };
@@ -57,8 +74,10 @@ test('a 401 whose body cannot be read is still an auth failure with the challeng
   }) as typeof fetch;
 
   await withRequestSignals(async () => {
-    await assert.rejects(callLists(), NetlifyUnauthError);
-    assert.deepEqual(getAuthChallenge(), { errorDescription: 'The Netlify access token is no longer valid' });
+    const err = await callLists().then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof NetlifyApiError, `expected NetlifyApiError, got ${String(err)}`);
+    assert.equal(err.status, 401);
+    assert.equal(getAuthChallenge(), undefined);
   });
 });
 
@@ -77,10 +96,32 @@ test('a 404 is a NetlifyApiError carrying the status and API message', async () 
 test('a 5xx is a NetlifyApiError with status >= 500 so the dispatcher logs it as a failure', async () => {
   stubFetch(502, 'bad gateway');
 
+  await withRequestSignals(async () => {
+    const err = await callLists().then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof NetlifyApiError);
+    assert.equal(err.status, 502);
+    assert.match(err.message, /HTTP 502/);
+    assert.match(err.message, /bad gateway/);
+    assert.equal(getAuthChallenge(), undefined);
+  });
+});
+
+test('a JSON error body without msg keeps the raw detail', async () => {
+  stubFetch(400, JSON.stringify({ message: 'invalid per_page' }));
+
   const err = await callLists().then(() => null, (e: unknown) => e);
   assert.ok(err instanceof NetlifyApiError);
-  assert.equal(err.status, 502);
-  assert.match(err.message, /HTTP 502/);
+  assert.equal(err.status, 400);
+  assert.match(err.message, /invalid per_page/);
+});
+
+test('a long non-JSON error body is capped', async () => {
+  stubFetch(502, 'x'.repeat(2000));
+
+  const err = await callLists().then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.match(err.message, /x{500}\.\.\.$/);
+  assert.doesNotMatch(err.message, /x{501}/);
 });
 
 test('a 200 returns the parsed body', async () => {
