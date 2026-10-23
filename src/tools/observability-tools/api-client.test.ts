@@ -15,8 +15,8 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-// A 401 other than the retention limit makes the client re-check /api/v1/user,
-// so the stub answers that path separately. Returns the paths fetched.
+// On a 401, authenticatedFetch re-checks /api/v1/user, so the stub answers that
+// path separately. Returns the paths fetched.
 const stubFetch = (status: number, body: string, userStatus = 200) => {
   const paths: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -48,7 +48,7 @@ test('a 401 "requested window out of bounds" is a client error with guidance, no
     assert.ok(err.status < 500);
     // And the handler must not turn this into an OAuth re-auth challenge.
     assert.equal(getAuthChallenge(), undefined);
-    assert.ok(!paths.includes('/api/v1/user'), 'the retention limit needs no token re-check');
+    assert.ok(paths.includes('/api/v1/user'), 'authenticatedFetch re-checks the token on a 401');
   });
 });
 

@@ -9,6 +9,7 @@ import {
   authenticatedFetch,
   getAPIJSONResult,
   getNetlifyAccessToken,
+  isAuthFailure,
   NetlifyUnauthError,
   type NetlifySite,
 } from '../../utils/api-networking.js';
@@ -318,7 +319,7 @@ async function createUnderTeam(
     const body = { created_via: CREATED_VIA, ...(password ? { password } : {}), ...extra };
     const response = await authenticatedFetch(path, { method: 'POST', body: JSON.stringify(body) }, request);
 
-    if (response.status === 401 && request) {
+    if (isAuthFailure(response)) {
       throw new NetlifyUnauthError();
     }
     if (response.ok) {

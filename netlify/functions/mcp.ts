@@ -295,10 +295,11 @@ async function handleMCPPost(req: Request) {
 
   const response = await handler.fetch(reqWithBody);
 
-  // If any authenticated Netlify API call returned 401 during tool execution, the
-  // SDK has already turned that into a normal 200 tool result — so we translate
-  // it back into a real OAuth challenge here, driven by the flag that
-  // authenticatedFetch set (see request-signals.ts), not by inspecting the body.
+  // If a Netlify API call during tool execution hit a 401 that authenticatedFetch
+  // confirmed as a bad token (it re-checks /user first), the SDK has already
+  // turned that into a normal 200 tool result — so we translate it back into a
+  // real OAuth challenge here, driven by the flag authenticatedFetch set (see
+  // request-signals.ts), not by inspecting the body.
   const authChallenge = getAuthChallenge();
   if (authChallenge) {
     log.warn('netlify api returned 401 during tool execution; issuing auth challenge');

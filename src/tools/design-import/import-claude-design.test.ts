@@ -2,6 +2,35 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runClaudeDesignImport } from './import-claude-design.ts';
 import { log } from '../../../netlify/functions/mcp-server/logger.ts';
+import { withRequestSignals, getAuthChallenge } from '../../../netlify/functions/mcp-server/request-signals.ts';
+import { NetlifyUnauthError } from '../../utils/api-networking.ts';
+
+test('a 401 on site creation with a still-valid token is not an auth error', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'files.claudeusercontent.com') return new Response('<html></html>');
+    // /api/v1/user answers 200, so the 401 on /api/v1/sites is not a bad token.
+    return url.pathname === '/api/v1/user' ? new Response('{}', { status: 200 }) : new Response('{}', { status: 401 });
+  }) as typeof fetch;
+  const request = new Request('https://netlify-mcp.netlify.app/mcp', {
+    headers: { Authorization: 'Bearer nfp_test' },
+  });
+
+  await withRequestSignals(async () => {
+    const err = await runClaudeDesignImport({ url: 'https://files.claudeusercontent.com/design.html' }, request).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof Error, 'expected an error');
+    assert.ok(!(err instanceof NetlifyUnauthError), `got an auth error: ${err.message}`);
+    assert.match(err.message, /failed to create site \(401\)/);
+    assert.equal(getAuthChallenge(), undefined);
+  });
+});
 
 test('a disallowed host is logged with the full url and the claude design project id', async (t) => {
   const calls: Array<[string, any]> = [];

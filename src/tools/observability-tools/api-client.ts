@@ -1,4 +1,4 @@
-import { authenticatedFetch, NetlifyApiError, NetlifyUnauthError, userIsAuthenticated } from '../../utils/api-networking.js';
+import { authenticatedFetch, isAuthFailure, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -195,8 +195,8 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 
 // The observability API answers 401 with this message when the requested window
 // reaches further back than the team plan's log retention. It is a plan limit,
-// not an auth failure: by the time a tool runs, the MCP handler has already
-// verified the token with a /user lookup.
+// not an auth failure: authenticatedFetch re-checks the token on a 401 and only
+// flags the OAuth challenge if the token is actually bad.
 export const OUT_OF_BOUNDS_MSG = 'requested window out of bounds';
 
 const OUT_OF_BOUNDS_GUIDANCE =
@@ -220,19 +220,16 @@ const parseApiMessage = (text: string): string | undefined => {
   return raw ? capDetail(raw) : undefined;
 };
 
-const isOutOfBounds = (text: string): boolean =>
-  !!parseApiMessage(text)?.toLowerCase().includes(OUT_OF_BOUNDS_MSG);
-
 // Turn a non-OK observability response into the right error class, so the tool
 // dispatcher can tell an expected client outcome (4xx, logged at warn) from a
 // real failure (5xx, logged at error), and so the agent gets a message it can
 // act on rather than a bare status.
 export const classifyFailure = (status: number, text: string): Error => {
-  if (status === 401 && isOutOfBounds(text)) {
+  const msg = parseApiMessage(text);
+  if (status === 401 && msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
     return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
   }
 
-  const msg = parseApiMessage(text);
   return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
 };
 
@@ -251,15 +248,12 @@ const request = async <T>(path: string, params: URLSearchParams, init: RequestIn
   const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest);
 
   if (!response.ok) {
-    const text = await readBodyText(response);
-    // This API also answers 401 for non-auth reasons, so a 401 alone doesn't mean
-    // the token failed. Unless it's the retention limit, re-check with /user in
-    // case the token was revoked mid-request; userIsAuthenticated flags the
-    // OAuth challenge if so.
-    if (response.status === 401 && !isOutOfBounds(text) && !(await userIsAuthenticated(incomingRequest))) {
+    // This API also answers 401 for non-auth reasons; only a 401 that
+    // authenticatedFetch confirmed as a bad token is an auth failure.
+    if (isAuthFailure(response)) {
       throw new NetlifyUnauthError('Unauthenticated request to Netlify observability API');
     }
-    throw classifyFailure(response.status, text);
+    throw classifyFailure(response.status, await readBodyText(response));
   }
 
   return await response.json() as T;
