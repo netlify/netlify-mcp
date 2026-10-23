@@ -256,6 +256,12 @@ export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestIni
   if(!apiInteractionOptions.pagination){
     const response = await authenticatedFetch(urlOrPath, options, incomingRequest, apiInteractionOptions.quietStatuses);
 
+    // A remote 401 is recorded on the request; don't let a failureCallback turn
+    // it into a normal tool result.
+    if (response.status === 401 && incomingRequest) {
+      throw new NetlifyApiError(401);
+    }
+
     if (!response.ok) {
       if(apiInteractionOptions.failureCallback){
         return apiInteractionOptions.failureCallback(response) as T;

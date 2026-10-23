@@ -147,3 +147,34 @@ test('getAPIJSONResult: a remote 401 is a NetlifyApiError(401), not a NetlifyUna
     });
   });
 });
+
+test('getAPIJSONResult: a remote 401 throws before failureCallback runs', async () => {
+  const { getAPIJSONResult, NetlifyApiError } = await import('./api-networking.ts');
+  const { withRequestSignals } = await import('../../netlify/functions/mcp-server/request-signals.ts');
+  await withStub(async () => {
+    stubFetch(401);
+    const failureCallback = mock.fn(() => 'handled');
+    await withRequestSignals(async () => {
+      const err = await getAPIJSONResult('/api/v1/sites', {}, { failureCallback }, incoming()).then(() => null, (e: unknown) => e);
+      assert.ok(err instanceof NetlifyApiError);
+      assert.equal(err.status, 401);
+      assert.equal(failureCallback.mock.callCount(), 0);
+    });
+  });
+});
+
+test('getAPIJSONResult: a local 401 still reaches failureCallback', async () => {
+  const { getAPIJSONResult } = await import('./api-networking.ts');
+  await withStub(async () => {
+    process.env.NETLIFY_PERSONAL_ACCESS_TOKEN = 'nfp_local';
+    try {
+      stubFetch(401);
+      const failureCallback = mock.fn(() => 'handled');
+      const result = await getAPIJSONResult('/api/v1/sites', {}, { failureCallback });
+      assert.equal(result, 'handled');
+      assert.equal(failureCallback.mock.callCount(), 1);
+    } finally {
+      delete process.env.NETLIFY_PERSONAL_ACCESS_TOKEN;
+    }
+  });
+});
