@@ -248,7 +248,7 @@ const readBodyText = async (response: Response): Promise<string> => {
 };
 
 const request = async <T>(path: string, params: URLSearchParams, init: RequestInit, incomingRequest?: Request): Promise<T> => {
-  const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest, { callerHandles401: true });
+  const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest);
 
   if (!response.ok) {
     const text = await readBodyText(response);
