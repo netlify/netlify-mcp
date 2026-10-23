@@ -15,7 +15,7 @@ import {
 import { attributionParams } from "./agent-attribution.ts";
 // Grant types this Authorization Server issues, shared with the discovery
 // metadata so registration validation and what we advertise can't drift apart.
-import { SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
+import { OAUTH_ROUTES, SUPPORTED_GRANT_TYPES } from "./oauth-config.ts";
 import { signInitState, verifyInitState, type AUTH_REQUEST_STATE } from "./init-state.ts";
 import { isTokenTypeAllowed, TOKEN_TYPE } from "./token-types.ts";
 
@@ -161,8 +161,8 @@ function getClientIdFromRequest(req: Request, bodyParams: URLSearchParams): stri
 
 /**
  * Build an OAuth error response and log it. `op` identifies which call failed
- * (e.g. 'authorize', 'token', 'token/refresh', 'server-redirect') and `context`
- * carries any extra detail about why, so failures are traceable from the logs.
+ * (e.g. 'authorize', 'token', 'token/refresh'; 'server-redirect' is the legacy
+ * label for the Netlify callback, not an endpoint) and `context` carries any extra detail about why, so failures are traceable from the logs.
  */
 function oauthError(
   statusCode: number,
@@ -196,7 +196,7 @@ function oauthError(
  * exchange must name this exact URL again, so both sides build it here.
  */
 function netlifyCallbackUrl(origin: string): string {
-  return `${origin}/oauth-server/client-redirect`;
+  return `${origin}${OAUTH_ROUTES.clientRedirect}`;
 }
 
 
@@ -279,8 +279,7 @@ const CALLBACK_HEADERS = {
  * exchanged, server to server, for the user's Netlify token, which goes into
  * the MCP's own authorization code. The browser never holds that token.
  *
- * Failures log under op 'server-redirect', the name the code-issuing log line
- * uses, so one query covers the whole step.
+ * 'server-redirect' is kept as the op label so existing log queries keep matching.
  */
 export async function handleNetlifyCallback(req: Request): Promise<HandlerResponse> {
   const response = await processNetlifyCallback(req);
@@ -365,10 +364,6 @@ async function exchangeNetlifyCode(code: string, redirectUri: string): Promise<{
   }
 }
 
-/**
- * Verify the state that comes back through Netlify and rebuild the authorize
- * request from it.
- */
 async function verifyReturnedState(initState: string): Promise<{ state: AUTH_REQUEST_STATE } | { error: HandlerResponse }> {
   // Only a state we signed at /authorize is accepted. An unsigned or edited one
   // would let a crafted link skip /authorize and choose where the code goes,
@@ -438,10 +433,6 @@ async function verifyReturnedState(initState: string): Promise<{ state: AUTH_REQ
   }
 }
 
-/**
- * Wrap the user's Netlify token in the MCP's authorization code and send it to
- * the redirect_uri from the verified state.
- */
 async function issueAuthorizationCode(accessToken: string, state: AUTH_REQUEST_STATE): Promise<HandlerResponse> {
   try {
     const redirectURL = new URL(state.redirect_uri);
