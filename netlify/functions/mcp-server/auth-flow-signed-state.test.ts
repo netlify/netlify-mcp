@@ -120,6 +120,27 @@ test('authorize hands Netlify a signed state whose payload shows the redirect wi
   assert.equal(new URL(payload.redirect_uri).origin, 'https://client.example.com');
 });
 
+test('authorize asks Netlify for a code and returns to client-redirect', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const url = new URL(`${ISSUER}/oauth-server/auth`);
+  url.search = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: CLIENT_REDIRECT,
+    code_challenge: CHALLENGE,
+    code_challenge_method: 'S256',
+    state: 'client-state',
+    scope: 'offline_access',
+  }).toString();
+  const res = await handleAuthStart(new Request(url));
+
+  assert.equal(res.statusCode, 302);
+  const location = new URL(res.headers!.Location as string);
+  assert.equal(location.origin, 'https://app.netlify.com');
+  assert.equal(location.searchParams.get('response_type'), 'code');
+  assert.equal(location.searchParams.get('redirect_uri'), `${ISSUER}/oauth-server/client-redirect`);
+});
+
 test('server-redirect sends the code to the redirect in the signed state', async () => {
   const clientId = await registerClient(CLIENT_REDIRECT);
   const res = await serverRedirect(await authorize(clientId, CLIENT_REDIRECT));

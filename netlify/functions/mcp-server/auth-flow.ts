@@ -248,7 +248,7 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   return {
     statusCode: 302,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
+      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=code&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
     },
     body: ''
   };
