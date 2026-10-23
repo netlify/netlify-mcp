@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.21.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.20.0...mcp-v1.21.0) (2026-10-23)
+
+
+### Features
+
+* publish an MCP server card for discovery ([#81](https://github.com/netlify/netlify-mcp/issues/81)) ([c48b528](https://github.com/netlify/netlify-mcp/commit/c48b528aa37d9423c67c45727bf17d8f40a7c8e8))
+
+
+### Bug Fixes
+
+* **oauth:** keep the upstream Netlify token out of URLs ([#88](https://github.com/netlify/netlify-mcp/issues/88)) ([080752a](https://github.com/netlify/netlify-mcp/commit/080752a77c84c427958a6bf44efc2c82424cd4c9))
+
 ## [1.20.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.19.0...mcp-v1.20.0) (2026-10-20)
 
 
