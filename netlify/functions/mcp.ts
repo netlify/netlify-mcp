@@ -50,8 +50,8 @@ export default async (req: Request, context: Context) => {
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
     // Open a request-signals scope around the whole request so tool/API code can
-    // flag an auth challenge (see request-signals.ts) that handleMCPPost reads
-    // back after the MCP SDK has produced its response.
+    // record a Netlify 401 there; handleMCPPost confirms it with /api/v1/user
+    // before issuing an OAuth challenge.
     () => withRequestSignals(async () => {
       try {
 
