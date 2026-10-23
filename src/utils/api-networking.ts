@@ -197,6 +197,14 @@ export const unauthenticatedFetch = async (url: string, options: RequestInit = {
 export const isAuthFailure = (response: Response): boolean =>
   response.status === 401 && getAuthChallenge() !== undefined;
 
+// One bare request to /user with an already-resolved token; true when rejected (401).
+const probeTokenRejected = async (token: string): Promise<boolean> => {
+  const response = await unauthenticatedFetch('https://api.netlify.com/api/v1/user', {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  return response.status === 401;
+}
+
 export const authenticatedFetch = async (urlOrPath: string, options: RequestInit = {}, incomingRequest?: Request, quietStatuses?: number[]) => {
   const token = await getNetlifyAccessToken(incomingRequest);
   const url = new URL(urlOrPath, 'https://api.netlify.com')
@@ -218,13 +226,13 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     if (!response.ok) {
       if (response.status === 401) {
         // Some endpoints answer 401 for non-auth reasons (the observability API
-        // does past the plan's retention), so on remote MCP re-check the token
-        // before flagging. The /user call is that check and never re-checks
-        // itself. A failed re-check counts as a bad token. Never throws.
+        // does past the plan's retention), so on remote MCP probe /user with
+        // this token before flagging. Skipped for /user itself. A failed probe
+        // counts as a bad token. Never throws.
         let tokenRejected = true;
         if (incomingRequest && url.pathname !== '/api/v1/user') {
           try {
-            tokenRejected = !(await userIsAuthenticated(incomingRequest));
+            tokenRejected = await probeTokenRejected(token);
           } catch {}
         }
         if (tokenRejected) {
