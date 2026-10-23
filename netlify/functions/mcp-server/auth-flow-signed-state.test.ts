@@ -95,7 +95,6 @@ async function authorize(clientId: string, redirectUri: string): Promise<string>
   return location.searchParams.get('state') as string;
 }
 
-/** Netlify sending the user back to client-redirect with `params`. */
 function callback(params: Record<string, string>) {
   const url = new URL(NETLIFY_CALLBACK);
   url.search = new URLSearchParams(params).toString();

@@ -101,20 +101,6 @@ test('client-redirect is answered by the server-side callback, not a page', asyn
   assert.ok(!r.body.includes('<script'));
 });
 
-test('the retired server-redirect route is a 404 and makes no fetch', async () => {
-  const origFetch = globalThis.fetch;
-  let fetches = 0;
-  globalThis.fetch = (async () => { fetches++; return new Response('{}'); }) as typeof fetch;
-  try {
-    const r = await call('GET', '/oauth-server/server-redirect' + '?token=x&init-state=y');
-    assert.equal(r.status, 404);
-    assert.equal(r.json.error, 'invalid_request');
-    assert.equal(fetches, 0);
-  } finally {
-    globalThis.fetch = origFetch;
-  }
-});
-
 test('removed endpoints return a clean 404 invalid_request', async () => {
   // Everything that used to be served by the OIDC provider catch-all is gone.
   for (const path of [
@@ -124,6 +110,7 @@ test('removed endpoints return a clean 404 invalid_request', async () => {
     '/oauth-server/backchannel',
     '/oauth-server/request', // pushed authorization request
     '/oauth-server/me',      // userinfo
+    '/oauth-server/server-redirect', // retired sign-in redirect
     '/404-jwks',
     '/oauth-server/nonsense',
   ]) {
