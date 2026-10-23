@@ -255,12 +255,20 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 }
 
 
+/**
+ * Netlify's implicit grant returns the upstream token in the URL fragment, which
+ * the browser never sends to a server. This page reads it and POSTs it to
+ * server-redirect in the request body. It must never travel as a query param:
+ * URLs end up in edge/CDN/function request logs and browser history, and the
+ * upstream token is a raw Netlify credential for the user.
+ */
 export async function handleClientSideAuthExchange(){
   return {
     statusCode: 200,
     headers: {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Referrer-Policy': 'no-referrer',
     },
     body: `
 <!DOCTYPE html>
@@ -298,7 +306,21 @@ export async function handleClientSideAuthExchange(){
       hashToken = hash;
     }
 
-    window.location.href = '/oauth-server/server-redirect?token=' + encodeURIComponent(hashToken) + '&init-state=' + encodeURIComponent(hashState);
+    // Drop the token from the address bar and session history.
+    history.replaceState(null, '', window.location.pathname);
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/oauth-server/server-redirect';
+    for (const [name, value] of [['access_token', hashToken], ['state', hashState]]) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
   </script>
 </body>
 </html>
@@ -307,13 +329,20 @@ export async function handleClientSideAuthExchange(){
 }
 
 
-export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {  
-  const parsedUrl = new URL(req.url);
-  const initState = parsedUrl.searchParams.get('init-state');
-  const token = parsedUrl.searchParams.get('token');
+export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
+  // The upstream token only ever arrives in a form-encoded POST body (see
+  // handleClientSideAuthExchange). A GET would mean it's in the URL, which gets
+  // logged, so refuse it rather than mint a code from it.
+  if (req.method !== 'POST') {
+    return oauthError(405, 'invalid_request', 'server-redirect only accepts POST', 'server-redirect', { method: req.method });
+  }
+
+  const bodyParams = new URLSearchParams(await req.text());
+  const initState = bodyParams.get('state');
+  const token = bodyParams.get('access_token');
 
   if (!initState || !token) {
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'state' : ''} ${!token ? 'access_token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
   // Only a state we signed at /authorize is accepted. An unsigned or edited one
@@ -400,10 +429,13 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     rediredctURL.searchParams.set('code', jwe);
 
+    // 303 so the browser follows with a GET rather than re-POSTing the token.
     return {
-      statusCode: 302,
+      statusCode: 303,
       headers: {
         'Location': rediredctURL.toString(),
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
       },
       body: ''
     };
