@@ -1,4 +1,4 @@
-import { authenticatedFetch, isAuthFailure, NetlifyApiError, NetlifyUnauthError } from '../../utils/api-networking.js';
+import { authenticatedFetch, NetlifyApiError } from '../../utils/api-networking.js';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -195,8 +195,8 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 
 // The observability API answers 401 with this message when the requested window
 // reaches further back than the team plan's log retention. It is a plan limit,
-// not an auth failure: authenticatedFetch re-checks the token on a 401 and only
-// flags the OAuth challenge if the token is actually bad.
+// not an auth failure: the request handler confirms the token before any sign-in
+// prompt.
 export const OUT_OF_BOUNDS_MSG = 'requested window out of bounds';
 
 const OUT_OF_BOUNDS_GUIDANCE =
@@ -248,11 +248,6 @@ const request = async <T>(path: string, params: URLSearchParams, init: RequestIn
   const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest);
 
   if (!response.ok) {
-    // This API also answers 401 for non-auth reasons; only a 401 that
-    // authenticatedFetch confirmed as a bad token is an auth failure.
-    if (isAuthFailure(response)) {
-      throw new NetlifyUnauthError('Unauthenticated request to Netlify observability API');
-    }
     throw classifyFailure(response.status, await readBodyText(response));
   }
 

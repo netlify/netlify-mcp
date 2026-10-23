@@ -42,21 +42,15 @@ test('the deploy proxy returns 401 (not a crash) for an expired token', async ()
   assert.equal(resp.status, 401);
 });
 
-// --- 401 re-check ---------------------------------------------------------
+// --- 401 recording --------------------------------------------------------
 
 const incoming = () => requestWithBearer('nfp_test');
 
-// Routes /api/v1/user separately; `userStatus` of 'throw' makes it reject.
-// Returns the paths fetched.
-const stubFetch = (status: number, userStatus: number | 'throw' = 200) => {
+// Answers every path with `status`. Returns the paths fetched.
+const stubFetch = (status: number) => {
   const paths: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const path = new URL(String(input)).pathname;
-    paths.push(path);
-    if (path === '/api/v1/user') {
-      if (userStatus === 'throw') throw new TypeError('network down');
-      return new Response('{}', { status: userStatus });
-    }
+    paths.push(new URL(String(input)).pathname);
     return new Response('{"msg":"no"}', { status });
   }) as typeof fetch;
   return paths;
@@ -72,75 +66,52 @@ const withStub = async (fn: () => Promise<void>) => {
   }
 };
 
-test('remote 401 with a still-valid token is not an auth failure', async () => {
-  const { authenticatedFetch, isAuthFailure } = await import('./api-networking.ts');
-  const { withRequestSignals, getAuthChallenge } = await import('../../netlify/functions/mcp-server/request-signals.ts');
-  await withStub(async () => {
-    const paths = stubFetch(401, 200);
-    await withRequestSignals(async () => {
-      const res = await authenticatedFetch('/api/v1/sites', {}, incoming());
-      assert.equal(res.status, 401);
-      assert.equal(getAuthChallenge(), undefined);
-      assert.equal(isAuthFailure(res), false);
-      assert.deepEqual(paths, ['/api/v1/sites', '/api/v1/user']);
-    });
-  });
-});
-
-test('remote 401 with a rejected token flags the challenge', async () => {
-  const { authenticatedFetch, isAuthFailure } = await import('./api-networking.ts');
-  const { withRequestSignals, getAuthChallenge } = await import('../../netlify/functions/mcp-server/request-signals.ts');
-  await withStub(async () => {
-    stubFetch(401, 401);
-    await withRequestSignals(async () => {
-      const res = await authenticatedFetch('/api/v1/sites', {}, incoming());
-      assert.equal(res.status, 401);
-      assert.ok(getAuthChallenge());
-      assert.equal(isAuthFailure(res), true);
-    });
-  });
-});
-
-test('a 401 on /api/v1/user flags the challenge without re-checking itself', async () => {
+test('remote 401 records the 401 with its path, warns, and makes no /user call', async () => {
   const { authenticatedFetch } = await import('./api-networking.ts');
-  const { withRequestSignals, getAuthChallenge } = await import('../../netlify/functions/mcp-server/request-signals.ts');
+  const { log } = await import('../../netlify/functions/mcp-server/logger.ts');
+  const { withRequestSignals, getNetlify401 } = await import('../../netlify/functions/mcp-server/request-signals.ts');
   await withStub(async () => {
-    const paths = stubFetch(401, 401);
-    await withRequestSignals(async () => {
-      const res = await authenticatedFetch('/api/v1/user', {}, incoming());
-      assert.equal(res.status, 401);
-      assert.ok(getAuthChallenge());
-      assert.deepEqual(paths, ['/api/v1/user']);
-    });
-  });
-});
-
-test('a failing re-check falls back to flagging and still returns the 401', async () => {
-  const { authenticatedFetch } = await import('./api-networking.ts');
-  const { withRequestSignals, getAuthChallenge } = await import('../../netlify/functions/mcp-server/request-signals.ts');
-  await withStub(async () => {
-    stubFetch(401, 'throw');
+    const paths = stubFetch(401);
+    const warn = mock.method(log, 'warn', () => {});
     await withRequestSignals(async () => {
       const res = await authenticatedFetch('/api/v1/sites', {}, incoming());
       assert.equal(res.status, 401);
-      assert.ok(getAuthChallenge());
+      assert.deepEqual(getNetlify401(), { path: '/api/v1/sites' });
+      assert.deepEqual(paths, ['/api/v1/sites']);
+      assert.equal(warn.mock.callCount(), 1);
     });
   });
 });
 
-test('a local 401 makes no /user call and flags nothing', async () => {
-  const { authenticatedFetch, isAuthFailure } = await import('./api-networking.ts');
-  const { withRequestSignals, getAuthChallenge } = await import('../../netlify/functions/mcp-server/request-signals.ts');
+test('quietStatuses [401] still records the 401 but logs at debug instead of warn', async () => {
+  const { authenticatedFetch } = await import('./api-networking.ts');
+  const { log } = await import('../../netlify/functions/mcp-server/logger.ts');
+  const { withRequestSignals, getNetlify401 } = await import('../../netlify/functions/mcp-server/request-signals.ts');
+  await withStub(async () => {
+    stubFetch(401);
+    const warn = mock.method(log, 'warn', () => {});
+    const debug = mock.method(log, 'debug', () => {});
+    await withRequestSignals(async () => {
+      await authenticatedFetch('/api/v1/sites', {}, incoming(), [401]);
+      assert.equal(warn.mock.callCount(), 0);
+      assert.equal(debug.mock.callCount(), 1);
+      assert.deepEqual(getNetlify401(), { path: '/api/v1/sites' });
+    });
+  });
+});
+
+test('a local 401 makes no /user call and records nothing', async () => {
+  const { authenticatedFetch } = await import('./api-networking.ts');
+  const { withRequestSignals, getNetlify401 } = await import('../../netlify/functions/mcp-server/request-signals.ts');
   await withStub(async () => {
     process.env.NETLIFY_PERSONAL_ACCESS_TOKEN = 'nfp_local';
     try {
-      const paths = stubFetch(401, 200);
+      const paths = stubFetch(401);
       await withRequestSignals(async () => {
         const res = await authenticatedFetch('/api/v1/sites');
         assert.equal(res.status, 401);
         assert.deepEqual(paths, ['/api/v1/sites']);
-        assert.equal(getAuthChallenge(), undefined);
-        assert.equal(isAuthFailure(res), false);
+        assert.equal(getNetlify401(), undefined);
       });
     } finally {
       delete process.env.NETLIFY_PERSONAL_ACCESS_TOKEN;
@@ -148,35 +119,31 @@ test('a local 401 makes no /user call and flags nothing', async () => {
   });
 });
 
-test('quietStatuses suppresses the warn for a non-auth 401, which warns otherwise', async () => {
-  const { authenticatedFetch } = await import('./api-networking.ts');
+test('userIsAuthenticated keeps its expected 401 at debug', async () => {
+  const { userIsAuthenticated } = await import('./api-networking.ts');
   const { log } = await import('../../netlify/functions/mcp-server/logger.ts');
   const { withRequestSignals } = await import('../../netlify/functions/mcp-server/request-signals.ts');
   await withStub(async () => {
-    stubFetch(401, 200);
+    stubFetch(401);
     const warn = mock.method(log, 'warn', () => {});
     await withRequestSignals(async () => {
-      await authenticatedFetch('/api/v1/sites', {}, incoming(), [401]);
+      assert.equal(await userIsAuthenticated(incoming()), false);
       assert.equal(warn.mock.callCount(), 0);
-      await authenticatedFetch('/api/v1/sites', {}, incoming());
-      assert.equal(warn.mock.callCount(), 1);
     });
   });
 });
 
-test('getAPIJSONResult: a non-auth 401 is a NetlifyApiError, an auth 401 a NetlifyUnauthError', async () => {
+test('getAPIJSONResult: a remote 401 is a NetlifyApiError(401), not a NetlifyUnauthError', async () => {
   const { getAPIJSONResult, NetlifyApiError, NetlifyUnauthError } = await import('./api-networking.ts');
   const { withRequestSignals } = await import('../../netlify/functions/mcp-server/request-signals.ts');
   await withStub(async () => {
-    stubFetch(401, 200);
+    const paths = stubFetch(401);
     await withRequestSignals(async () => {
       const err = await getAPIJSONResult('/api/v1/sites', {}, {}, incoming()).then(() => null, (e: unknown) => e);
       assert.ok(err instanceof NetlifyApiError);
+      assert.ok(!(err instanceof NetlifyUnauthError));
       assert.equal(err.status, 401);
-    });
-    stubFetch(401, 401);
-    await withRequestSignals(async () => {
-      await assert.rejects(getAPIJSONResult('/api/v1/sites', {}, {}, incoming()), NetlifyUnauthError);
+      assert.deepEqual(paths, ['/api/v1/sites']);
     });
   });
 });

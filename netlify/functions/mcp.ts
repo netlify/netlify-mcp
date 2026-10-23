@@ -12,7 +12,7 @@ import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-netwo
 import { isClaudeMCPClient, isOpenAIMCPClient, isOpenAIOrCodexClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
-import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
+import { withRequestSignals, getNetlify401 } from "./mcp-server/request-signals.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
@@ -295,17 +295,16 @@ async function handleMCPPost(req: Request) {
 
   const response = await handler.fetch(reqWithBody);
 
-  // If a Netlify API call during tool execution hit a 401 that authenticatedFetch
-  // confirmed as a bad token (it re-checks /user first), the SDK has already
+  // If a Netlify API call during tool execution returned 401, the SDK has already
   // turned that into a normal 200 tool result — so we translate it back into a
-  // real OAuth challenge here, driven by the flag authenticatedFetch set (see
+  // real OAuth challenge here, driven by the record authenticatedFetch left (see
   // request-signals.ts), not by inspecting the body.
-  const authChallenge = getAuthChallenge();
-  if (authChallenge) {
-    log.warn('netlify api returned 401 during tool execution; issuing auth challenge');
+  const netlify401 = getNetlify401();
+  if (netlify401) {
+    log.warn('netlify api returned 401 during tool execution; issuing auth challenge', { apiPath: netlify401.path });
     return returnNeedsAuthResponse({
       error: 'invalid_token',
-      errorDescription: authChallenge.errorDescription ?? 'The Netlify access token is no longer valid',
+      errorDescription: 'The Netlify access token is no longer valid',
     });
   }
 
