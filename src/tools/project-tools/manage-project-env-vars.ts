@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking.js';
+import { authenticatedFetch, getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api-types.js';
 import { appendToLog } from '../../utils/logging.js';
@@ -90,6 +90,11 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         }, request);
 
         appendToLog(`create result${resp.status} ${await resp.text()}`);
+        // A rejected create must not read as success. The dispatcher logs the
+        // status, and a 401 is confirmed upstream before any sign-in prompt.
+        if (!resp.ok) {
+          throw new NetlifyApiError(resp.status);
+        }
       }
 
       return 'Environment variable upserted';
