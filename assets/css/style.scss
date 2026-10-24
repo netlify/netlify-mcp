@@ -1,0 +1,134 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+/* Starter overrides for the Minimal theme. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --text: #e5e7eb;
+  --muted: #b0b8c8;
+  --link: #60a5fa;
+  --link-hover: #93c5fd;
+  --border: #334155;
+  --code-bg: #0f172a;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #f8fafc;
+}
+
+small, footer, blockquote {
+  color: var(--muted);
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.15em;
+}
+
+a:hover, a:focus {
+  color: var(--link-hover);
+}
+
+a:focus-visible, button:focus-visible {
+  outline: 3px solid var(--link-hover);
+  outline-offset: 3px;
+}
+
+strong {
+  color: #f8fafc;
+}
+
+blockquote {
+  border-left: 4px solid var(--link);
+  background: rgba(96, 165, 250, 0.08);
+  padding: 0.75rem 1rem;
+}
+
+code, pre {
+  background: var(--code-bg);
+  color: #e2e8f0;
+}
+
+pre {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+code {
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+
+pre code {
+  padding: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0.7rem;
+}
+
+th, dt {
+  color: #f8fafc;
+}
+
+th {
+  background: #16213d;
+}
+
+hr {
+  background: var(--border);
+}
+
+header ul {
+  background: var(--code-bg);
+  border-color: var(--border);
+}
+
+header li, header ul li + li + li {
+  border-color: var(--border);
+}
+
+header ul a {
+  color: var(--muted);
+}
+
+header ul a strong {
+  color: var(--link);
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #fff;
+    --text: #222;
+    --muted: #444;
+    --link: #0645ad;
+    --border: #ccc;
+    --code-bg: #f5f5f5;
+  }
+
+  h1, h2, h3, h4, h5, h6, strong, th, dt, code, pre {
+    color: #222;
+  }
+
+  th {
+    background: #f5f5f5;
+  }
+}
