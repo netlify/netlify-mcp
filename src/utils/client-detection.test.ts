@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isClaudeMCPClient } from './client-detection.ts';
+import { isClaudeMCPClient, isOpenAIOrCodexClient } from './client-detection.ts';
 
 const reqWithUA = (ua?: string) =>
   new Request('https://example.com/mcp', { method: 'POST', headers: ua ? { 'user-agent': ua } : {} });
@@ -28,4 +28,21 @@ test('rejects other agents and missing signals', () => {
   assert.ok(
     !isClaudeMCPClient(reqWithUA('curl/8.0'), { method: 'initialize', params: { clientInfo: { name: 'cursor' } } }),
   );
+});
+
+test('recognizes OpenAI and Codex clients by user-agent prefix', () => {
+  assert.ok(isOpenAIOrCodexClient(reqWithUA('openai-mcp/1.0.0')));
+  assert.ok(isOpenAIOrCodexClient(reqWithUA('openai-mcp/1.0.0 (Codex)')));
+  assert.ok(isOpenAIOrCodexClient(reqWithUA('codex-mcp-client/0.162.0-alpha.17.2')));
+  assert.ok(isOpenAIOrCodexClient(reqWithUA('  Codex-MCP-Client/0.160.0')));
+  assert.ok(isOpenAIOrCodexClient(reqWithUA('OpenAI-MCP/1.0.0')));
+});
+
+test('rejects other agents, a prefix found mid-string, and missing signals', () => {
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA('some-proxy/1.0 codex-mcp-client')));
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA('some-proxy/1.0 openai-mcp/1.0.0')));
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA('Claude-User')));
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA('codex-cli/1.0')));
+  assert.ok(!isOpenAIOrCodexClient(reqWithUA(undefined)));
+  assert.ok(!isOpenAIOrCodexClient(undefined));
 });

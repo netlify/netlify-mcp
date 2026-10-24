@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.20.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.19.0...mcp-v1.20.0) (2026-10-20)
+
+
+### Features
+
+* **logging:** log Codex session, thread and turn ids on tool calls ([#79](https://github.com/netlify/netlify-mcp/issues/79)) ([8b88c6f](https://github.com/netlify/netlify-mcp/commit/8b88c6fb3e3fceae2155d9f6356f5a7fd5ef4fac))
+
+
+### Bug Fixes
+
+* **auth:** let OpenAI and Codex clients list tools before sign-in ([#77](https://github.com/netlify/netlify-mcp/issues/77)) ([2d4bf2c](https://github.com/netlify/netlify-mcp/commit/2d4bf2ca2c360ccf8d370f8e16d649b334aef3e6))
+
+## [1.19.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.18.0...mcp-v1.19.0) (2026-10-13)
+
+
+### Features
+
+* add observability tools domain ([#11](https://github.com/netlify/netlify-mcp/issues/11)) ([30d660f](https://github.com/netlify/netlify-mcp/commit/30d660fd484f63fe75197bcebfac02bc9388019d))
+
+
+### Bug Fixes
+
+* actually enforce pagination bounds and timeout ([#74](https://github.com/netlify/netlify-mcp/issues/74)) ([1c0f64b](https://github.com/netlify/netlify-mcp/commit/1c0f64b8c22fecaab535c9e55406b4e4a17b0afa))
+* **oauth:** sign the authorize state and type issued tokens (SEC-790) ([#68](https://github.com/netlify/netlify-mcp/issues/68)) ([79a81b8](https://github.com/netlify/netlify-mcp/commit/79a81b8b03496332e6bbbaf9c93d3e66eb656157))
+
 ## [1.18.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.17.0...mcp-v1.18.0) (2026-10-07)
 
 

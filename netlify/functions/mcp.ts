@@ -9,7 +9,7 @@ import { getPackageVersion } from "../../src/utils/version.ts";
 import { bindTools } from "../../src/tools/index.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
-import { isClaudeMCPClient, isOpenAIMCPClient } from "../../src/utils/client-detection.ts";
+import { isClaudeMCPClient, isOpenAIMCPClient, isOpenAIOrCodexClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
 import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
@@ -92,6 +92,16 @@ export default async (req: Request, context: Context) => {
 };
 
 
+// MCP methods that describe the server without touching anyone's Netlify data.
+// The tool list is the same for every caller, so it needs no token to build.
+const UNAUTHENTICATED_DISCOVERY_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'server/discover',
+  'ping',
+  'tools/list',
+]);
+
 async function handleMCPPost(req: Request) {
 
   // Read the body once as text so we can tell an empty body (probes/scanners)
@@ -121,7 +131,13 @@ async function handleMCPPost(req: Request) {
   // version appears. Client title and the NAMES of declared capabilities are
   // safe, value-free shape; capabilities on non-init requests are undefined and
   // simply omitted from the log line.
+  //
+  // Codex (codex-mcp-client) sends no custom headers; the conversation a call
+  // belongs to is in `_meta["x-codex-turn-metadata"]`, and only on tools/call —
+  // discovery requests carry nothing. The ids are opaque UUIDs, logged so one
+  // Codex session's calls can be grouped in Humio.
   const clientCapabilities = body?.params?.capabilities;
+  const codexTurn = body?.params?._meta?.['x-codex-turn-metadata'];
   addLogContext({
     mcpMethod: body?.method,
     mcpId: body?.id,
@@ -133,6 +149,9 @@ async function handleMCPPost(req: Request) {
       clientCapabilities && typeof clientCapabilities === 'object'
         ? Object.keys(clientCapabilities)
         : undefined,
+    codexSessionId: truncateForLog(codexTurn?.session_id),
+    codexThreadId: truncateForLog(codexTurn?.thread_id),
+    codexTurnId: truncateForLog(codexTurn?.turn_id),
   });
 
   // Log the SHAPE of the call only — tool name + argument names, never values.
@@ -147,9 +166,17 @@ async function handleMCPPost(req: Request) {
     auth: maskToken(req.headers.get('Authorization')),
   });
 
-  // Always auth-check (including init) — the MCP spec is inconsistent on when
-  // 401s may be returned.
-  if(!await userIsAuthenticated(req)){
+  // OpenAI and Codex clients may start a session and list tools without a
+  // valid token (see isOpenAIOrCodexClient), whether they sent one or not. Tool
+  // calls still need a valid token, and their 401 is what sends the user to
+  // sign in or refresh an expired token.
+  const authCheckSkipped =
+    isOpenAIOrCodexClient(req)
+    && UNAUTHENTICATED_DISCOVERY_METHODS.has(body?.method);
+
+  // Everything else is auth-checked (including init) — the MCP spec is
+  // inconsistent on when 401s may be returned.
+  if (!authCheckSkipped && !await userIsAuthenticated(req)) {
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
     return returnNeedsAuthResponse(tokenPresented
@@ -164,7 +191,17 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  log.debug('mcp request auth passed');
+  if (authCheckSkipped) {
+    // Flag only the requests no user is attached to, so a signed-in client
+    // listing tools isn't counted as signed out. Decided from the token alone:
+    // verifying it with the Netlify API would turn a rejection into a 401.
+    if (!identity) {
+      addLogContext({ unauthenticatedDiscovery: true });
+    }
+    log.debug('mcp auth check skipped for discovery');
+  } else {
+    log.debug('mcp request auth passed');
+  }
 
   if (body?.method === 'tools/call') {
     // Standalone tools (coding-context, design import) have no selectSchema.operation;

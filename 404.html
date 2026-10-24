@@ -3,27 +3,827 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Netlify MCP Server</title>
+    <title>Apex Fleet Solutions - Commercial Vehicles, Parts &amp; Fleet Management</title>
+    <meta name="description" content="Preview a fleet catalog and visit the official Tesla and Apple stores. Live Shopify checkout is not connected.">
     <style>
-      body { margin: 0; background: #f5f7fa; color: #172b4d; font: 1.125rem/1.6 system-ui, sans-serif; }
-      main { max-width: 42rem; margin: 8vh auto; padding: 2rem; }
-      h1 { line-height: 1.2; }
-      a { color: #005a70; }
-      code { overflow-wrap: anywhere; }
+      :root {
+        --primary: #005a70;
+        --primary-dark: #003e4d;
+        --primary-light: #0088a8;
+        --accent: #ff8c00;
+        --accent-hover: #e07a00;
+        --bg-main: #f5f7fa;
+        --bg-card: #ffffff;
+        --text-main: #172b4d;
+        --text-muted: #5e6c84;
+        --border-color: #dfe1e6;
+        --radius: 8px;
+        --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg-main);
+        color: var(--text-main);
+        font: 1rem/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      .store-banner {
+        display: block;
+        background: #003e4d;
+        color: #ffffff;
+        padding: 0.65rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 700;
+        text-align: center;
+        text-underline-offset: 0.2em;
+        overflow-wrap: anywhere;
+      }
+
+      .store-banner:hover {
+        background: #005a70;
+      }
+
+      .store-banner:focus-visible {
+        outline: 3px solid #ffffff;
+        outline-offset: -5px;
+      }
+
+      header {
+        background: #ffffff;
+        border-bottom: 1px solid var(--border-color);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .header-container {
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 1rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .logo-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        text-decoration: none;
+        color: var(--text-main);
+      }
+
+      .logo-brand svg {
+        fill: var(--primary);
+        width: 32px;
+        height: 32px;
+      }
+
+      .logo-brand span {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--primary-dark);
+      }
+
+      nav ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        gap: 1.5rem;
+        align-items: center;
+      }
+
+      nav a {
+        text-decoration: none;
+        color: var(--text-main);
+        font-weight: 500;
+        transition: color 0.15s ease;
+      }
+
+      nav a:hover {
+        color: var(--primary);
+      }
+
+      .cart-btn {
+        background: var(--primary);
+        color: #ffffff;
+        border: none;
+        border-radius: var(--radius);
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: background 0.15s ease;
+      }
+
+      .cart-btn:hover {
+        background: var(--primary-dark);
+      }
+
+      .cart-badge {
+        background: var(--accent);
+        color: #ffffff;
+        border-radius: 999px;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      .hero {
+        background: linear-gradient(135deg, #003e4d 0%, #005a70 100%);
+        color: #ffffff;
+        padding: 4rem 1.5rem;
+        text-align: center;
+      }
+
+      .hero-content {
+        max-width: 48rem;
+        margin: 0 auto;
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+        line-height: 1.2;
+        margin: 0 0 1rem 0;
+      }
+
+      .hero p {
+        font-size: 1.2rem;
+        opacity: 0.95;
+        margin-bottom: 2rem;
+      }
+
+      .hero-tags {
+        display: flex;
+        justify-content: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+
+      .tag {
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(4px);
+        padding: 0.35rem 0.85rem;
+        border-radius: 999px;
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+
+      main {
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem;
+      }
+
+      .section-heading {
+        margin-bottom: 2rem;
+      }
+
+      .section-heading h2 {
+        font-size: 1.75rem;
+        color: var(--primary-dark);
+        margin: 0 0 0.5rem 0;
+      }
+
+      .section-heading p {
+        color: var(--text-muted);
+        margin: 0;
+      }
+
+      .filter-bar {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+      }
+
+      .filter-btn {
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        padding: 0.5rem 1rem;
+        border-radius: 999px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--text-main);
+        transition: all 0.15s ease;
+      }
+
+      .filter-btn.active, .filter-btn:hover {
+        background: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+      }
+
+      .catalog-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 3.5rem;
+      }
+
+      .product-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .product-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow);
+      }
+
+      .product-badge {
+        align-self: flex-start;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
+        margin-bottom: 0.75rem;
+      }
+
+      .badge-vehicles { background: #e3f2fd; color: #0d47a1; }
+      .badge-parts { background: #fff3e0; color: #e65100; }
+      .badge-services { background: #e8f5e9; color: #1b5e20; }
+
+      .product-card h3 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1.25rem;
+      }
+
+      .product-card p {
+        color: var(--text-muted);
+        font-size: 0.95rem;
+        margin: 0 0 1rem 0;
+        flex-grow: 1;
+      }
+
+      .product-meta {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
+        border-top: 1px solid var(--border-color);
+        padding-top: 0.75rem;
+      }
+
+      .product-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .product-price {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: var(--primary-dark);
+      }
+
+      .price-period {
+        font-size: 0.85rem;
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+
+      .add-to-cart {
+        background: var(--accent);
+        color: #ffffff;
+        border: none;
+        border-radius: var(--radius);
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      .add-to-cart:hover {
+        background: var(--accent-hover);
+      }
+
+      /* Shopify connection info section */
+      .shopify-config-card {
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        border-left: 4px solid var(--primary);
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        margin-bottom: 3rem;
+      }
+
+      .shopify-config-card h3 {
+        margin: 0 0 0.75rem 0;
+        color: var(--primary-dark);
+      }
+
+      .shopify-config-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .config-item {
+        background: var(--bg-main);
+        padding: 1rem;
+        border-radius: 6px;
+      }
+
+      .config-item label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+
+      .config-item code {
+        font-size: 0.9rem;
+        color: var(--primary-dark);
+        word-break: break-all;
+      }
+
+      /* Cart drawer modal */
+      .cart-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 200;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .cart-modal.open {
+        display: flex;
+      }
+
+      .cart-container {
+        background: #ffffff;
+        width: 90%;
+        max-width: 500px;
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+      }
+
+      .cart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 1rem;
+      }
+
+      .cart-header h3 {
+        margin: 0;
+      }
+
+      .close-btn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: var(--text-muted);
+      }
+
+      .cart-items {
+        overflow-y: auto;
+        padding: 1rem 0;
+        flex-grow: 1;
+      }
+
+      .cart-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .cart-item-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+
+      .cart-item-qty {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .cart-footer {
+        border-top: 1px solid var(--border-color);
+        padding-top: 1rem;
+      }
+
+      .cart-total-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+
+      .checkout-btn {
+        width: 100%;
+        background: #008060; /* Shopify green */
+        color: #ffffff;
+        border: none;
+        border-radius: var(--radius);
+        padding: 0.75rem;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      .checkout-btn:hover {
+        background: #004c3f;
+      }
+
+      .checkout-btn:disabled {
+        background: #5e6c84;
+        cursor: not-allowed;
+      }
+
+      /* Developer / MCP System notes */
+      .mcp-info-box {
+        background: #f0f4f8;
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        margin-top: 3rem;
+        border: 1px dashed var(--border-color);
+      }
+
+      .mcp-info-box h3 {
+        margin-top: 0;
+        font-size: 1.1rem;
+      }
+
+      footer {
+        background: #ffffff;
+        border-top: 1px solid var(--border-color);
+        padding: 2.5rem 1.5rem;
+        margin-top: 3rem;
+      }
+
+      .footer-container {
+        max-width: 72rem;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 2rem;
+      }
+
+      .footer-col h4 {
+        margin: 0 0 1rem 0;
+        color: var(--primary-dark);
+      }
+
+      .footer-col ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .footer-col li {
+        margin-bottom: 0.5rem;
+      }
+
+      .footer-col a {
+        text-decoration: none;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+
+      .footer-col a:hover {
+        color: var(--primary);
+      }
     </style>
   </head>
   <body>
+    <a class="store-banner" href="https://www.petsmart.com/">Visit PetSmart for pet supplies</a>
+    <header>
+      <div class="header-container">
+        <a href="/" class="logo-brand">
+          <svg viewBox="0 0 24 24">
+            <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
+          </svg>
+          <span>Apex Fleet Solutions</span>
+        </a>
+        <nav aria-label="Main Navigation">
+          <ul>
+            <li><a href="#vehicles">Vehicles</a></li>
+            <li><a href="#parts">Parts &amp; Accessories</a></li>
+            <li><a href="#services">Software &amp; Telematics</a></li>
+            <li><a href="https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/">Documentation</a></li>
+            <li><a href="https://github.com/damn-am-star/netlify-mcp">GitHub</a></li>
+          </ul>
+        </nav>
+        <button class="cart-btn" onclick="toggleCart()" aria-label="View shopping cart">
+          <span>Cart</span>
+          <span class="cart-badge" id="cart-count">0</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="hero">
+      <div class="hero-content">
+        <h1>Commercial Fleet Storefront &amp; Management</h1>
+        <p>Turnkey commercial fleet solutions: custom utility vehicles, certified replacement parts, and AI-powered telematics fleet software.</p>
+        <div class="hero-tags">
+          <span class="tag">Demo Catalog - Checkout Not Connected</span>
+          <span class="tag">Commercial Grade Parts</span>
+          <span class="tag">Telematics &amp; AI Routing</span>
+          <span class="tag">Turnkey Fleet Vehicles</span>
+        </div>
+      </div>
+    </div>
+
     <main>
-      <h1>Netlify MCP Server</h1>
-      <p>Connect your AI agents to Netlify with the Model Context Protocol to create, manage, and deploy projects.</p>
-      <p>This site hosts the MCP server at <code>/mcp</code>. Use an MCP client to connect to that endpoint.</p>
-      <nav aria-label="Resources">
-        <ul>
-          <li><a href="/">Home</a></li>
-          <li><a href="https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/">Setup documentation</a></li>
-          <li><a href="https://github.com/damn-am-star/netlify-mcp">Project repository</a></li>
-        </ul>
-      </nav>
+      <section class="shopify-config-card" aria-labelledby="official-stores-heading">
+        <h2 id="official-stores-heading">Official Tesla &amp; Apple stores</h2>
+        <p>Browse vehicles directly from Tesla and devices directly from Apple. These links open external stores; their inventory, accounts, and checkout are separate from this demo.</p>
+        <p><a href="https://www.tesla.com/">Visit Tesla</a> &middot; <a href="https://shop.tesla.com/">Tesla Shop</a> &middot; <a href="https://www.apple.com/store">Apple Store</a></p>
+        <p>This independent demo is not affiliated with Tesla or Apple. No domain ownership or authorized reseller status is implied.</p>
+      </section>
+      <div class="section-heading">
+        <h2>Enterprise Fleet Catalog</h2>
+        <p>Illustrative products and prices only, not live inventory. Explore vehicles, fleet accessories, and telematics packages in this demo cart.</p>
+      </div>
+
+      <div class="filter-bar" role="group" aria-label="Category Filters">
+        <button class="filter-btn active" onclick="filterCatalog('all', this)">All Offerings</button>
+        <button class="filter-btn" onclick="filterCatalog('vehicles', this)">Fleet Vehicles</button>
+        <button class="filter-btn" onclick="filterCatalog('parts', this)">Parts &amp; Upfits</button>
+        <button class="filter-btn" onclick="filterCatalog('services', this)">Management &amp; Software</button>
+      </div>
+
+      <div class="catalog-grid" id="catalog-grid">
+        <!-- Vehicle 1 -->
+        <div class="product-card" id="vehicles" data-category="vehicles">
+          <div>
+            <span class="product-badge badge-vehicles">Vehicle</span>
+            <h3>Apex Transit E-Cargo 450</h3>
+            <p>All-electric commercial cargo van optimized for urban delivery, 180-mile loaded range, and standard cargo partition.</p>
+            <div class="product-meta">Payload: 4,200 lbs • Fast DC Charge • 10-Yr Battery Warranty</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$54,900</div>
+            <button class="add-to-cart" onclick="addToCart('Apex Transit E-Cargo 450', 54900)">Add to Cart</button>
+          </div>
+        </div>
+
+        <!-- Vehicle 2 -->
+        <div class="product-card" data-category="vehicles">
+          <div>
+            <span class="product-badge badge-vehicles">Vehicle</span>
+            <h3>Heavy Duty Utility Hauler 5500</h3>
+            <p>Turbo-diesel dual-rear-wheel chassis equipped with an 11-foot steel service body, crane prep, and lockable tool cabinets.</p>
+            <div class="product-meta">Towing: 24,000 lbs • 4x4 Drivetrain • PTO Capability</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$78,500</div>
+            <button class="add-to-cart" onclick="addToCart('Heavy Duty Utility Hauler 5500', 78500)">Add to Cart</button>
+          </div>
+        </div>
+
+        <!-- Part 1 -->
+        <div class="product-card" id="parts" data-category="parts">
+          <div>
+            <span class="product-badge badge-parts">Part / Accessory</span>
+            <h3>Apex OBD-II Fleet Telematics Dongle</h3>
+            <p>Plug-and-play LTE-M cellular OBD-II tracking module with real-time GPS, engine diagnostics, and driver habit detection.</p>
+            <div class="product-meta">CAN-bus compatible • Internal battery backup • 30-sec updates</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$149</div>
+            <button class="add-to-cart" onclick="addToCart('Apex OBD-II Fleet Telematics Dongle', 149)">Add to Cart</button>
+          </div>
+        </div>
+
+        <!-- Part 2 -->
+        <div class="product-card" data-category="parts">
+          <div>
+            <span class="product-badge badge-parts">Part / Accessory</span>
+            <h3>Commercial Ceramic Brake Pad Set (Front/Rear)</h3>
+            <p>Heavy-duty severe-duty formulation designed for stop-and-go parcel delivery vans with extended rotor life.</p>
+            <div class="product-meta">Fits 2021-2026 Commercial Vans • Low Dust • Anti-Fade</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$189</div>
+            <button class="add-to-cart" onclick="addToCart('Commercial Ceramic Brake Pad Set', 189)">Add to Cart</button>
+          </div>
+        </div>
+
+        <!-- Part 3 -->
+        <div class="product-card" data-category="parts">
+          <div>
+            <span class="product-badge badge-parts">Part / Accessory</span>
+            <h3>Modular Aluminum Van Racking System</h3>
+            <p>Lightweight high-strength shelving package with removable parts bins, drop-in dividers, and anti-rattle mounting rails.</p>
+            <div class="product-meta">Universal Wheelbase • 40% Lighter than Steel • Quick-Install</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$890</div>
+            <button class="add-to-cart" onclick="addToCart('Modular Aluminum Van Racking System', 890)">Add to Cart</button>
+          </div>
+        </div>
+
+        <!-- Service 1 -->
+        <div class="product-card" id="services" data-category="services">
+          <div>
+            <span class="product-badge badge-services">Software Subscription</span>
+            <h3>Apex Telematics Pro (Annual / per vehicle)</h3>
+            <p>Enterprise fleet management software including live map tracking, fuel card reconciliation, geofencing, and driver logs.</p>
+            <div class="product-meta">REST &amp; MCP API Access • Unlimited Users • Mobile Driver App</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$360 <span class="price-period">/yr</span></div>
+            <button class="add-to-cart" onclick="addToCart('Apex Telematics Pro (Annual)', 360)">Subscribe</button>
+          </div>
+        </div>
+
+        <!-- Service 2 -->
+        <div class="product-card" data-category="services">
+          <div>
+            <span class="product-badge badge-services">Software &amp; Service</span>
+            <h3>Predictive Maintenance &amp; Automated Dispatch</h3>
+            <p>AI analytics service reading engine trouble codes to schedule automated servicing before breakdowns occur on the road.</p>
+            <div class="product-meta">Reduces Downtime up to 35% • Certified Service Network Integrations</div>
+          </div>
+          <div class="product-footer">
+            <div class="product-price">$540 <span class="price-period">/yr</span></div>
+            <button class="add-to-cart" onclick="addToCart('Predictive Maintenance & Automated Dispatch', 540)">Subscribe</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shopify Configuration Guide -->
+      <section class="shopify-config-card">
+        <h3>Shopify Storefront Integration</h3>
+        <p>Live Shopify checkout is not implemented or connected. Environment variables alone do not connect this static page. Connection requires an authorized Shopify store, published product variant IDs, and implementation of the <strong>Shopify Storefront Cart API</strong> to obtain a hosted checkout URL. Never send Shopify admin credentials to this page.</p>
+        <p><strong>Apple Pay:</strong> enable Apple Pay in your store's supported payment provider settings. Shopify's hosted checkout displays it only for eligible customers, devices, browsers, and payment configurations. Linking to the Apple Store does not enable Apple Pay.</p>
+        <div class="shopify-config-grid">
+          <div class="config-item">
+            <label>Shopify Domain</label>
+            <code>SHOPIFY_STORE_DOMAIN</code>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--text-muted);">e.g. <code>your-fleet-shop.myshopify.com</code></p>
+          </div>
+          <div class="config-item">
+            <label>Public Access Token</label>
+            <code>SHOPIFY_STOREFRONT_TOKEN</code>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--text-muted);">Shopify Headless Storefront Access Token</p>
+          </div>
+          <div class="config-item">
+            <label>API Version</label>
+            <code>Choose a supported stable API version during integration</code>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--text-muted);">Storefront API GraphQL endpoint</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- System Architecture & MCP Notes -->
+      <section class="mcp-info-box">
+        <h3>Model Context Protocol &amp; Hosting Architecture</h3>
+        <p>This site hosts the Netlify MCP server at <code>/mcp</code>. Automated fleet workflows, work order generation, and catalog synchronization can be orchestrated via AI agent clients connected to this endpoint.</p>
+        <nav aria-label="Developer Resources">
+          <ul style="margin: 0; padding-left: 1.25rem;">
+            <li><a href="/">Home</a></li>
+            <li><a href="https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/">Setup documentation</a></li>
+            <li><a href="https://github.com/damn-am-star/netlify-mcp">Project repository</a></li>
+          </ul>
+        </nav>
+      </section>
     </main>
+
+    <!-- Cart Modal -->
+    <div class="cart-modal" id="cart-modal" onclick="if(event.target===this) toggleCart()">
+      <div class="cart-container">
+        <div class="cart-header">
+          <h3>Fleet Order Cart</h3>
+          <button class="close-btn" onclick="toggleCart()" aria-label="Close cart">&times;</button>
+        </div>
+        <div class="cart-items" id="cart-items">
+          <p style="color: var(--text-muted); text-align: center; margin: 2rem 0;">Your cart is empty.</p>
+        </div>
+        <div class="cart-footer">
+          <div class="cart-total-row">
+            <span>Total:</span>
+            <span id="cart-total">$0</span>
+          </div>
+          <button class="checkout-btn" disabled aria-describedby="checkout-status">Checkout unavailable</button>
+          <p id="checkout-status" role="status">Demo cart only. No payments or subscriptions are processed. Shopify and Apple Pay are not connected.</p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="footer-container">
+        <div class="footer-col">
+          <h4>Apex Fleet Solutions</h4>
+          <p style="font-size: 0.9rem; color: var(--text-muted); max-width: 20rem; margin: 0;">
+            Comprehensive commercial fleet operations: electric &amp; diesel utility vehicles, genuine parts, and AI-enabled fleet management telematics.
+          </p>
+        </div>
+        <div class="footer-col">
+          <h4>Product Catalog</h4>
+          <ul>
+            <li><a href="#vehicles">Commercial Vehicles</a></li>
+            <li><a href="#parts">Parts &amp; Upfitting</a></li>
+            <li><a href="#services">Telematics &amp; Software</a></li>
+            <li><a href="#services">Maintenance Automation</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Developer &amp; Integration</h4>
+          <ul>
+            <li><a href="https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/">Netlify MCP Server Docs</a></li>
+            <li><a href="https://github.com/damn-am-star/netlify-mcp">GitHub Repository</a></li>
+            <li><a href="https://shopify.dev/docs/api/storefront">Shopify Storefront API</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      let cart = [];
+
+      function toggleCart() {
+        const modal = document.getElementById('cart-modal');
+        modal.classList.toggle('open');
+      }
+
+      function addToCart(name, price) {
+        const existing = cart.find(item => item.name === name);
+        if (existing) {
+          existing.qty += 1;
+        } else {
+          cart.push({ name, price, qty: 1 });
+        }
+        updateCartUI();
+        toggleCart();
+      }
+
+      function updateCartUI() {
+        const count = cart.reduce((sum, item) => sum + item.qty, 0);
+        document.getElementById('cart-count').textContent = count;
+
+        const container = document.getElementById('cart-items');
+        if (cart.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-muted); text-align: center; margin: 2rem 0;">Your cart is empty.</p>';
+        } else {
+          container.innerHTML = cart.map(item => `
+            <div class="cart-item">
+              <div>
+                <div class="cart-item-title">${item.name}</div>
+                <div class="cart-item-qty">Qty: ${item.qty} &times; $${item.price.toLocaleString()}</div>
+              </div>
+              <div><strong>$${(item.price * item.qty).toLocaleString()}</strong></div>
+            </div>
+          `).join('');
+        }
+
+        const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        document.getElementById('cart-total').textContent = '$' + total.toLocaleString();
+      }
+
+      function filterCatalog(category, btn) {
+        const buttons = document.querySelectorAll('.filter-btn');
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const cards = document.querySelectorAll('.product-card');
+        cards.forEach(card => {
+          if (category === 'all' || card.getAttribute('data-category') === category) {
+            card.style.display = 'flex';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      }
+    </script>
   </body>
 </html>
