@@ -15,6 +15,14 @@ test('the root website and native Netlify 404 fallback serve the same content', 
   assert.match(homepage, /<code>\/mcp<\/code>/);
 });
 
+test('the PetSmart banner uses the approved text and official destination above the header', async () => {
+  const homepage = await readFile(new URL('index.html', root), 'utf8');
+
+  assert.match(homepage, /<body>\s*<a class="store-banner" href="https:\/\/www\.petsmart\.com\/">Visit PetSmart for pet supplies<\/a>\s*<header>/);
+  assert.match(homepage, /\.store-banner:focus-visible\s*\{/);
+  assert.doesNotMatch(homepage, /petm\.app\.link|5,000 pts/);
+});
+
 test('the website works at nested missing paths without relative assets or links', async () => {
   const fallback = await readFile(new URL('404.html', root), 'utf8');
   const references = [...fallback.matchAll(/(?:href|src)="([^"]+)"/g)];

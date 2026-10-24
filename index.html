@@ -29,6 +29,27 @@
         font: 1rem/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
 
+      .store-banner {
+        display: block;
+        background: #003e4d;
+        color: #ffffff;
+        padding: 0.65rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 700;
+        text-align: center;
+        text-underline-offset: 0.2em;
+        overflow-wrap: anywhere;
+      }
+
+      .store-banner:hover {
+        background: #005a70;
+      }
+
+      .store-banner:focus-visible {
+        outline: 3px solid #ffffff;
+        outline-offset: -5px;
+      }
+
       header {
         background: #ffffff;
         border-bottom: 1px solid var(--border-color);
@@ -503,6 +524,7 @@
     </style>
   </head>
   <body>
+    <a class="store-banner" href="https://www.petsmart.com/">Visit PetSmart for pet supplies</a>
     <header>
       <div class="header-container">
         <a href="/" class="logo-brand">
