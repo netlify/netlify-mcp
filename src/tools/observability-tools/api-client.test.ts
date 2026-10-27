@@ -95,6 +95,16 @@ test('a 404 is a NetlifyApiError carrying the status and API message', async () 
   });
 });
 
+test('the out-of-bounds phrase is found even when the message is longer than the detail cap', async () => {
+  stubFetch(401, JSON.stringify({ code: 401, msg: 'x'.repeat(600) + ' ' + OUT_OF_BOUNDS_MSG }));
+
+  await withRequestSignals(async () => {
+    const err = await callLists().then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof NetlifyApiError);
+    assert.match(err.message, /retention/);
+  });
+});
+
 test('a 5xx is a NetlifyApiError with status >= 500 so the dispatcher logs it as a failure', async () => {
   stubFetch(502, 'bad gateway');
 

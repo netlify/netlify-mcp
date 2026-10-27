@@ -212,12 +212,12 @@ const capDetail = (detail: string): string =>
 const parseApiMessage = (text: string): string | undefined => {
   try {
     const body = JSON.parse(text);
-    if (typeof body?.msg === 'string') return capDetail(body.msg);
+    if (typeof body?.msg === 'string') return body.msg;
   } catch {
     // not JSON; fall through to the raw text
   }
   const raw = text.trim();
-  return raw ? capDetail(raw) : undefined;
+  return raw || undefined;
 };
 
 // Turn a non-OK observability response into the right error class, so the tool
@@ -225,12 +225,13 @@ const parseApiMessage = (text: string): string | undefined => {
 // real failure (5xx, logged at error), and so the agent gets a message it can
 // act on rather than a bare status.
 export const classifyFailure = (status: number, text: string): Error => {
+  // Classify on the full message; cap only the detail that reaches the agent.
   const msg = parseApiMessage(text);
   if (status === 401 && msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
     return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
   }
 
-  return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${msg}` : ''}`);
+  return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${capDetail(msg)}` : ''}`);
 };
 
 // A body read can fail when the connection drops mid-download. The status is

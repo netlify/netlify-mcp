@@ -89,12 +89,12 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           body: JSON.stringify([envVar])
         }, request);
 
-        appendToLog(`create result${resp.status} ${await resp.text()}`);
-        // A rejected create must not read as success. The dispatcher logs the
-        // status, and a 401 is confirmed upstream before any sign-in prompt.
+        // A rejected create must not read as success. Check the status before
+        // touching the body, so a failed body read cannot hide a known status.
         if (!resp.ok) {
           throw new NetlifyApiError(resp.status);
         }
+        appendToLog(`create result${resp.status} ${await resp.text()}`);
       }
 
       return 'Environment variable upserted';
