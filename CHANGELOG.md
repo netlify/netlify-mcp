@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.21.0...mcp-v1.21.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* confirm a tool-level 401 with /user before asking the agent to sign in ([#83](https://github.com/netlify/netlify-mcp/issues/83)) ([19ed461](https://github.com/netlify/netlify-mcp/commit/19ed461f99946999fb68720a2251afb312cd6451))
+
 ## [1.21.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.20.0...mcp-v1.21.0) (2026-10-23)
 
 
