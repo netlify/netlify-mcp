@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { authenticatedFetch, getAPIJSONResult } from '../../utils/api-networking.js';
+import { authenticatedFetch, getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api-types.js';
 import { appendToLog } from '../../utils/logging.js';
@@ -89,6 +89,11 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           body: JSON.stringify([envVar])
         }, request);
 
+        // A rejected create must not read as success. Check the status before
+        // touching the body, so a failed body read cannot hide a known status.
+        if (!resp.ok) {
+          throw new NetlifyApiError(resp.status);
+        }
         appendToLog(`create result${resp.status} ${await resp.text()}`);
       }
 

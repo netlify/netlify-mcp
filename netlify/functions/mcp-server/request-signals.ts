@@ -4,10 +4,10 @@
 // The motivating case is auth: when a downstream Netlify API call returns 401,
 // the MCP SDK has already swallowed the thrown error into a normal 200 tool
 // result (content + isError), so the transport layer can no longer see that the
-// failure was an auth failure. Rather than sniff the response body for an error
-// string — fragile, and silently broken if the SDK ever stops echoing messages —
-// tool code flags the challenge here and the handler checks the flag to emit a
-// proper 401 OAuth challenge.
+// call was rejected. Rather than sniff the response body for an error string —
+// fragile, and silently broken if the SDK ever stops echoing messages — the
+// fetch helper records the 401 here. A 401 doesn't always mean a bad token, so
+// the handler confirms it before emitting an OAuth challenge.
 //
 // Like the logger's context, this rides AsyncLocalStorage so the flag set inside
 // a tool callback (invoked by the SDK during handler.fetch) is visible to the
@@ -18,8 +18,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 interface RequestSignals {
-  // Set when an authenticated Netlify API call returned 401 for this request.
-  authChallenge?: { errorDescription?: string };
+  // Set when a Netlify API call returned 401 for this request (first one wins).
+  netlify401?: { path: string };
 }
 
 let store: AsyncLocalStorage<RequestSignals> | null = null;
@@ -58,21 +58,22 @@ function current(): RequestSignals | null {
 }
 
 /**
- * Record that this request hit a Netlify auth failure (401) and must answer with
- * an OAuth challenge. Safe no-op outside a withRequestSignals scope (e.g. the CLI
- * stdio path), so tool code can call it unconditionally.
+ * Record that a Netlify API call returned 401, with its path. The first 401 in a
+ * request wins. Not proof of a bad token; the handler confirms. Safe no-op
+ * outside a withRequestSignals scope (e.g. the CLI stdio path), so callers can
+ * call it unconditionally.
  */
-export function flagAuthChallenge(errorDescription?: string): void {
+export function flagNetlify401(path: string): void {
   const signals = current();
-  if (signals) {
-    signals.authChallenge = { errorDescription };
+  if (signals && !signals.netlify401) {
+    signals.netlify401 = { path };
   }
 }
 
 /**
- * Read the auth-challenge signal for the current request, or undefined if none
- * was flagged. Called by the HTTP handler after the SDK has produced its response.
+ * Read the recorded 401 for the current request, or undefined if none. Called by
+ * the HTTP handler after the SDK has produced its response.
  */
-export function getAuthChallenge(): { errorDescription?: string } | undefined {
-  return current()?.authChallenge;
+export function getNetlify401(): { path: string } | undefined {
+  return current()?.netlify401;
 }

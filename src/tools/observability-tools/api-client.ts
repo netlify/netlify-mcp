@@ -1,4 +1,4 @@
-import { authenticatedFetch } from '../../utils/api-networking.js';
+import { authenticatedFetch, NetlifyApiError } from '../../utils/api-networking.js';
 
 // All observability endpoints live under the standard Netlify API at
 // /api/v1/sites/{siteID}/observability/...
@@ -193,12 +193,63 @@ const timeWindowParams = (fromTS: number, toTS: number): URLSearchParams => {
 
 // ---- API Methods ----
 
+// The observability API answers 401 with this message when the requested window
+// reaches further back than the team plan's log retention. It is a plan limit,
+// not an auth failure: the request handler confirms the token before any sign-in
+// prompt.
+export const OUT_OF_BOUNDS_MSG = 'requested window out of bounds';
+
+const OUT_OF_BOUNDS_GUIDANCE =
+  'The entire requested time window is older than this team\'s log retention (24 hours on free, 7 days on pro and business, 30 days on enterprise), so that data is no longer available. A query needs a window whose end (to_ts) falls within retention; a single request older than retention can\'t be retrieved.';
+
+const MAX_DETAIL_LENGTH = 500;
+
+const capDetail = (detail: string): string =>
+  detail.length > MAX_DETAIL_LENGTH ? `${detail.slice(0, MAX_DETAIL_LENGTH)}...` : detail;
+
+// The API's own message: the JSON `msg` when there is one, else the raw body so
+// the agent still sees what went wrong.
+const parseApiMessage = (text: string): string | undefined => {
+  try {
+    const body = JSON.parse(text);
+    if (typeof body?.msg === 'string') return body.msg;
+  } catch {
+    // not JSON; fall through to the raw text
+  }
+  const raw = text.trim();
+  return raw || undefined;
+};
+
+// Turn a non-OK observability response into the right error class, so the tool
+// dispatcher can tell an expected client outcome (4xx, logged at warn) from a
+// real failure (5xx, logged at error), and so the agent gets a message it can
+// act on rather than a bare status.
+export const classifyFailure = (status: number, text: string): Error => {
+  // Classify on the full message; cap only the detail that reaches the agent.
+  const msg = parseApiMessage(text);
+  if (status === 401 && msg?.toLowerCase().includes(OUT_OF_BOUNDS_MSG)) {
+    return new NetlifyApiError(401, `${OUT_OF_BOUNDS_MSG}: ${OUT_OF_BOUNDS_GUIDANCE}`);
+  }
+
+  return new NetlifyApiError(status, `Observability API error (HTTP ${status})${msg ? `: ${capDetail(msg)}` : ''}`);
+};
+
+// A body read can fail when the connection drops mid-download. The status is
+// still known, so classify on it with an empty body rather than losing the
+// classification to a body-read error.
+const readBodyText = async (response: Response): Promise<string> => {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+};
+
 const request = async <T>(path: string, params: URLSearchParams, init: RequestInit, incomingRequest?: Request): Promise<T> => {
   const response = await authenticatedFetch(`${path}${buildQueryString(params)}`, init, incomingRequest);
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Observability API error (HTTP ${response.status}): ${text}`);
+    throw classifyFailure(response.status, await readBodyText(response));
   }
 
   return await response.json() as T;
