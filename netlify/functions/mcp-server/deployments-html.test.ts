@@ -36,6 +36,7 @@ function host() {
     document, window: { parent, addEventListener: document.addEventListener },
     ResizeObserver: class { observe() {} },
     performance: { now: () => now },
+    Date: class extends Date { static now() { return 1767225600000 + now; } },
     setTimeout: (callback: () => void, delay: number) => {
       timers.set(++nextTimer, { callback, delay });
       return nextTimer;
@@ -240,8 +241,13 @@ test('status and custom time filters are applied on the host, retained on polls,
   assert.equal(h.nodes.get('#apply-filters').disabled, true);
   const filters = { status: args.status, from: args.from, to: args.to };
   await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(true).structuredContent, filters } } });
+  h.advance(5000);
   h.poll();
   assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args));
+  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(false).structuredContent, filters } } });
+  h.advance(5000);
+  h.nodes.get('#refresh').click();
+  assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args), 'custom bounds remain fixed on manual refresh');
   await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(false).structuredContent, filters } } });
   h.nodes.get('#filter-from').value = '2027-01-01T00:00:00Z';
   const count = h.messages.length;
@@ -252,4 +258,56 @@ test('status and custom time filters are applied on the host, retained on polls,
   h.nodes.get('#filter-time').value = '';
   h.nodes.get('#filters').submit();
   assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify({ siteId: 'site-1' }));
+});
+
+test('applied time presets advance on polls and manual refresh, ignoring unapplied edits', async () => {
+  for (const hours of [1, 24, 48, 168]) {
+    const h = host();
+    await initialize(h);
+    h.nodes.get('#filter-status').value = 'enqueued';
+    h.nodes.get('#filter-time').value = String(hours);
+    h.nodes.get('#filters').submit();
+    const initial = h.messages.at(-1).params.arguments;
+    assert.equal(initial.to, 1767225600);
+    assert.equal(initial.from, initial.to - hours * 3600);
+    const reply = () => {
+      const { siteId, ...filters } = h.messages.at(-1).params.arguments;
+      return h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
+        ...result(true).structuredContent, filters,
+      } } });
+    };
+    await reply();
+    // Editing the form alone must not change the applied range or status.
+    h.nodes.get('#filter-time').value = 'custom';
+    h.nodes.get('#filter-status').value = 'error';
+    h.advance(5000);
+    h.poll();
+    let args = h.messages.at(-1).params.arguments;
+    assert.equal(args.to, initial.to + 5);
+    assert.equal(args.from, initial.from + 5);
+    assert.equal(args.status, 'enqueued');
+    await reply();
+    h.advance(10000);
+    h.nodes.get('#refresh').click();
+    args = h.messages.at(-1).params.arguments;
+    assert.equal(args.to, initial.to + 15);
+    assert.equal(args.from, initial.from + 15);
+    await reply();
+    h.nodes.get('#filter-from').value = '2026-01-01T00:00:00Z';
+    h.nodes.get('#filter-to').value = '2026-01-02T00:00:00Z';
+    h.nodes.get('#filters').submit();
+    await reply();
+    h.advance(5000);
+    h.poll();
+    assert.equal(h.messages.at(-1).params.arguments.from, 1767225600);
+    assert.equal(h.messages.at(-1).params.arguments.to, 1767312000, 'switching to custom stops the range advancing');
+    await reply();
+    h.nodes.get('#filter-time').value = '';
+    h.nodes.get('#filters').submit();
+    await reply();
+    h.advance(5000);
+    h.poll();
+    assert.equal(h.messages.at(-1).params.arguments.from, undefined, 'clearing the preset stays cleared');
+    assert.equal(h.messages.at(-1).params.arguments.to, undefined);
+  }
 });

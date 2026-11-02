@@ -80,6 +80,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
     const filterTo = document.querySelector('#filter-to');
     const applyFilters = document.querySelector('#apply-filters');
     let snapshot, timer, ready = false, refreshing = false, nextId = 0;
+    let appliedTimePreset = '';
     let pollingStoppedOnError = false;
     const pollingDuration = 15 * 60 * 1000;
     let pollingDeadline = performance.now() + pollingDuration;
@@ -154,6 +155,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
       if (result?.isError) throw new Error(result.content?.find(item => item.type === 'text')?.text || 'Please retry.');
       if (!result?.structuredContent) return;
       if (!snapshot || snapshot.siteId !== result.structuredContent.siteId) {
+        appliedTimePreset = '';
         const initial = result.structuredContent.filters;
         filterStatus.value = initial?.status ?? '';
         if (initial?.from != null && initial?.to != null) {
@@ -204,18 +206,25 @@ export const deploymentsHtml = String.raw`<!doctype html>
     function setBusy(busy) {
       for (const control of [refreshButton, applyFilters, filterStatus, filterTime, filterFrom, filterTo]) control.disabled = busy;
     }
-    async function refresh(nextFilters) {
+    async function refresh(nextFilters, timePreset = appliedTimePreset) {
       if (!ready || !snapshot || refreshing || pollingStoppedOnError) return;
       clearTimeout(timer);
       if (pollingExpired()) return;
       refreshing = true;
       setBusy(true);
       try {
+        const currentFilters = { ...(nextFilters ?? snapshot.filters) };
+        // Relative ranges move with each request; custom bounds stay fixed.
+        if (timePreset) {
+          currentFilters.to = Math.floor(Date.now() / 1000);
+          currentFilters.from = currentFilters.to - Number(timePreset) * 3600;
+        }
         render(await request('tools/call', {
           name: 'netlify-refresh-deployments',
           arguments: { siteId: snapshot.siteId, ...(snapshot.deployId ? { deployId: snapshot.deployId }
-            : Object.fromEntries(Object.entries(nextFilters ?? snapshot.filters ?? {}).filter(([, value]) => value != null))) },
+            : Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value != null))) },
         }));
+        appliedTimePreset = timePreset;
       } catch (error) { showError(error); }
       finally { refreshing = false; setBusy(!ready); }
     }
@@ -233,10 +242,9 @@ export const deploymentsHtml = String.raw`<!doctype html>
       event.preventDefault();
       if (!ready || refreshing || !snapshot) return;
       const nextFilters = { status: filterStatus.value || null };
-      if (filterTime.value) {
-        const custom = filterTime.value === 'custom';
-        const to = custom ? new Date(filterTo.value).getTime() : Date.now();
-        const from = custom ? new Date(filterFrom.value).getTime() : to - Number(filterTime.value) * 3600000;
+      if (filterTime.value === 'custom') {
+        const to = new Date(filterTo.value).getTime();
+        const from = new Date(filterFrom.value).getTime();
         if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) {
           status.textContent = 'Choose a valid time range with From before To.';
           return;
@@ -246,7 +254,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
       }
       pollingStoppedOnError = false;
       pollingDeadline = performance.now() + pollingDuration;
-      refresh(nextFilters);
+      refresh(nextFilters, filterTime.value === 'custom' ? '' : filterTime.value);
     });
     document.addEventListener('visibilitychange', schedule);
     window.addEventListener('pagehide', () => clearTimeout(timer));
