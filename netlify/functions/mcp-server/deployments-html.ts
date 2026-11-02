@@ -14,7 +14,18 @@ export const deploymentsHtml = String.raw`<!doctype html>
     h2 { margin: 0; font-size: 17px; }
     [hidden] { display: none !important; }
     .filters { margin: 12px 0; }
+    .filters label { display: inline-flex; align-items: center; gap: 8px; }
     select, input { font: inherit; color: inherit; background: transparent; border: 1px solid #8886; border-radius: 5px; padding: 5px; max-width: 100%; }
+    .select-wrap { position: relative; display: inline-flex; }
+    .select-wrap select { appearance: none; padding: 6px 34px 6px 10px; }
+    .select-wrap svg { position: absolute; inset-inline-end: 10px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); pointer-events: none; }
+    .select-wrap:has(select:open) svg { transform: translateY(-50%) rotate(180deg); }
+    @supports (appearance: base-select) {
+      .select-wrap select, .select-wrap select::picker(select) { appearance: base-select; }
+      .select-wrap select::picker-icon { display: none; }
+      .select-wrap select::picker(select) { border: 1px solid #8886; border-radius: 7px; padding: 4px; }
+      .select-wrap option { padding: 6px 10px; }
+    }
     button, a { color: inherit; }
     button { border: 1px solid #8886; border-radius: 7px; padding: 6px 12px; background: transparent; cursor: pointer; font: inherit; }
     button:disabled { opacity: .5; cursor: default; }
@@ -36,17 +47,17 @@ export const deploymentsHtml = String.raw`<!doctype html>
   <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
   <p id="project" class="details"></p>
   <form id="filters" class="filters" hidden>
-    <label>Status <select id="filter-status">
+    <label>Status <span class="select-wrap"><select id="filter-status">
       <option value="">Any status</option><option value="error">Unsuccessful</option>
       <option value="ready">Successful</option><option value="enqueued">Enqueued</option>
       <option value="pending_review">Pending review</option><option value="accepted">Accepted</option>
       <option value="rejected">Rejected</option>
-    </select></label>
-    <label>Time frame <select id="filter-time">
+    </select><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></label>
+    <label>Time frame <span class="select-wrap"><select id="filter-time">
       <option value="">Any time frame</option><option value="1">Last hour</option>
       <option value="24">Last day</option><option value="48">Last 2 days</option>
       <option value="168">Last 7 days</option><option value="custom">Custom</option>
-    </select></label>
+    </select><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></label>
     <span id="custom-range" hidden>
       <label>From <input id="filter-from" type="datetime-local"></label>
       <label>To <input id="filter-to" type="datetime-local"></label>
