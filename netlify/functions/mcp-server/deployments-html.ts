@@ -15,7 +15,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
     button, a { color: inherit; }
     button { border: 1px solid #8886; border-radius: 7px; padding: 6px 12px; background: transparent; cursor: pointer; font: inherit; }
     button:disabled { opacity: .5; cursor: default; }
-    #status, .details { color: var(--color-text-secondary, GrayText); font-size: 12px; }
+    #status, #link-error, .details { color: var(--color-text-secondary, GrayText); font-size: 12px; }
     #status { margin: 6px 0 0; }
     article { border-top: 1px solid #8884; padding: 14px 0; overflow-wrap: anywhere; }
     article:last-child { padding-bottom: 0; }
@@ -31,12 +31,15 @@ export const deploymentsHtml = String.raw`<!doctype html>
 <body>
   <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
   <p id="status" role="status">Loading deployments…</p>
+  <p id="link-error" role="status" hidden></p>
   <main id="deployments"></main>
   <script>
     const list = document.querySelector('#deployments');
     const status = document.querySelector('#status');
+    const linkError = document.querySelector('#link-error');
     const refreshButton = document.querySelector('#refresh');
     let snapshot, timer, ready = false, refreshing = false, nextId = 0;
+    let pollingStoppedOnError = false;
     const pollingDuration = 15 * 60 * 1000;
     let pollingDeadline = performance.now() + pollingDuration;
     const pending = new Map();
@@ -85,8 +88,11 @@ export const deploymentsHtml = String.raw`<!doctype html>
       node.rel = 'noopener noreferrer';
       node.addEventListener('click', event => {
         event.preventDefault();
+        linkError.textContent = '';
+        linkError.hidden = true;
         request('ui/open-link', { url: href }).catch(error => {
-          status.textContent = 'Could not open the link. ' + error.message;
+          linkError.textContent = 'Could not open the link. ' + error.message;
+          linkError.hidden = false;
         });
       });
       return node;
@@ -98,10 +104,11 @@ export const deploymentsHtml = String.raw`<!doctype html>
     }
     function schedule() {
       clearTimeout(timer);
-      if (ready && snapshot?.hasActiveDeploys && !document.hidden && !pollingExpired()) timer = setTimeout(refresh, 5000);
+      if (ready && snapshot?.hasActiveDeploys && !pollingStoppedOnError && !document.hidden && !pollingExpired()) timer = setTimeout(refresh, 5000);
     }
     function showError(error) {
       clearTimeout(timer);
+      pollingStoppedOnError = true;
       status.textContent = 'Could not update deployments. ' + error.message;
     }
     function render(result) {
@@ -133,7 +140,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
       schedule();
     }
     async function refresh() {
-      if (!ready || !snapshot || refreshing) return;
+      if (!ready || !snapshot || refreshing || pollingStoppedOnError) return;
       clearTimeout(timer);
       if (pollingExpired()) return;
       refreshing = true;
@@ -147,6 +154,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
       finally { refreshing = false; refreshButton.disabled = !ready; }
     }
     refreshButton.addEventListener('click', () => {
+      pollingStoppedOnError = false;
       pollingDeadline = performance.now() + pollingDuration;
       refresh();
     });

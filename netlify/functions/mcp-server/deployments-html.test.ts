@@ -155,7 +155,50 @@ test('a rejected link open does not stop active deployment polling', async () =>
   h.links[0].click();
   assert.equal(h.messages.at(-1).method, 'ui/open-link');
   await h.send({ id: h.messages.at(-1).id, error: { message: 'Opening links is unavailable' } });
-  assert.match(h.nodes.get('#status').textContent, /Could not open the link/);
+  assert.match(h.nodes.get('#link-error').textContent, /Could not open the link/);
+  assert.equal(h.nodes.get('#link-error').hidden, false);
+  assert.equal(h.pollCount(), 1);
+  h.poll();
+  assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
+  await h.send({ id: h.messages.at(-1).id, result: result(true) });
+  assert.match(h.nodes.get('#link-error').textContent, /Could not open the link/);
+  h.links[0].click();
+  assert.equal(h.nodes.get('#link-error').hidden, true);
+  assert.equal(h.nodes.get('#link-error').textContent, '');
+});
+
+test('a late link error preserves the reason deployment polling stopped', async () => {
+  const h = host();
+  await initialize(h);
+  await h.send({ method: 'ui/notifications/tool-result', params: { structuredContent: {
+    ...result(true).structuredContent,
+    deploys: [{ name: 'test', state: 'building', commit: '', createdAt: '',
+      adminUrl: 'https://app.netlify.com/sites/test/deploys/test' }],
+  } } });
+  h.links[0].click();
+  const linkId = h.messages.at(-1).id;
+  h.poll();
+  await h.send({ id: h.messages.at(-1).id, error: { message: 'Access denied' } });
+  await h.send({ id: linkId, error: { message: 'Link rejected' } });
+  assert.match(h.nodes.get('#status').textContent, /Access denied/);
+  assert.match(h.nodes.get('#link-error').textContent, /Link rejected/);
+  assert.equal(h.pollCount(), 0);
+});
+
+test('refresh errors stop polling across visibility changes until manual refresh', async () => {
+  const h = host();
+  await initialize(h);
+  h.poll();
+  await h.send({ id: h.messages.at(-1).id, error: { message: 'Access denied' } });
+  const messageCount = h.messages.length;
+  h.visibility(true);
+  h.visibility(false);
+  assert.equal(h.pollCount(), 0);
+  assert.equal(h.messages.length, messageCount);
+  assert.match(h.nodes.get('#status').textContent, /Access denied/);
+  h.nodes.get('#refresh').click();
+  assert.equal(h.messages.length, messageCount + 1);
+  await h.send({ id: h.messages.at(-1).id, result: result(true) });
   assert.equal(h.pollCount(), 1);
   h.poll();
   assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
