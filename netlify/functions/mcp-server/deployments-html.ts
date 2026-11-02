@@ -17,6 +17,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
     button:disabled { opacity: .5; cursor: default; }
     #status, #link-error, .details { color: var(--color-text-secondary, GrayText); font-size: 12px; }
     #status { margin: 6px 0 0; }
+    #link-error:empty { margin: 0; }
     article { border-top: 1px solid #8884; padding: 14px 0; overflow-wrap: anywhere; }
     article:last-child { padding-bottom: 0; }
     .heading { justify-content: space-between; }
@@ -31,7 +32,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
 <body>
   <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
   <p id="status" role="status">Loading deployments…</p>
-  <p id="link-error" role="status" hidden></p>
+  <p id="link-error" role="status"></p>
   <main id="deployments"></main>
   <script>
     const list = document.querySelector('#deployments');
@@ -89,10 +90,8 @@ export const deploymentsHtml = String.raw`<!doctype html>
       node.addEventListener('click', event => {
         event.preventDefault();
         linkError.textContent = '';
-        linkError.hidden = true;
         request('ui/open-link', { url: href }).catch(error => {
           linkError.textContent = 'Could not open the link. ' + error.message;
-          linkError.hidden = false;
         });
       });
       return node;
@@ -134,7 +133,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
         card.append(links);
         list.append(card);
       }
-      status.textContent = !snapshot.deploys.length ? 'No deploys yet.'
+      if (!pollingStoppedOnError) status.textContent = !snapshot.deploys.length ? 'No deploys yet.'
         : snapshot.hasActiveDeploys ? 'Updating every 5 seconds while deploys are active.' : 'Up to date.';
       refreshButton.disabled = !ready || refreshing;
       schedule();

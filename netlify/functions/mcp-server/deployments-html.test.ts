@@ -156,14 +156,12 @@ test('a rejected link open does not stop active deployment polling', async () =>
   assert.equal(h.messages.at(-1).method, 'ui/open-link');
   await h.send({ id: h.messages.at(-1).id, error: { message: 'Opening links is unavailable' } });
   assert.match(h.nodes.get('#link-error').textContent, /Could not open the link/);
-  assert.equal(h.nodes.get('#link-error').hidden, false);
   assert.equal(h.pollCount(), 1);
   h.poll();
   assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
   await h.send({ id: h.messages.at(-1).id, result: result(true) });
   assert.match(h.nodes.get('#link-error').textContent, /Could not open the link/);
   h.links[0].click();
-  assert.equal(h.nodes.get('#link-error').hidden, true);
   assert.equal(h.nodes.get('#link-error').textContent, '');
 });
 
@@ -196,9 +194,13 @@ test('refresh errors stop polling across visibility changes until manual refresh
   assert.equal(h.pollCount(), 0);
   assert.equal(h.messages.length, messageCount);
   assert.match(h.nodes.get('#status').textContent, /Access denied/);
+  await h.send({ method: 'ui/notifications/tool-result', params: result(true) });
+  assert.match(h.nodes.get('#status').textContent, /Access denied/, 'late results must preserve the polling error');
+  assert.equal(h.pollCount(), 0);
   h.nodes.get('#refresh').click();
   assert.equal(h.messages.length, messageCount + 1);
   await h.send({ id: h.messages.at(-1).id, result: result(true) });
+  assert.doesNotMatch(h.nodes.get('#status').textContent, /Access denied/);
   assert.equal(h.pollCount(), 1);
   h.poll();
   assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
