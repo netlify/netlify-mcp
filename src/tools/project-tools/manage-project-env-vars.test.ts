@@ -25,7 +25,7 @@ const stubUpsert = (t: any, createStatus: number, createBody?: string, existingK
       return new Response(JSON.stringify({}), { status: 200 });
     }
     if (existingKey) {
-      return new Response(JSON.stringify({ key: 'API_KEY', is_secret: true }), { status: 200 });
+      return new Response(null, { status: 200 });
     }
     return new Response('', { status: 404 });
   });
@@ -138,11 +138,10 @@ test('a refused create does not leak a value that straddles the 300-character cu
   stubUpsert(t, 422, JSON.stringify({ code: 422, msg }));
   const err = await upsert({ envVarValue: value }).then(() => null, (e: unknown) => e);
   assert.ok(err instanceof NetlifyApiError);
-  for (let i = 0; i + 8 <= value.length; i++) {
-    assert.ok(!err.message.includes(value.slice(i, i + 8)), `fragment at ${i} leaked`);
-  }
-  const reason = err.message.split('): ')[1];
-  assert.ok(reason.length <= 300, `reason is ${reason.length} characters`);
+  assert.equal(
+    err.message,
+    'Netlify refused to create environment variable "API_KEY" (422): ' + 'a'.repeat(290) + '[redacted]',
+  );
 });
 
 test('upserting an existing secret key patches every context and never creates', async (t) => {
