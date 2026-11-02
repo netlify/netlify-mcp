@@ -83,7 +83,9 @@ export const deploymentsHtml = String.raw`<!doctype html>
       node.rel = 'noopener noreferrer';
       node.addEventListener('click', event => {
         event.preventDefault();
-        request('ui/open-link', { url: href }).catch(showError);
+        request('ui/open-link', { url: href }).catch(error => {
+          status.textContent = 'Could not open the link. ' + error.message;
+        });
       });
       return node;
     }

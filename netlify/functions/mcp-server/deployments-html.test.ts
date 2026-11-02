@@ -9,11 +9,19 @@ function host() {
   const timers = new Map<number, { callback: () => void; delay: number }>();
   const listeners: Record<string, (event: any) => void> = {};
   const nodes = new Map<string, any>();
+  const links: any[] = [];
   let nextTimer = 0;
-  const element = () => ({
-    textContent: '', disabled: false, dataset: {},
-    append() {}, replaceChildren() {}, addEventListener() {},
-  });
+  const element = (tag?: string) => {
+    const node: any = {
+      textContent: '', disabled: false, dataset: {},
+      append() {}, replaceChildren() {},
+      addEventListener(type: string, callback: any) {
+        if (type === 'click') node.click = () => callback({ preventDefault() {} });
+      },
+    };
+    if (tag === 'a') links.push(node);
+    return node;
+  };
   const parent = { postMessage: (message: any) => messages.push(message) };
   const document = {
     hidden: false, body: { offsetHeight: 200 }, createElement: element,
@@ -33,7 +41,7 @@ function host() {
     clearTimeout: (id: number) => timers.delete(id),
   });
   return {
-    messages, document, nodes,
+    messages, document, nodes, links,
     pollCount: () => [...timers.values()].filter(t => t.delay === 5000).length,
     async send(data: object) {
       listeners.message({ source: parent, data: { jsonrpc: '2.0', ...data } });
@@ -87,4 +95,21 @@ test('teardown acknowledges a host request even when its ID matches an in-flight
   h.visibility(false);
   assert.equal(h.pollCount(), 0, 'a late response must not restart polling after teardown');
   assert.equal(h.nodes.get('#refresh').disabled, true);
+});
+
+test('a rejected link open does not stop active deployment polling', async () => {
+  const h = host();
+  await initialize(h);
+  await h.send({ method: 'ui/notifications/tool-result', params: { structuredContent: {
+    ...result(true).structuredContent,
+    deploys: [{ name: 'test', state: 'building', commit: '', createdAt: '',
+      adminUrl: 'https://app.netlify.com/sites/test/deploys/test' }],
+  } } });
+  h.links[0].click();
+  assert.equal(h.messages.at(-1).method, 'ui/open-link');
+  await h.send({ id: h.messages.at(-1).id, error: { message: 'Opening links is unavailable' } });
+  assert.match(h.nodes.get('#status').textContent, /Could not open the link/);
+  assert.equal(h.pollCount(), 1);
+  h.poll();
+  assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
 });
