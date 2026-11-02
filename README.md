@@ -131,10 +131,15 @@ Once resolved, remove your PAT from the config.
 
 Ask an MCP Apps-compatible client: **“Show recent deployments for my project.”**
 The `netlify-open-deployments` tool takes a `siteId` (and optional `deployId`) and
-shows up to five deploys with status, branch, commit, errors, and links. The card
+shows up to five matching deploys with status, branch, labeled creation time,
+errors, and links, plus the project's team and its dashboard link. Filter the
+project list by status and time frame, including a custom range. Tools also accept
+`status` and paired `from`/`to` Unix timestamps; filters are applied by Netlify
+before limiting the results. Filters do not apply to a specific `deployId`. The card
 refreshes every five seconds while a displayed deploy is active and stops when
 they finish or after 15 minutes, including time spent hidden. The Refresh button
 checks again manually and starts a new 15-minute window for automatic updates.
+Applying filters also starts a new window.
 Clients without MCP Apps support receive a text summary.
 
 This uses the existing Netlify OAuth connection and adds no environment variables

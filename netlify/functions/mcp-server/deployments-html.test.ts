@@ -14,10 +14,10 @@ function host() {
   let now = 0;
   const element = (tag?: string) => {
     const node: any = {
-      textContent: '', disabled: false, dataset: {},
-      append() {}, replaceChildren() {},
+      textContent: '', value: '', disabled: false, dataset: {}, children: [],
+      append(...children: any[]) { node.children.push(...children); }, replaceChildren() { node.children = []; },
       addEventListener(type: string, callback: any) {
-        if (type === 'click') node.click = () => callback({ preventDefault() {} });
+        node[type] = () => callback({ preventDefault() {} });
       },
     };
     if (tag === 'a') links.push(node);
@@ -204,4 +204,52 @@ test('refresh errors stop polling across visibility changes until manual refresh
   assert.equal(h.pollCount(), 1);
   h.poll();
   assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
+});
+
+
+test('card shows team and labeled creation time, without commit details', async () => {
+  const h = host();
+  await initialize(h);
+  const data = { ...result(false).structuredContent, project: { name: 'Project', teamName: 'Team', teamUrl: 'https://app.netlify.com/teams/example/overview' }, deploys: [{ id: 'd1', name: 'Project', state: 'ready', createdAt: '2026-01-01T12:00:00Z', branch: 'main', commit: 'hidden-commit', commitUrl: 'https://github.com/commit', adminUrl: 'https://app.netlify.com/sites/example/deploys/d1' }] };
+  await h.send({ method: 'ui/notifications/tool-result', params: { structuredContent: data } });
+  assert.match(JSON.stringify(h.nodes.get('#project').children), /Team:/);
+  assert.ok(h.links.some(link => link.textContent === 'Team ↗'));
+  const rendered = JSON.stringify(h.nodes.get('#deployments').children);
+  assert.match(rendered, /Created /);
+  assert.doesNotMatch(rendered, /hidden-commit|View commit/);
+  h.nodes.get('#refresh').click();
+  const { project, ...updated } = data;
+  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: updated } });
+  assert.match(JSON.stringify(h.nodes.get('#project').children), /Team:/, 'refresh retains team context');
+});
+
+test('status and custom time filters are applied on the host, retained on polls, and can be cleared', async () => {
+  const h = host();
+  await initialize(h);
+  h.nodes.get('#filter-status').value = 'error';
+  h.nodes.get('#filter-time').value = 'custom';
+  h.nodes.get('#filter-time').change();
+  assert.equal(h.nodes.get('#custom-range').hidden, false);
+  h.nodes.get('#filter-from').value = '2026-01-01T00:00:00Z';
+  h.nodes.get('#filter-to').value = '2026-01-02T00:00:00Z';
+  h.nodes.get('#filters').submit();
+  const args = h.messages.at(-1).params.arguments;
+  assert.equal(args.status, 'error');
+  assert.equal(args.from, 1767225600);
+  assert.equal(args.to, 1767312000);
+  assert.equal(h.nodes.get('#apply-filters').disabled, true);
+  const filters = { status: args.status, from: args.from, to: args.to };
+  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(true).structuredContent, filters } } });
+  h.poll();
+  assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args));
+  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(false).structuredContent, filters } } });
+  h.nodes.get('#filter-from').value = '2027-01-01T00:00:00Z';
+  const count = h.messages.length;
+  h.nodes.get('#filters').submit();
+  assert.equal(h.messages.length, count, 'invalid range must not query the API');
+  assert.match(h.nodes.get('#status').textContent, /valid time range/);
+  h.nodes.get('#filter-status').value = '';
+  h.nodes.get('#filter-time').value = '';
+  h.nodes.get('#filters').submit();
+  assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify({ siteId: 'site-1' }));
 });

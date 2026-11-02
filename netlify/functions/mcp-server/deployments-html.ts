@@ -9,9 +9,12 @@ export const deploymentsHtml = String.raw`<!doctype html>
     :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 16px; color: var(--color-text-primary, CanvasText); background: var(--color-background-primary, Canvas); }
-    header, .heading, .links { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    header, .heading, .links, .filters, #custom-range { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     header { justify-content: space-between; }
     h2 { margin: 0; font-size: 17px; }
+    [hidden] { display: none !important; }
+    .filters { margin: 12px 0; }
+    select, input { font: inherit; color: inherit; background: transparent; border: 1px solid #8886; border-radius: 5px; padding: 5px; max-width: 100%; }
     button, a { color: inherit; }
     button { border: 1px solid #8886; border-radius: 7px; padding: 6px 12px; background: transparent; cursor: pointer; font: inherit; }
     button:disabled { opacity: .5; cursor: default; }
@@ -31,6 +34,25 @@ export const deploymentsHtml = String.raw`<!doctype html>
 </head>
 <body>
   <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
+  <p id="project" class="details"></p>
+  <form id="filters" class="filters" hidden>
+    <label>Status <select id="filter-status">
+      <option value="">Any status</option><option value="error">Unsuccessful</option>
+      <option value="ready">Successful</option><option value="enqueued">Enqueued</option>
+      <option value="pending_review">Pending review</option><option value="accepted">Accepted</option>
+      <option value="rejected">Rejected</option>
+    </select></label>
+    <label>Time frame <select id="filter-time">
+      <option value="">Any time frame</option><option value="1">Last hour</option>
+      <option value="24">Last day</option><option value="48">Last 2 days</option>
+      <option value="168">Last 7 days</option><option value="custom">Custom</option>
+    </select></label>
+    <span id="custom-range" hidden>
+      <label>From <input id="filter-from" type="datetime-local"></label>
+      <label>To <input id="filter-to" type="datetime-local"></label>
+    </span>
+    <button id="apply-filters" disabled>Apply</button>
+  </form>
   <p id="status" role="status">Loading deployments…</p>
   <p id="link-error" role="status"></p>
   <main id="deployments"></main>
@@ -39,6 +61,13 @@ export const deploymentsHtml = String.raw`<!doctype html>
     const status = document.querySelector('#status');
     const linkError = document.querySelector('#link-error');
     const refreshButton = document.querySelector('#refresh');
+    const project = document.querySelector('#project');
+    const filters = document.querySelector('#filters');
+    const filterStatus = document.querySelector('#filter-status');
+    const filterTime = document.querySelector('#filter-time');
+    const filterFrom = document.querySelector('#filter-from');
+    const filterTo = document.querySelector('#filter-to');
+    const applyFilters = document.querySelector('#apply-filters');
     let snapshot, timer, ready = false, refreshing = false, nextId = 0;
     let pollingStoppedOnError = false;
     const pollingDuration = 15 * 60 * 1000;
@@ -65,7 +94,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
       if (message.method === 'ui/resource-teardown') {
         ready = false;
         clearTimeout(timer);
-        refreshButton.disabled = true;
+        setBusy(true);
         window.parent.postMessage({ jsonrpc: '2.0', id: message.id, result: {} }, '*');
       } else if (waiting) {
         clearTimeout(waiting.timeout);
@@ -113,7 +142,31 @@ export const deploymentsHtml = String.raw`<!doctype html>
     function render(result) {
       if (result?.isError) throw new Error(result.content?.find(item => item.type === 'text')?.text || 'Please retry.');
       if (!result?.structuredContent) return;
-      snapshot = result.structuredContent;
+      if (!snapshot || snapshot.siteId !== result.structuredContent.siteId) {
+        const initial = result.structuredContent.filters;
+        filterStatus.value = initial?.status ?? '';
+        if (initial?.from != null && initial?.to != null) {
+          filterTime.value = 'custom';
+          const localTime = seconds => {
+            const date = new Date(seconds * 1000);
+            return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+          };
+          filterFrom.value = localTime(initial.from);
+          filterTo.value = localTime(initial.to);
+          document.querySelector('#custom-range').hidden = false;
+          filterFrom.required = filterTo.required = true;
+        }
+      }
+      const previousProject = snapshot?.siteId === result.structuredContent.siteId ? snapshot.project : undefined;
+      snapshot = { ...result.structuredContent, project: result.structuredContent.project ?? previousProject };
+      project.replaceChildren();
+      if (snapshot.project) {
+        project.append(element('span', snapshot.project.name + (snapshot.project.teamName ? ' · Team: ' : '')));
+        if (snapshot.project.teamName) project.append(snapshot.project.teamUrl
+          ? link(snapshot.project.teamName + ' ↗', snapshot.project.teamUrl)
+          : element('span', snapshot.project.teamName));
+      }
+      filters.hidden = !!snapshot.deployId;
       list.replaceChildren();
       for (const deploy of snapshot.deploys) {
         const card = element('article', '');
@@ -123,39 +176,66 @@ export const deploymentsHtml = String.raw`<!doctype html>
         heading.append(element('strong', deploy.title || deploy.name), badge);
         card.append(heading);
         const date = new Date(deploy.createdAt);
-        card.append(element('p', [deploy.context, deploy.branch, deploy.commit.slice(0, 7),
-          isNaN(date.getTime()) ? '' : date.toLocaleString()].filter(Boolean).join(' · '), 'details'));
+        card.append(element('p', [deploy.context, deploy.branch,
+          isNaN(date.getTime()) ? '' : 'Created ' + date.toLocaleString()].filter(Boolean).join(' · '), 'details'));
         if (deploy.error) card.append(element('p', deploy.error, 'error'));
         const links = element('div', '', 'links');
         if (deploy.deployUrl) links.append(link('Visit deploy ↗', deploy.deployUrl));
         links.append(link('Open in Netlify ↗', deploy.adminUrl));
-        if (deploy.commitUrl) links.append(link('View commit ↗', deploy.commitUrl));
         card.append(links);
         list.append(card);
       }
-      if (!pollingStoppedOnError) status.textContent = !snapshot.deploys.length ? 'No deploys yet.'
-        : snapshot.hasActiveDeploys ? 'Updating every 5 seconds while deploys are active.' : 'Up to date.';
-      refreshButton.disabled = !ready || refreshing;
+      if (!pollingStoppedOnError) status.textContent = !snapshot.deploys.length ? 'No deployments match these filters.'
+        : snapshot.hasActiveDeploys ? 'Updating every 5 seconds while deploys are active.' : 'Up to date.' + (snapshot.deployId ? '' : ' Showing up to 5 matching deployments.');
+      setBusy(!ready || refreshing);
       schedule();
     }
-    async function refresh() {
+    function setBusy(busy) {
+      for (const control of [refreshButton, applyFilters, filterStatus, filterTime, filterFrom, filterTo]) control.disabled = busy;
+    }
+    async function refresh(nextFilters) {
       if (!ready || !snapshot || refreshing || pollingStoppedOnError) return;
       clearTimeout(timer);
       if (pollingExpired()) return;
       refreshing = true;
-      refreshButton.disabled = true;
+      setBusy(true);
       try {
         render(await request('tools/call', {
           name: 'netlify-refresh-deployments',
-          arguments: { siteId: snapshot.siteId, ...(snapshot.deployId ? { deployId: snapshot.deployId } : {}) },
+          arguments: { siteId: snapshot.siteId, ...(snapshot.deployId ? { deployId: snapshot.deployId }
+            : Object.fromEntries(Object.entries(nextFilters ?? snapshot.filters ?? {}).filter(([, value]) => value != null))) },
         }));
       } catch (error) { showError(error); }
-      finally { refreshing = false; refreshButton.disabled = !ready; }
+      finally { refreshing = false; setBusy(!ready); }
     }
     refreshButton.addEventListener('click', () => {
       pollingStoppedOnError = false;
       pollingDeadline = performance.now() + pollingDuration;
       refresh();
+    });
+    filterTime.addEventListener('change', () => {
+      const custom = filterTime.value === 'custom';
+      document.querySelector('#custom-range').hidden = !custom;
+      filterFrom.required = filterTo.required = custom;
+    });
+    filters.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!ready || refreshing || !snapshot) return;
+      const nextFilters = { status: filterStatus.value || null };
+      if (filterTime.value) {
+        const custom = filterTime.value === 'custom';
+        const to = custom ? new Date(filterTo.value).getTime() : Date.now();
+        const from = custom ? new Date(filterFrom.value).getTime() : to - Number(filterTime.value) * 3600000;
+        if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) {
+          status.textContent = 'Choose a valid time range with From before To.';
+          return;
+        }
+        nextFilters.from = Math.floor(from / 1000);
+        nextFilters.to = Math.floor(to / 1000);
+      }
+      pollingStoppedOnError = false;
+      pollingDeadline = performance.now() + pollingDuration;
+      refresh(nextFilters);
     });
     document.addEventListener('visibilitychange', schedule);
     window.addEventListener('pagehide', () => clearTimeout(timer));
@@ -165,7 +245,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
     }).then(() => {
       notify('ui/notifications/initialized', {});
       ready = true;
-      refreshButton.disabled = !snapshot;
+      setBusy(!snapshot);
       schedule();
     }).catch(showError);
     new ResizeObserver(() => notify('ui/notifications/size-changed', {

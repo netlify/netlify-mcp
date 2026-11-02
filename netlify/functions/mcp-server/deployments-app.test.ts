@@ -33,6 +33,7 @@ globalThis.fetch = (async (input: any, init: RequestInit) => {
   if (url.pathname === '/api/v1/user') return Response.json({ id: 'user-1' });
   apiCalls.push(url.pathname + url.search);
   if (apiStatus !== 200) return Response.json({ message: 'Denied' }, { status: apiStatus });
+  if (url.pathname === `/api/v1/sites/${siteId}`) return Response.json({ name: 'my-project', account_name: 'Example team', account_slug: 'example-team', secret: 'do-not-send' });
   if (url.pathname.endsWith('/deploys')) return Response.json(deploys);
   assert.equal(url.pathname, `/api/v1/sites/${siteId}/deploys/deploy-1`);
   return Response.json(deploys[0]);
@@ -87,17 +88,21 @@ for (const modern of [false, true]) {
     assert.equal(body.result.structuredContent.hasActiveDeploys, true);
     assert.equal(body.result.structuredContent.deploys[0].deployUrl, null);
     assert.match(body.result.content[0].text, /building.*deploy-1/);
-    assert.match(body.result.content[0].text, /main · production · abc1234/);
+    assert.match(body.result.content[0].text, /main · production/);
     assert.doesNotMatch(JSON.stringify(body.result), /do-not-send|file_configuration|skew_protection_token/);
-    assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys?per_page=5`]);
+    assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys?per_page=5`, `/api/v1/sites/${siteId}`]);
 
+    assert.deepEqual(body.result.structuredContent.project, { name: 'my-project', teamName: 'Example team', teamUrl: 'https://app.netlify.com/teams/example-team/overview' });
+    assert.equal(body.result.structuredContent.deploys[0].commit, undefined);
+    assert.equal(body.result.structuredContent.deploys[0].commitUrl, undefined);
+    apiCalls = [];
     deploys = [{ ...deploy, state: 'ready' }];
     const { body: updated } = await rpc('tools/call', {
       name: refresh.name, arguments: { siteId, deployId: 'deploy-1' },
     }, modern);
     assert.equal(updated.result.structuredContent.hasActiveDeploys, false);
     assert.equal(updated.result.structuredContent.deploys[0].deployUrl, 'https://deploy-1--my-project.netlify.app/');
-    assert.equal(apiCalls.at(-1), `/api/v1/sites/${siteId}/deploys/deploy-1`);
+    assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys/deploy-1`], 'polling must not re-fetch team context');
   });
 }
 
@@ -127,4 +132,18 @@ test('both tools enforce auth, input validation and upstream access errors', asy
     assert.match(body.result.content[0].text, /403/);
     apiCalls = [];
   }
+});
+
+
+test('filters query the API before limiting results and reject invalid combinations', async () => {
+  const filters = { status: 'error', from: 1000, to: 2000 };
+  const { body } = await rpc('tools/call', { name: 'netlify-refresh-deployments', arguments: { siteId, ...filters } });
+  assert.deepEqual(body.result.structuredContent.filters, filters);
+  assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys?per_page=5&state=error&from=1000&to=2000`]);
+  apiCalls = [];
+  for (const args of [{ status: 'bogus' }, { from: 100 }, { to: 100 }, { from: 200, to: 100 }, { from: -1, to: 100 }, { deployId: 'deploy-1', status: 'ready' }]) {
+    const { body: invalid } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId, ...args } });
+    assert.ok(invalid.error || invalid.result?.isError);
+  }
+  assert.deepEqual(apiCalls, []);
 });
