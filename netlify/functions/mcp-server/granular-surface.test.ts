@@ -122,3 +122,21 @@ test('granular tools carry explicit behaviour hints', async () => {
     'netlify-project-update-visitor-access-controls',
   ]);
 });
+
+test('feedback is exposed as a write-only tool on both surfaces', async () => {
+  const granular = await toolsList('openai-mcp/1.0.0');
+  const submit = granular.find(t => t.name === 'netlify-submit-feedback');
+  assert.ok(submit, 'expected the granular feedback tool');
+  assert.equal(submit.annotations.readOnlyHint, false);
+  assert.equal(submit.annotations.destructiveHint, false);
+
+  const grouped = await toolsList('some-other-client/2.0');
+  const names = grouped.map(t => t.name);
+  assert.ok(names.includes('netlify-feedback-services-updater'));
+  // There must never be a way to read feedback back out through the server.
+  assert.equal(names.includes('netlify-feedback-services-reader'), false);
+  for (const tool of [...granular, ...grouped]) {
+    if (!/feedback/.test(tool.name)) continue;
+    assert.equal(tool.annotations.readOnlyHint, false, `${tool.name} must not read feedback`);
+  }
+});
