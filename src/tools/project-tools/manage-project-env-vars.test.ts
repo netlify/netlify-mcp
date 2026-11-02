@@ -8,7 +8,6 @@ const testRequest = () =>
 
 // Stub the three calls an upsert of a new key makes: site lookup, existing-var
 // lookup (404 = new key), then the create POST with the status under test.
-// With existingKey set, the lookup answers 200 and PATCH calls are recorded.
 const stubUpsert = (t: any, createStatus: number, createBody?: string, existingKey = false) => {
   const posted: { body?: any; posts: number; patchContexts: string[] } = { posts: 0, patchContexts: [] };
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
@@ -130,6 +129,20 @@ test('a refused create never echoes the submitted value', async (t) => {
   assert.ok(err instanceof NetlifyApiError);
   assert.match(err.message, /\[redacted\]/);
   assert.doesNotMatch(err.message, /s3cr3t-value/);
+});
+
+test('a refused create does not leak a value that straddles the 300-character cutoff', async (t) => {
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+  const value = 'Zq7!xK9#mW2$pL5@';
+  const msg = 'a'.repeat(290) + value.repeat(3);
+  stubUpsert(t, 422, JSON.stringify({ code: 422, msg }));
+  const err = await upsert({ envVarValue: value }).then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  for (let i = 0; i + 8 <= value.length; i++) {
+    assert.ok(!err.message.includes(value.slice(i, i + 8)), `fragment at ${i} leaked`);
+  }
+  const reason = err.message.split('): ')[1];
+  assert.ok(reason.length <= 300, `reason is ${reason.length} characters`);
 });
 
 test('upserting an existing secret key patches every context and never creates', async (t) => {

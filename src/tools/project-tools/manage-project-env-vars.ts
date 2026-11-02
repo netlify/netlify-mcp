@@ -12,14 +12,16 @@ const SECRET_DEFAULT_SCOPES = ['builds', 'functions', 'runtime'] as const;
 // local value, and branch because it needs a branch name.
 const SECRET_DEFAULT_CONTEXTS = ['production', 'deploy-preview', 'branch-deploy'] as const;
 
-const refusalReason = (text: string): string => {
+const refusalReason = (text: string, envVarValue: string | undefined): string => {
   let reason = text.trim();
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.msg === 'string') reason = parsed.msg;
     else if (typeof parsed?.message === 'string') reason = parsed.message;
   } catch {}
-  return reason.trim().slice(0, 300);
+  reason = reason.trim();
+  if (envVarValue) reason = reason.split(envVarValue).join('[redacted]');
+  return reason.slice(0, 300);
 };
 
 const manageEnvVarsParamsSchema = z.object({
@@ -65,13 +67,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
       const existingEnvVarResp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, request);
 
-      let existingEnvVar = null;
-
       if (existingEnvVarResp.status === 200) {
-        existingEnvVar = await existingEnvVarResp.json();
-      }
-
-      if (existingEnvVar) {
 
         const contextsToUpdate: (typeof availableContexts[number])[] = [];
 
@@ -109,7 +105,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           : [{ context: newVarContext || 'all', value: envVarValue }]
       }
 
-      appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
+      appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar})}`);
 
       const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
         method: 'POST',
@@ -125,8 +121,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         } catch {
           throw new NetlifyApiError(resp.status);
         }
-        let reason = refusalReason(text);
-        if (envVarValue) reason = reason.split(envVarValue).join('[redacted]');
+        const reason = refusalReason(text, envVarValue);
         if (!reason) {
           throw new NetlifyApiError(resp.status);
         }
