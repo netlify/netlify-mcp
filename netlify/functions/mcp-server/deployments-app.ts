@@ -93,7 +93,7 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
   };
 
   server.registerTool('netlify-open-deployments', {
-    title: 'Open Netlify deployments',
+    title: 'Netlify Deployments',
     description: 'Show an interactive card of the five most recent matching deploys for a Netlify project, or one specific deploy. Filter by status and creation time. Includes team, live status, branch, errors, and links. Read-only; does not start a deploy. Also returns text for clients without UI support.',
     inputSchema, annotations,
     _meta: { ui: { resourceUri: RESOURCE_URI } },
