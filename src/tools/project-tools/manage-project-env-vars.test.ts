@@ -8,16 +8,25 @@ const testRequest = () =>
 
 // Stub the three calls an upsert of a new key makes: site lookup, existing-var
 // lookup (404 = new key), then the create POST with the status under test.
-const stubUpsert = (t: any, createStatus: number, createBody?: string) => {
-  const posted: { body?: any } = {};
+// With existingKey set, the lookup answers 200 and PATCH calls are recorded.
+const stubUpsert = (t: any, createStatus: number, createBody?: string, existingKey = false) => {
+  const posted: { body?: any; posts: number; patchContexts: string[] } = { posts: 0, patchContexts: [] };
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith('/api/v1/sites/site-1')) {
       return new Response(JSON.stringify({ id: 'site-1', account_id: 'team-1' }), { status: 200 });
     }
     if (init?.method === 'POST') {
+      posted.posts++;
       posted.body = JSON.parse(String(init.body))[0];
       return new Response(createBody ?? JSON.stringify({ code: createStatus, msg: 'nope' }), { status: createStatus });
+    }
+    if (init?.method === 'PATCH') {
+      posted.patchContexts.push(JSON.parse(String(init.body)).context);
+      return new Response(JSON.stringify({}), { status: 200 });
+    }
+    if (existingKey) {
+      return new Response(JSON.stringify({ key: 'API_KEY', is_secret: true }), { status: 200 });
     }
     return new Response('', { status: 404 });
   });
@@ -88,6 +97,46 @@ test('a secret create with an explicit context and scopes sends them unchanged',
   const result = await upsert({ envVarIsSecret: true, newVarContext: 'production', newVarScopes: ['functions'] });
   assert.deepEqual(posted.body.scopes, ['functions']);
   assert.deepEqual(posted.body.values, [{ context: 'production', value: 'v' }]);
+  assert.equal(result, 'Environment variable upserted');
+});
+
+test('a secret create with default scopes and an explicit context reports what was sent', async (t) => {
+  const posted = stubUpsert(t, 201);
+  const result = await upsert({ envVarIsSecret: true, newVarContext: 'production' });
+  assert.deepEqual(posted.body.scopes, ['builds', 'functions', 'runtime']);
+  assert.deepEqual(posted.body.values, [{ context: 'production', value: 'v' }]);
+  assert.equal(result, 'Environment variable upserted as a secret (scopes: builds, functions, runtime; contexts: production)');
+});
+
+test('a secret create with explicit scopes and the default context reports what was sent', async (t) => {
+  const posted = stubUpsert(t, 201);
+  const result = await upsert({ envVarIsSecret: true, newVarScopes: ['functions'] });
+  assert.deepEqual(posted.body.scopes, ['functions']);
+  assert.deepEqual(posted.body.values, [
+    { context: 'production', value: 'v' },
+    { context: 'deploy-preview', value: 'v' },
+    { context: 'branch-deploy', value: 'v' },
+  ]);
+  assert.equal(
+    result,
+    'Environment variable upserted as a secret (scopes: functions; contexts: production, deploy-preview, branch-deploy)',
+  );
+});
+
+test('a refused create never echoes the submitted value', async (t) => {
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+  stubUpsert(t, 422, JSON.stringify({ code: 422, msg: 'Invalid value s3cr3t-value for API_KEY' }));
+  const err = await upsert({ envVarValue: 's3cr3t-value' }).then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.match(err.message, /\[redacted\]/);
+  assert.doesNotMatch(err.message, /s3cr3t-value/);
+});
+
+test('upserting an existing secret key patches every context and never creates', async (t) => {
+  const posted = stubUpsert(t, 201, undefined, true);
+  const result = await upsert({ envVarIsSecret: true, newVarContext: 'all' });
+  assert.equal(posted.posts, 0);
+  assert.deepEqual(posted.patchContexts, ['dev', 'branch-deploy', 'deploy-preview', 'production', 'branch']);
   assert.equal(result, 'Environment variable upserted');
 });
 

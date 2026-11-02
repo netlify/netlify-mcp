@@ -8,20 +8,21 @@ import { appendToLog } from '../../utils/logging.js';
 const availableContexts = ['all', 'dev', 'branch-deploy', 'deploy-preview', 'production', 'branch'] as const;
 // The API refuses a secret that runs in the post_processing scope.
 const SECRET_DEFAULT_SCOPES = ['builds', 'functions', 'runtime'] as const;
-// The API refuses a secret with the "all" context; the CLI also leaves out dev and branch.
+// The API refuses the "all" context for a secret. dev is left out because a secret has no
+// local value, and branch because it needs a branch name.
 const SECRET_DEFAULT_CONTEXTS = ['production', 'deploy-preview', 'branch-deploy'] as const;
 
 const refusalReason = (text: string): string => {
-  let reason: unknown = text.trim();
+  let reason = text.trim();
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.msg === 'string') reason = parsed.msg;
     else if (typeof parsed?.message === 'string') reason = parsed.message;
   } catch {}
-  return typeof reason === 'string' ? reason.trim().slice(0, 300) : '';
+  return reason.trim().slice(0, 300);
 };
 
-const manageEnvVarsParamsSchema =z.object({
+const manageEnvVarsParamsSchema = z.object({
   getAllEnvVars: z.boolean().optional(),
   deleteEnvVar: z.boolean().optional(),
   upsertEnvVar: z.boolean().optional(),
@@ -70,23 +71,6 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         existingEnvVar = await existingEnvVarResp.json();
       }
 
-      const wantsAllScopes = newVarScopes.includes('all');
-      const secretScopes = !!envVarIsSecret && wantsAllScopes;
-      const secretContexts = !!envVarIsSecret && newVarContext === 'all';
-
-      let envVar = {
-        key: envVarKey,
-        is_secret: envVarIsSecret || false,
-        scopes: secretScopes
-          ? [...SECRET_DEFAULT_SCOPES]
-          : (['builds', 'functions', 'runtime', 'post_processing'] as typeof newVarScopes).filter(scope => wantsAllScopes || newVarScopes.includes(scope)),
-        values: secretContexts
-          ? SECRET_DEFAULT_CONTEXTS.map(context => ({ context, value: envVarValue }))
-          : [{ context: newVarContext || 'all', value: envVarValue }]
-      }
-
-      appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
-
       if (existingEnvVar) {
 
         const contextsToUpdate: (typeof availableContexts[number])[] = [];
@@ -106,31 +90,51 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
             })
           }, {}, request);
         }
-      } else {
-        const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
-          method: 'POST',
-          body: JSON.stringify([envVar])
-        }, request);
 
-        // A rejected create must not read as success. Check the status before
-        // touching the body, so a failed body read cannot hide a known status.
-        if (!resp.ok) {
-          let text = '';
-          try {
-            text = await resp.text();
-          } catch {
-            throw new NetlifyApiError(resp.status);
-          }
-          const reason = refusalReason(text);
-          if (!reason) {
-            throw new NetlifyApiError(resp.status);
-          }
-          throw new NetlifyApiError(resp.status, `Netlify refused to create environment variable "${envVarKey}" (${resp.status}): ${reason}`);
-        }
-        appendToLog(`create result${resp.status} ${await resp.text()}`);
+        return 'Environment variable upserted';
       }
 
-      if (!existingEnvVar && (secretScopes || secretContexts)) {
+      const wantsAllScopes = newVarScopes.includes('all');
+      const secretScopes = !!envVarIsSecret && wantsAllScopes;
+      const secretContexts = !!envVarIsSecret && newVarContext === 'all';
+
+      let envVar = {
+        key: envVarKey,
+        is_secret: envVarIsSecret || false,
+        scopes: secretScopes
+          ? [...SECRET_DEFAULT_SCOPES]
+          : (['builds', 'functions', 'runtime', 'post_processing'] as typeof newVarScopes).filter(scope => wantsAllScopes || newVarScopes.includes(scope)),
+        values: secretContexts
+          ? SECRET_DEFAULT_CONTEXTS.map(context => ({ context, value: envVarValue }))
+          : [{ context: newVarContext || 'all', value: envVarValue }]
+      }
+
+      appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
+
+      const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
+        method: 'POST',
+        body: JSON.stringify([envVar])
+      }, request);
+
+      // A rejected create must not read as success. Check the status before
+      // touching the body, so a failed body read cannot hide a known status.
+      if (!resp.ok) {
+        let text = '';
+        try {
+          text = await resp.text();
+        } catch {
+          throw new NetlifyApiError(resp.status);
+        }
+        let reason = refusalReason(text);
+        if (envVarValue) reason = reason.split(envVarValue).join('[redacted]');
+        if (!reason) {
+          throw new NetlifyApiError(resp.status);
+        }
+        throw new NetlifyApiError(resp.status, `Netlify refused to create environment variable "${envVarKey}" (${resp.status}): ${reason}`);
+      }
+      appendToLog(`create result${resp.status} ${await resp.text()}`);
+
+      if (secretScopes || secretContexts) {
         const sentContexts = envVar.values.map(value => value.context).join(', ');
         return `Environment variable upserted as a secret (scopes: ${envVar.scopes.join(', ')}; contexts: ${sentContexts})`;
       }
