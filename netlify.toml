@@ -1,10 +1,6 @@
 
 [build.environment]
   NPM_VERSION = "11"
-  # The feedback tool's redaction tests use made-up credentials (fake AWS,
-  # GitHub, Netlify and private keys) to prove they get scrubbed. They aren't
-  # real secrets, but they look like them, so secrets scanning skips this file.
-  SECRETS_SCAN_OMIT_PATHS = "src/tools/feedback-tools/submit-feedback.test.ts"
 
 # Catch-all request/response body logger. Declared here (not inline) so it runs
 # before the file-based `proxy` edge function and wraps every interaction.
