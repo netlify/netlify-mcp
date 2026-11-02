@@ -45,10 +45,12 @@ const RULES: RedactionRule[] = [
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi,
     replace: (_m, scheme) => `${scheme}${placeholder('CREDENTIALS')}@`,
   },
-  // key=value / key: value pairs whose key names a secret.
+  // key=value / key: value pairs whose key names a secret. The lookahead skips
+  // values already handled above, including `Authorization: Bearer [REDACTED_TOKEN]`,
+  // so the scheme word is kept rather than redacted a second time.
   {
     label: 'SECRET',
-    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED_)([^\s"',;&]{4,})/gi,
+    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|session[_-]?id)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED_|(?:Bearer|Basic|Token)\s)([^\s"',;&]{4,})/gi,
     replace: (_m, key, sep) => `${key}${sep}${placeholder('SECRET')}`,
   },
   { label: 'EMAIL', pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },

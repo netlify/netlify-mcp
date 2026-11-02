@@ -64,6 +64,25 @@ test('redacts credentials, tokens and emails', () => {
   }
 });
 
+test('redacts authorization, cookie, credential and session-id values', () => {
+  const cases: Array<[string, string]> = [
+    ['Authorization: rawtokenvalue123', 'Authorization: [REDACTED_SECRET]'],
+    ['Cookie: sid=abc123xyz; theme=dark', 'Cookie: [REDACTED_SECRET]; theme=dark'],
+    ['credentials=hunter2pass', 'credentials=[REDACTED_SECRET]'],
+    ['session_id=abcd1234', 'session_id=[REDACTED_SECRET]'],
+    ['X-Session-Id: abcd1234', 'X-Session-Id: [REDACTED_SECRET]'],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(redactSensitive(input).text, expected, `for: ${input}`);
+  }
+});
+
+test('an Authorization header with a scheme keeps the scheme and is redacted once', () => {
+  const { text, redactions } = redactSensitive('Authorization: Bearer abc.def.ghi-123456');
+  assert.equal(text, 'Authorization: Bearer [REDACTED_TOKEN]');
+  assert.equal(redactions, 1);
+});
+
 test('leaves ordinary feedback and Netlify ids alone', () => {
   const input = 'Deploy 6ae1df8e83162e3a06c77979 for site 331fffbf-1e05-48f4-aed3-3c65470433ab failed at commit 19ed461f99946999fb68720a2251afb312cd6451. See https://docs.netlify.com/build/functions/overview/ for context.';
   const { text, redactions } = redactSensitive(input);
