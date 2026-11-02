@@ -17,6 +17,7 @@ import { netlifyRejectedToken } from "./mcp-server/confirm-netlify-401.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
+import { registerDeploymentsApp } from "./mcp-server/deployments-app.ts";
 // `import type`, not a value import: these are type-only exports, so a value
 // import survives type-stripping and fails to resolve at load time. Netlify's
 // bundler erases it in a real deploy, which is why this was invisible — but it
@@ -259,6 +260,7 @@ async function handleMCPPost(req: Request) {
   const handler = createMcpHandler(
     async () => {
       const server = new McpServer({ name: "netlify", version: getPackageVersion() });
+      registerDeploymentsApp(server, req);
 
       await registerCodingContextTool(server, {
         name: "get-netlify-coding-context",
