@@ -4,7 +4,7 @@ import { getAPIJSONResult } from '../../../src/utils/api-networking.ts';
 import type { NetlifyDeployResponse } from '../../../src/utils/api-types.ts';
 import { deploymentsHtml } from './deployments-html.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v2.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',
@@ -27,6 +27,13 @@ function webUrl(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function deployPermalink(deploy: NetlifyDeployResponse): string | null {
+  // deploy_ssl_url/deploy_url can be moving branch or preview aliases.
+  if (!deploy.id || !deploy.name || !/^[a-z0-9-]+$/i.test(deploy.id)
+      || !/^[a-z0-9-]+$/i.test(deploy.name)) return null;
+  return `https://${deploy.id}--${deploy.name}.netlify.app/`;
 }
 
 export function registerDeploymentsApp(server: McpServer, request: Request): void {
@@ -61,7 +68,7 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
       adminUrl: `https://app.netlify.com/sites/${siteId}/deploys/${encodeURIComponent(deploy.id!)}`,
       // Use the immutable deploy URL, never the site's current production URL.
       deployUrl: deploy.state === 'ready' && !deploy.skipped
-        ? webUrl(deploy.deploy_ssl_url || deploy.deploy_url) : null,
+        ? deployPermalink(deploy) : null,
     }));
     const structuredContent = {
       siteId, deployId: deployId ?? null, deploys,

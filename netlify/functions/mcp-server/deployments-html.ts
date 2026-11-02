@@ -54,8 +54,14 @@ export const deploymentsHtml = String.raw`<!doctype html>
     window.addEventListener('message', event => {
       if (event.source !== window.parent || event.data?.jsonrpc !== '2.0') return;
       const message = event.data;
-      const waiting = pending.get(message.id);
-      if (waiting) {
+      // Requests from the host use an independent ID sequence from our requests.
+      const waiting = !message.method && pending.get(message.id);
+      if (message.method === 'ui/resource-teardown') {
+        ready = false;
+        clearTimeout(timer);
+        refreshButton.disabled = true;
+        window.parent.postMessage({ jsonrpc: '2.0', id: message.id, result: {} }, '*');
+      } else if (waiting) {
         clearTimeout(waiting.timeout);
         pending.delete(message.id);
         message.error ? waiting.reject(new Error(message.error.message)) : waiting.resolve(message.result);
@@ -128,7 +134,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
           arguments: { siteId: snapshot.siteId, ...(snapshot.deployId ? { deployId: snapshot.deployId } : {}) },
         }));
       } catch (error) { showError(error); }
-      finally { refreshing = false; refreshButton.disabled = false; }
+      finally { refreshing = false; refreshButton.disabled = !ready; }
     }
     refreshButton.addEventListener('click', refresh);
     document.addEventListener('visibilitychange', schedule);

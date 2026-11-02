@@ -10,7 +10,7 @@ const deploy = {
   id: 'deploy-1', site_id: siteId, name: 'my-project', state: 'building',
   branch: 'main', context: 'production', commit_ref: 'abc1234',
   commit_url: 'https://github.com/example/project/commit/abc1234',
-  deploy_ssl_url: 'https://deploy-1--my-project.netlify.app',
+  deploy_ssl_url: 'https://main--my-project.netlify.app',
   ssl_url: 'https://my-project.netlify.app',
   file_configuration: { secret: 'do-not-send' }, skew_protection_token: 'do-not-send',
 };
@@ -96,14 +96,14 @@ for (const modern of [false, true]) {
       name: refresh.name, arguments: { siteId, deployId: 'deploy-1' },
     }, modern);
     assert.equal(updated.result.structuredContent.hasActiveDeploys, false);
-    assert.equal(updated.result.structuredContent.deploys[0].deployUrl, new URL(deploy.deploy_ssl_url).href);
+    assert.equal(updated.result.structuredContent.deploys[0].deployUrl, 'https://deploy-1--my-project.netlify.app/');
     assert.equal(apiCalls.at(-1), `/api/v1/sites/${siteId}/deploys/deploy-1`);
   });
 }
 
 test('empty lists, failures and skipped builds are finite; unsafe links are omitted', async () => {
   for (const records of [[], [{ ...deploy, state: 'error', error_message: 'Build failed' }],
-    [{ ...deploy, skipped: true }], [{ ...deploy, state: 'ready', deploy_ssl_url: 'javascript:alert(1)', commit_url: 'data:text/html,hi' }]]) {
+    [{ ...deploy, skipped: true }], [{ ...deploy, state: 'ready', name: 'bad/name', commit_url: 'data:text/html,hi' }]]) {
     deploys = records;
     const { body } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId } });
     assert.equal(body.result.structuredContent.hasActiveDeploys, false);
