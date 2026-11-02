@@ -11,6 +11,7 @@ function host() {
   const nodes = new Map<string, any>();
   const links: any[] = [];
   let nextTimer = 0;
+  let now = 0;
   const element = (tag?: string) => {
     const node: any = {
       textContent: '', disabled: false, dataset: {},
@@ -34,6 +35,7 @@ function host() {
   runInNewContext(deploymentsHtml.match(/<script>([\s\S]*?)<\/script>/)![1], {
     document, window: { parent, addEventListener: document.addEventListener },
     ResizeObserver: class { observe() {} },
+    performance: { now: () => now },
     setTimeout: (callback: () => void, delay: number) => {
       timers.set(++nextTimer, { callback, delay });
       return nextTimer;
@@ -42,6 +44,7 @@ function host() {
   });
   return {
     messages, document, nodes, links,
+    advance: (milliseconds: number) => { now += milliseconds; },
     pollCount: () => [...timers.values()].filter(t => t.delay === 5000).length,
     async send(data: object) {
       listeners.message({ source: parent, data: { jsonrpc: '2.0', ...data } });
@@ -80,6 +83,50 @@ test('card polls only while active and visible, and stops on completion or error
   assert.equal(h.pollCount(), 0);
   assert.match(h.nodes.get('#status').textContent, /Access denied/);
   assert.equal(h.nodes.get('#refresh').disabled, false);
+});
+
+test('polling expires after 15 minutes and only manual refresh starts a new window', async () => {
+  const h = host();
+  await initialize(h);
+  h.advance(15 * 60 * 1000 - 5000);
+  h.poll();
+  await h.send({ id: h.messages.at(-1).id, result: result(true) });
+  assert.equal(h.pollCount(), 1);
+  const messageCount = h.messages.length;
+  h.advance(5000);
+  h.poll();
+  assert.equal(h.messages.length, messageCount, 'no API request at the deadline');
+  assert.equal(h.pollCount(), 0);
+  assert.match(h.nodes.get('#status').textContent, /Automatic updates paused/);
+  assert.equal(h.nodes.get('#refresh').disabled, false);
+  h.visibility(true);
+  h.visibility(false);
+  assert.equal(h.pollCount(), 0, 'visibility changes must not reset the deadline');
+
+  h.nodes.get('#refresh').click();
+  assert.equal(h.messages.length, messageCount + 1);
+  await h.send({ id: h.messages.at(-1).id, result: result(true) });
+  assert.equal(h.pollCount(), 1);
+  h.advance(15 * 60 * 1000 - 5000);
+  h.poll();
+  await h.send({ id: h.messages.at(-1).id, result: result(true) });
+  assert.equal(h.pollCount(), 1, 'manual refresh grants another full window');
+  h.advance(5000);
+  h.poll();
+  assert.equal(h.pollCount(), 0);
+});
+
+test('hidden time counts toward the limit and a late response cannot restart polling', async () => {
+  const h = host();
+  await initialize(h);
+  h.poll();
+  const refreshId = h.messages.at(-1).id;
+  h.visibility(true);
+  h.advance(15 * 60 * 1000);
+  await h.send({ id: refreshId, result: result(true) });
+  h.visibility(false);
+  assert.equal(h.pollCount(), 0);
+  assert.match(h.nodes.get('#status').textContent, /Automatic updates paused/);
 });
 
 test('teardown acknowledges a host request even when its ID matches an in-flight refresh', async () => {

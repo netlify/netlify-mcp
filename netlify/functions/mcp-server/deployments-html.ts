@@ -37,6 +37,8 @@ export const deploymentsHtml = String.raw`<!doctype html>
     const status = document.querySelector('#status');
     const refreshButton = document.querySelector('#refresh');
     let snapshot, timer, ready = false, refreshing = false, nextId = 0;
+    const pollingDuration = 15 * 60 * 1000;
+    let pollingDeadline = performance.now() + pollingDuration;
     const pending = new Map();
 
     // The small standard MCP Apps bridge; all authenticated reads go through the host.
@@ -89,9 +91,14 @@ export const deploymentsHtml = String.raw`<!doctype html>
       });
       return node;
     }
+    function pollingExpired() {
+      if (performance.now() < pollingDeadline) return false;
+      status.textContent = 'Automatic updates paused—click Refresh to resume.';
+      return true;
+    }
     function schedule() {
       clearTimeout(timer);
-      if (ready && snapshot?.hasActiveDeploys && !document.hidden) timer = setTimeout(refresh, 5000);
+      if (ready && snapshot?.hasActiveDeploys && !document.hidden && !pollingExpired()) timer = setTimeout(refresh, 5000);
     }
     function showError(error) {
       clearTimeout(timer);
@@ -128,6 +135,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
     async function refresh() {
       if (!ready || !snapshot || refreshing) return;
       clearTimeout(timer);
+      if (pollingExpired()) return;
       refreshing = true;
       refreshButton.disabled = true;
       try {
@@ -138,7 +146,10 @@ export const deploymentsHtml = String.raw`<!doctype html>
       } catch (error) { showError(error); }
       finally { refreshing = false; refreshButton.disabled = !ready; }
     }
-    refreshButton.addEventListener('click', refresh);
+    refreshButton.addEventListener('click', () => {
+      pollingDeadline = performance.now() + pollingDuration;
+      refresh();
+    });
     document.addEventListener('visibilitychange', schedule);
     window.addEventListener('pagehide', () => clearTimeout(timer));
     request('ui/initialize', {

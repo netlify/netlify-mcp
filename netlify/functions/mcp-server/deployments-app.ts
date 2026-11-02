@@ -4,7 +4,7 @@ import { getAPIJSONResult } from '../../../src/utils/api-networking.ts';
 import type { NetlifyDeployResponse } from '../../../src/utils/api-types.ts';
 import { deploymentsHtml } from './deployments-html.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments-v3.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v4.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',

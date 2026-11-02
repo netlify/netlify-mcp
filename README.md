@@ -133,8 +133,9 @@ Ask an MCP Apps-compatible client: **â€œShow recent deployments for my project.â
 The `netlify-open-deployments` tool takes a `siteId` (and optional `deployId`) and
 shows up to five deploys with status, branch, commit, errors, and links. The card
 refreshes every five seconds while a displayed deploy is active and stops when
-they finish. A Refresh button checks again manually. Clients without MCP Apps
-support receive a text summary.
+they finish or after 15 minutes, including time spent hidden. The Refresh button
+checks again manually and starts a new 15-minute window for automatic updates.
+Clients without MCP Apps support receive a text summary.
 
 This uses the existing Netlify OAuth connection and adds no environment variables
 or frontend build step. After deploying, refresh the client's MCP tool catalog.
