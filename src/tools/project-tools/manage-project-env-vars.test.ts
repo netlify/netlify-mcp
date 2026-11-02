@@ -8,22 +8,26 @@ const testRequest = () =>
 
 // Stub the three calls an upsert of a new key makes: site lookup, existing-var
 // lookup (404 = new key), then the create POST with the status under test.
-const stubUpsert = (t: any, createStatus: number) =>
+const stubUpsert = (t: any, createStatus: number) => {
+  const posted: { body?: any } = {};
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith('/api/v1/sites/site-1')) {
       return new Response(JSON.stringify({ id: 'site-1', account_id: 'team-1' }), { status: 200 });
     }
     if (init?.method === 'POST') {
+      posted.body = JSON.parse(String(init.body))[0];
       return new Response(JSON.stringify({ code: createStatus, msg: 'nope' }), { status: createStatus });
     }
     return new Response('', { status: 404 });
   });
+  return posted;
+};
 
-const upsert = async () => {
+const upsert = async (overrides: Record<string, unknown> = {}) => {
   const { manageEnvVarsDomainTool } = await import('./manage-project-env-vars.ts');
   return manageEnvVarsDomainTool.cb(
-    { siteId: 'site-1', upsertEnvVar: true, envVarKey: 'API_KEY', envVarValue: 'v', newVarScopes: ['all'], newVarContext: 'all' } as any,
+    { siteId: 'site-1', upsertEnvVar: true, envVarKey: 'API_KEY', envVarValue: 'v', newVarScopes: ['all'], newVarContext: 'all', ...overrides } as any,
     { request: testRequest() },
   );
 };
@@ -41,4 +45,44 @@ test('a rejected env var create is an error, not "upserted"', async (t) => {
 test('a successful env var create still reports upserted', async (t) => {
   stubUpsert(t, 201);
   assert.equal(await upsert(), 'Environment variable upserted');
+});
+
+test('a secret create with default scopes and context sends values the API accepts', async (t) => {
+  const posted = stubUpsert(t, 201);
+  const result = await upsert({ envVarIsSecret: true });
+  assert.equal(posted.body.is_secret, true);
+  assert.deepEqual(posted.body.scopes, ['builds', 'functions', 'runtime']);
+  assert.deepEqual(posted.body.values, [
+    { context: 'production', value: 'v' },
+    { context: 'deploy-preview', value: 'v' },
+    { context: 'branch-deploy', value: 'v' },
+  ]);
+  assert.equal(
+    result,
+    'Environment variable upserted as a secret (scopes: builds, functions, runtime; contexts: production, deploy-preview, branch-deploy)',
+  );
+});
+
+test('a secret create with an explicit context and scopes sends them unchanged', async (t) => {
+  const posted = stubUpsert(t, 201);
+  const result = await upsert({ envVarIsSecret: true, newVarContext: 'production', newVarScopes: ['functions'] });
+  assert.deepEqual(posted.body.scopes, ['functions']);
+  assert.deepEqual(posted.body.values, [{ context: 'production', value: 'v' }]);
+  assert.equal(result, 'Environment variable upserted');
+});
+
+test('a non-secret create with defaults keeps all scopes and the all context', async (t) => {
+  const posted = stubUpsert(t, 201);
+  const result = await upsert();
+  assert.equal(posted.body.is_secret, false);
+  assert.deepEqual(posted.body.scopes, ['builds', 'functions', 'runtime', 'post_processing']);
+  assert.deepEqual(posted.body.values, [{ context: 'all', value: 'v' }]);
+  assert.equal(result, 'Environment variable upserted');
+});
+
+test('the tool description explains the secret and plan limits', async () => {
+  const { manageEnvVarsDomainTool } = await import('./manage-project-env-vars.ts');
+  const description = manageEnvVarsDomainTool.description ?? '';
+  assert.match(description, /Pro/);
+  assert.match(description, /post_processing/);
 });

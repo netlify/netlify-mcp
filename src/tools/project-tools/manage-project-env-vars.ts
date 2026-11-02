@@ -6,6 +6,11 @@ import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api
 import { appendToLog } from '../../utils/logging.js';
 
 const availableContexts = ['all', 'dev', 'branch-deploy', 'deploy-preview', 'production', 'branch'] as const;
+// The API refuses a secret that runs in the post_processing scope.
+const SECRET_DEFAULT_SCOPES = ['builds', 'functions', 'runtime'] as const;
+// The API refuses a secret with the "all" context; the CLI also leaves out dev and branch.
+const SECRET_DEFAULT_CONTEXTS = ['production', 'deploy-preview', 'branch-deploy'] as const;
+
 const manageEnvVarsParamsSchema = z.object({
   getAllEnvVars: z.boolean().optional(),
   deleteEnvVar: z.boolean().optional(),
@@ -23,7 +28,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
   domain: 'project',
   operation: 'manage-env-vars',
   description:
-    "Read, create, update, or delete environment variables on a Netlify site. Set getAllEnvVars to list them, upsertEnvVar to create or overwrite one, or deleteEnvVar to remove one. envVarIsSecret and newVarScopes apply only when the variable is being CREATED: for a key that already exists, upsert updates the value alone and silently leaves the existing secret flag and scopes unchanged. Deleting is permanent, and a build is needed for changes to take effect.",
+    "Read, create, update, or delete environment variables on a Netlify site. Set getAllEnvVars to list them, upsertEnvVar to create or overwrite one, or deleteEnvVar to remove one. envVarIsSecret and newVarScopes apply only when the variable is being CREATED: for a key that already exists, upsert updates the value alone and silently leaves the existing secret flag and scopes unchanged. A secret cannot use the all context or the post_processing scope, so when envVarIsSecret is set the server sends the scopes builds, functions, and runtime and the contexts production, deploy-preview, and branch-deploy, unless you set newVarScopes or newVarContext explicitly. Choosing specific newVarScopes needs a Pro plan or higher, so leave newVarScopes at all on other plans. Deleting is permanent, and a build is needed for changes to take effect.",
   inputSchema: manageEnvVarsParamsSchema,
   toolAnnotations: {
     readOnlyHint: false,
@@ -55,11 +60,19 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         existingEnvVar = await existingEnvVarResp.json();
       }
 
+      const wantsAllScopes = newVarScopes.includes('all');
+      const secretScopes = !!envVarIsSecret && wantsAllScopes;
+      const secretContexts = !!envVarIsSecret && newVarContext === 'all';
+
       let envVar = {
         key: envVarKey,
         is_secret: envVarIsSecret || false,
-        scopes: (['builds', 'functions', 'runtime', 'post_processing'] as typeof newVarScopes).filter(scope => newVarScopes[0] === 'all' || newVarScopes.includes(scope)),
-        values: [{ context: newVarContext || 'all', value: envVarValue }]
+        scopes: secretScopes
+          ? [...SECRET_DEFAULT_SCOPES]
+          : (['builds', 'functions', 'runtime', 'post_processing'] as typeof newVarScopes).filter(scope => wantsAllScopes || newVarScopes.includes(scope)),
+        values: secretContexts
+          ? SECRET_DEFAULT_CONTEXTS.map(context => ({ context, value: envVarValue }))
+          : [{ context: newVarContext || 'all', value: envVarValue }]
       }
 
       appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
@@ -95,6 +108,11 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           throw new NetlifyApiError(resp.status);
         }
         appendToLog(`create result${resp.status} ${await resp.text()}`);
+      }
+
+      if (!existingEnvVar && (secretScopes || secretContexts)) {
+        const sentContexts = envVar.values.map(value => value.context).join(', ');
+        return `Environment variable upserted as a secret (scopes: ${envVar.scopes.join(', ')}; contexts: ${sentContexts})`;
       }
 
       return 'Environment variable upserted';
