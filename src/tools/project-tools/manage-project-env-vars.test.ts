@@ -8,7 +8,7 @@ const testRequest = () =>
 
 // Stub the three calls an upsert of a new key makes: site lookup, existing-var
 // lookup (404 = new key), then the create POST with the status under test.
-const stubUpsert = (t: any, createStatus: number) => {
+const stubUpsert = (t: any, createStatus: number, createBody?: string) => {
   const posted: { body?: any } = {};
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -17,7 +17,7 @@ const stubUpsert = (t: any, createStatus: number) => {
     }
     if (init?.method === 'POST') {
       posted.body = JSON.parse(String(init.body))[0];
-      return new Response(JSON.stringify({ code: createStatus, msg: 'nope' }), { status: createStatus });
+      return new Response(createBody ?? JSON.stringify({ code: createStatus, msg: 'nope' }), { status: createStatus });
     }
     return new Response('', { status: 404 });
   });
@@ -40,6 +40,26 @@ test('a rejected env var create is an error, not "upserted"', async (t) => {
     assert.ok(err instanceof NetlifyApiError, `status ${status}: expected NetlifyApiError, got ${String(err)}`);
     assert.equal(err.status, status);
   }
+});
+
+test('a refused create carries Netlify\'s reason and the key', async (t) => {
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+  stubUpsert(t, 403, JSON.stringify({ code: 403, msg: 'Upgrade your Netlify account to set specific scopes' }));
+  const err = await upsert().then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.equal(err.status, 403);
+  assert.match(err.message, /API_KEY/);
+  assert.match(err.message, /Upgrade your Netlify account to set specific scopes/);
+  assert.doesNotMatch(err.message, /"v"/);
+});
+
+test('a refused create with a non-JSON body keeps the default message', async (t) => {
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+  stubUpsert(t, 502, '');
+  const err = await upsert().then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.equal(err.status, 502);
+  assert.equal(err.message, 'Failed to fetch API: 502');
 });
 
 test('a successful env var create still reports upserted', async (t) => {

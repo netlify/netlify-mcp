@@ -11,7 +11,17 @@ const SECRET_DEFAULT_SCOPES = ['builds', 'functions', 'runtime'] as const;
 // The API refuses a secret with the "all" context; the CLI also leaves out dev and branch.
 const SECRET_DEFAULT_CONTEXTS = ['production', 'deploy-preview', 'branch-deploy'] as const;
 
-const manageEnvVarsParamsSchema = z.object({
+const refusalReason = (text: string): string => {
+  let reason: unknown = text.trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.msg === 'string') reason = parsed.msg;
+    else if (typeof parsed?.message === 'string') reason = parsed.message;
+  } catch {}
+  return typeof reason === 'string' ? reason.trim().slice(0, 300) : '';
+};
+
+const manageEnvVarsParamsSchema =z.object({
   getAllEnvVars: z.boolean().optional(),
   deleteEnvVar: z.boolean().optional(),
   upsertEnvVar: z.boolean().optional(),
@@ -105,7 +115,17 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
         // A rejected create must not read as success. Check the status before
         // touching the body, so a failed body read cannot hide a known status.
         if (!resp.ok) {
-          throw new NetlifyApiError(resp.status);
+          let text = '';
+          try {
+            text = await resp.text();
+          } catch {
+            throw new NetlifyApiError(resp.status);
+          }
+          const reason = refusalReason(text);
+          if (!reason) {
+            throw new NetlifyApiError(resp.status);
+          }
+          throw new NetlifyApiError(resp.status, `Netlify refused to create environment variable "${envVarKey}" (${resp.status}): ${reason}`);
         }
         appendToLog(`create result${resp.status} ${await resp.text()}`);
       }
