@@ -142,6 +142,30 @@ test('a credential after an auth scheme is redacted however short, keeping the s
   }
 });
 
+test('URL credentials are redacted, but a query or fragment is not mistaken for them', () => {
+  assert.equal(
+    scrubFeedbackText('postgres://admin:p%40ss%3Aword@db.example.com/app').text,
+    'postgres://[REDACTED_CREDENTIALS]@db.example.com/app',
+  );
+  for (const input of [
+    'Open https://example.com:8443?next=user@host to retry',
+    'See https://example.com:8443#frag@x for the doc',
+  ]) {
+    assert.equal(scrubFeedbackText(input).text, input, `changed: ${input}`);
+  }
+});
+
+test('prose after a scheme word is kept; a hyphenated credential is not', () => {
+  for (const input of ['We tried Token authentication.', 'The API uses Bearer token-based auth.']) {
+    const { text, redactions } = scrubFeedbackText(input);
+    assert.equal(text, input);
+    assert.equal(redactions, 0, `unexpected redaction in: ${input}`);
+  }
+  assert.equal(scrubFeedbackText('Bearer abc-def-ghi-jkl').text, 'Bearer [REDACTED_TOKEN]');
+  // A sentence-ending period stays outside the placeholder.
+  assert.equal(scrubFeedbackText('Sent Bearer abc.def123.').text, 'Sent Bearer [REDACTED_TOKEN].');
+});
+
 test('leaves ordinary words, paths and Netlify ids alone', () => {
   for (const input of [
     'Deploy 6ae1df8e83162e3a06c77979 for site 331fffbf-1e05-48f4-aed3-3c65470433ab failed at commit 19ed461f99946999fb68720a2251afb312cd6451. See https://docs.netlify.com/build/functions/overview/ for context.',
