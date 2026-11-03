@@ -128,6 +128,30 @@ Once resolved, remove your PAT from the config.
 
 ---
 
+## Deployment card (hosted MCP)
+
+Ask an MCP Apps-compatible client: **“Show recent deployments for my project.”**
+The `netlify-open-deployments` tool takes a `siteId` (and optional `deployId`) and
+shows up to five matching deploys with status, branch, labeled creation time,
+errors, and links, plus the project's team and its dashboard link. Filter the
+project list by status. Tools also accept `status`; filtering is applied by Netlify
+before limiting the results. Filters do not apply to a specific `deployId`. The card
+refreshes every five seconds while a displayed deploy is active and stops when
+they finish or after 15 minutes, including time spent hidden. The Refresh button
+checks again manually and starts a new 15-minute window for automatic updates.
+Applying filters also starts a new window.
+Clients without MCP Apps support receive a text summary.
+
+This uses the existing Netlify OAuth connection and adds no environment variables
+or frontend build step. After deploying, refresh the client's MCP tool catalog.
+This first version does not include build logs or multi-project lookup; use the
+card's **Open in Netlify** link for full build details.
+
+To smoke-test in ChatGPT, connect a deployed preview's `/mcp` endpoint, open a
+project with a running deploy, and verify the card updates through completion.
+Also check an empty project, a failed deploy, and the text fallback in a client
+without MCP Apps support.
+
 ## Resources
 
 * [Model Context Protocol Documentation](https://modelcontextprotocol.org/docs)

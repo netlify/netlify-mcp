@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
 import { authenticatedFetch, getNetlifyAccessToken, getSiteId, unauthenticatedFetch } from "../../utils/api-networking.ts";
 import { createJWE, getOAuthIssuer } from '../../../netlify/functions/mcp-server/utils.ts';
+import { TOKEN_TYPE } from '../../../netlify/functions/mcp-server/token-types.ts';
 
 const deploySiteRemotelyParamsSchema = z.object({
   siteId: z.string().optional().describe(`provide the site id of the site of this site. If the agent cannot find the siteId, the user must confirm this is a new site. NEVER assume the user wants a new site. Use 'netlify link' CLI command to link to an existing site and get a site id.`)
@@ -35,6 +36,7 @@ export const deploySiteRemotelyDomainTool: DomainTool<typeof deploySiteRemotelyP
   cb: async (params, {request}) => {
 
     const proxyToken = await createJWE({
+      typ: TOKEN_TYPE.proxy,
       accessToken: await getNetlifyAccessToken(request),
       siteId: params.siteId,
       // TODO: in the future, lock this down even further

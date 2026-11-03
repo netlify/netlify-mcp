@@ -49,7 +49,7 @@ this repo.
 | Variable | Required | Purpose |
 |---|---|---|
 | `OAUTH_ISSUER` | yes (deployed) | The server's public origin. Used for OAuth metadata and to build event relay callback URLs, so it must be publicly resolvable — Netlify rejects a private-address webhook target at hook-creation time. Defaults to `http://localhost:8888`. |
-| `JWE_SECRET` | yes (deployed) | Seals OAuth access/refresh tokens, the authorization code, the stateless DCR `client_id`, and the `/proxy/:token` JWE. Min 32 chars. Fails closed on any non-localhost issuer. |
+| `JWE_SECRET` | yes (deployed) | Seals OAuth access/refresh tokens, the authorization code, the stateless DCR `client_id`, and the `/proxy/:token` JWE, and signs the authorize `state` sent through Netlify. Min 32 chars. Fails closed on any non-localhost issuer. |
 | `EVENTS_RELAY_JWE_SECRET` | only for event subscriptions | Seals event notification relay tokens. Min 32 chars, and it must not derive to the same key as `JWE_SECRET` (only the first 32 characters are used, so a shared prefix collides). **Without it the server does not advertise the `events` capability at all** — subscriptions could not work, so they are not offered. |
 | `NTL_AUTH_CLIENT_ID` | yes (deployed) | The Netlify OAuth application the authorize redirect uses. |
 | `DCR_REJECT_UNKNOWN_CLIENTS` | no (default false) | Turns dynamic-client-registration redirect warnings into hard rejections. |

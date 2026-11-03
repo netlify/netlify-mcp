@@ -10,13 +10,15 @@ import { bindTools } from "../../src/tools/index.ts";
 import { AGENT_RUNNER_INSTRUCTIONS } from "../../src/tools/agent-runner-tools/agent-runner-utils.ts";
 import { registerClaudeDesignImportTool } from "../../src/tools/design-import/import-claude-design.ts";
 import { userIsAuthenticated, getTokenIdentity } from "../../src/utils/api-networking.ts";
-import { isClaudeMCPClient, isOpenAIMCPClient } from "../../src/utils/client-detection.ts";
+import { isClaudeMCPClient, isOpenAIMCPClient, isOpenAIOrCodexClient } from "../../src/utils/client-detection.ts";
 import { maskToken, paramsSummary } from "./mcp-server/logging.ts";
 import { log, withLogContext, addLogContext, getRequestId, initLogger, getDeployId, truncateForLog } from "./mcp-server/logger.ts";
-import { withRequestSignals, getAuthChallenge } from "./mcp-server/request-signals.ts";
+import { withRequestSignals, getNetlify401 } from "./mcp-server/request-signals.ts";
+import { netlifyRejectedToken } from "./mcp-server/confirm-netlify-401.ts";
 import { systemLogForwarder } from "./mcp-server/system-log-forwarder.ts";
 import { installProcessGuards } from "./mcp-server/process-guards.ts";
 import { registerEventMethods } from "./mcp-server/events/methods.ts";
+import { registerDeploymentsApp } from "./mcp-server/deployments-app.ts";
 // `import type`, not a value import: these are type-only exports, so a value
 // import survives type-stripping and fails to resolve at load time. Netlify's
 // bundler erases it in a real deploy, which is why this was invisible — but it
@@ -50,8 +52,8 @@ export default async (req: Request, context: Context) => {
       mcpProtocolVersion: req.headers.get('mcp-protocol-version') ?? undefined,
     },
     // Open a request-signals scope around the whole request so tool/API code can
-    // flag an auth challenge (see request-signals.ts) that handleMCPPost reads
-    // back after the MCP SDK has produced its response.
+    // record a Netlify 401 there; handleMCPPost confirms it with /api/v1/user
+    // before issuing an OAuth challenge.
     () => withRequestSignals(async () => {
       try {
 
@@ -93,6 +95,16 @@ export default async (req: Request, context: Context) => {
 };
 
 
+// MCP methods that describe the server without touching anyone's Netlify data.
+// The tool list is the same for every caller, so it needs no token to build.
+const UNAUTHENTICATED_DISCOVERY_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'server/discover',
+  'ping',
+  'tools/list',
+]);
+
 async function handleMCPPost(req: Request) {
 
   // Read the body once as text so we can tell an empty body (probes/scanners)
@@ -122,7 +134,13 @@ async function handleMCPPost(req: Request) {
   // version appears. Client title and the NAMES of declared capabilities are
   // safe, value-free shape; capabilities on non-init requests are undefined and
   // simply omitted from the log line.
+  //
+  // Codex (codex-mcp-client) sends no custom headers; the conversation a call
+  // belongs to is in `_meta["x-codex-turn-metadata"]`, and only on tools/call —
+  // discovery requests carry nothing. The ids are opaque UUIDs, logged so one
+  // Codex session's calls can be grouped in Humio.
   const clientCapabilities = body?.params?.capabilities;
+  const codexTurn = body?.params?._meta?.['x-codex-turn-metadata'];
   addLogContext({
     mcpMethod: body?.method,
     mcpId: body?.id,
@@ -134,6 +152,9 @@ async function handleMCPPost(req: Request) {
       clientCapabilities && typeof clientCapabilities === 'object'
         ? Object.keys(clientCapabilities)
         : undefined,
+    codexSessionId: truncateForLog(codexTurn?.session_id),
+    codexThreadId: truncateForLog(codexTurn?.thread_id),
+    codexTurnId: truncateForLog(codexTurn?.turn_id),
   });
 
   // Log the SHAPE of the call only — tool name + argument names, never values.
@@ -148,9 +169,17 @@ async function handleMCPPost(req: Request) {
     auth: maskToken(req.headers.get('Authorization')),
   });
 
-  // Always auth-check (including init) — the MCP spec is inconsistent on when
-  // 401s may be returned.
-  if(!await userIsAuthenticated(req)){
+  // OpenAI and Codex clients may start a session and list tools without a
+  // valid token (see isOpenAIOrCodexClient), whether they sent one or not. Tool
+  // calls still need a valid token, and their 401 is what sends the user to
+  // sign in or refresh an expired token.
+  const authCheckSkipped =
+    isOpenAIOrCodexClient(req)
+    && UNAUTHENTICATED_DISCOVERY_METHODS.has(body?.method);
+
+  // Everything else is auth-checked (including init) — the MCP spec is
+  // inconsistent on when 401s may be returned.
+  if (!authCheckSkipped && !await userIsAuthenticated(req)) {
     const tokenPresented = !!req.headers.get('authorization');
     log.debug('mcp auth failed', { tokenPresented });
     return returnNeedsAuthResponse(tokenPresented
@@ -165,7 +194,17 @@ async function handleMCPPost(req: Request) {
     addLogContext({ userId: identity.userId, teamId: identity.teamId });
   }
 
-  log.debug('mcp request auth passed');
+  if (authCheckSkipped) {
+    // Flag only the requests no user is attached to, so a signed-in client
+    // listing tools isn't counted as signed out. Decided from the token alone:
+    // verifying it with the Netlify API would turn a rejection into a 401.
+    if (!identity) {
+      addLogContext({ unauthenticatedDiscovery: true });
+    }
+    log.debug('mcp auth check skipped for discovery');
+  } else {
+    log.debug('mcp request auth passed');
+  }
 
   if (body?.method === 'tools/call') {
     // Standalone tools (coding-context, design import) have no selectSchema.operation;
@@ -225,6 +264,11 @@ async function handleMCPPost(req: Request) {
         { name: "netlify", version: getPackageVersion() },
         { instructions: AGENT_RUNNER_INSTRUCTIONS },
       );
+      try {
+        registerDeploymentsApp(server, req);
+      } catch (error) {
+        log.error('Failed to register deployments app', { err: error });
+      }
 
       await registerCodingContextTool(server, {
         name: "get-netlify-coding-context",
@@ -262,16 +306,16 @@ async function handleMCPPost(req: Request) {
 
   const response = await handler.fetch(reqWithBody);
 
-  // If any authenticated Netlify API call returned 401 during tool execution, the
-  // SDK has already turned that into a normal 200 tool result — so we translate
-  // it back into a real OAuth challenge here, driven by the flag that
-  // authenticatedFetch set (see request-signals.ts), not by inspecting the body.
-  const authChallenge = getAuthChallenge();
-  if (authChallenge) {
-    log.warn('netlify api returned 401 during tool execution; issuing auth challenge');
+  // If a Netlify API call during tool execution returned 401, the SDK has already
+  // turned that into a normal 200 tool result. A 401 isn't always a bad token
+  // (e.g. a plan limit), so confirm once with /user and only then translate it
+  // into a real OAuth challenge. The record comes from authenticatedFetch (see
+  // request-signals.ts), not from inspecting the body.
+  const netlify401 = getNetlify401();
+  if (netlify401 && await netlifyRejectedToken(req, netlify401.path)) {
     return returnNeedsAuthResponse({
       error: 'invalid_token',
-      errorDescription: authChallenge.errorDescription ?? 'The Netlify access token is no longer valid',
+      errorDescription: 'The Netlify access token is no longer valid',
     });
   }
 

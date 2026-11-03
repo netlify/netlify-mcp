@@ -1,6 +1,6 @@
 {
   "name": "@netlify/mcp",
-  "version": "1.18.0",
+  "version": "1.21.0",
   "description": "",
   "type": "module",
   "main": "./dist/netlify-mcp.js",
@@ -39,6 +39,7 @@
   "dependencies": {
     "@modelcontextprotocol/core": "2.2.0",
     "@modelcontextprotocol/server": "2.2.0",
+    "@netlify/blobs": "^11.1.7",
     "@netlify/edge-functions": "^2.15.0",
     "@netlify/functions": "^4.1.4",
     "archiver": "^7.0.1",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@netlify/open-api": "^2.57.1",
     "@types/node": "^22.15.32",
+    "fflate": "0.8.2",
     "pkg-pr-new": "^0.0.88",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3"

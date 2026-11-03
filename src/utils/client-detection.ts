@@ -40,6 +40,22 @@ export function isClaudeMCPClient(req: Request, body: any): boolean {
 const OPENAI_MCP_USER_AGENT_PREFIX = 'openai-mcp';
 
 export function isOpenAIMCPClient(req?: Request): boolean {
-  const userAgent = req?.headers.get('user-agent') ?? '';
-  return userAgent.trim().toLowerCase().startsWith(OPENAI_MCP_USER_AGENT_PREFIX);
+  return normalizedUserAgent(req).startsWith(OPENAI_MCP_USER_AGENT_PREFIX);
+}
+
+// OpenAI's hosted client above, plus local Codex installs
+// (`codex-mcp-client/<version>`). Both may start a session and list tools
+// before the user signs in, because Codex fetches the tool list before anyone
+// has signed in and retries when that is rejected. Matched on user-agent for
+// the same stateless reason as above.
+const CODEX_MCP_USER_AGENT_PREFIX = 'codex-mcp-client';
+
+export function isOpenAIOrCodexClient(req?: Request): boolean {
+  const userAgent = normalizedUserAgent(req);
+  return userAgent.startsWith(OPENAI_MCP_USER_AGENT_PREFIX)
+    || userAgent.startsWith(CODEX_MCP_USER_AGENT_PREFIX);
+}
+
+function normalizedUserAgent(req?: Request): string {
+  return (req?.headers.get('user-agent') ?? '').trim().toLowerCase();
 }

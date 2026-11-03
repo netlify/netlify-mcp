@@ -18,6 +18,7 @@
 //  [] sites aggregate operations
 //  [x] extensions - install and link - not configuration
 //  [] database
+//  [x] feedback - write-only reports about the MCP/agent experience
 //
 // return errors when missing data and how the agent can get the data
 
@@ -28,6 +29,8 @@ import { deployDomainTools } from './deploy-tools/index.js';
 import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
+import { observabilityDomainTools } from './observability-tools/index.js';
+import { feedbackDomainTools } from './feedback-tools/index.js';
 import { agentRunnerDomainTools } from './agent-runner-tools/index.js';
 import { AGENT_RUNNER_TOOL_SUMMARY } from './agent-runner-tools/agent-runner-utils.js';
 import { checkCompatibility } from '../utils/compatibility.js';
@@ -38,7 +41,7 @@ import { aggregateToolAnnotations, categorizeToolsByReadWrite, completeToolAnnot
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, agentRunnerDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, observabilityDomainTools, feedbackDomainTools, agentRunnerDomainTools];
 
 // Leads a grouped write tool's description, which otherwise only lists operation names.
 const groupedWriteSummaries: Record<string, string> = {
@@ -140,11 +143,12 @@ const registerDomainTools = (
         try {
           result = await tool.cb(args[0], {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
         } catch (err) {
-          // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-          // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
-          // validation) is an expected client outcome, so log it at warn; only
-          // genuine 5xx/unexpected failures are logged at error. Rethrow either way
-          // so the client still gets its error result.
+          // NetlifyUnauthError only comes from token resolution; rethrow it for the
+          // OAuth challenge. A 401 from a Netlify call is recorded on the request
+          // and confirmed with /user upstream before any sign-in prompt. An API 4xx
+          // (not-found, validation, 401) is an expected client outcome, so log it at
+          // warn; only genuine 5xx/unexpected failures are logged at error. Rethrow
+          // either way so the client still gets its error result.
           if (err instanceof NetlifyUnauthError) throw err;
           if (err instanceof NetlifyApiError && err.status < 500) {
             // `operation` must match what the call line in mcp.ts recorded, or
@@ -175,7 +179,11 @@ const registerDomainTools = (
 
     const friendlyOperationType = operationType === 'read' ? 'reader' : 'updater';
     const toolName = `netlify-${domain}-services-${friendlyOperationType}`;
-    const operationsLine = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}`;
+    const operationNotes = tools
+      .filter(tool => tool.showDescriptionInGroupedTool && tool.description)
+      .map(tool => ` ${tool.operation}: ${tool.description}`)
+      .join('');
+    const operationsLine = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}${operationNotes ? `.${operationNotes}` : ''}`;
     const summary = operationType === 'write' ? groupedWriteSummaries[domain] : undefined;
     const toolDescription = summary ? `${summary} ${operationsLine}` : operationsLine;
 
@@ -225,11 +233,12 @@ const registerDomainTools = (
       try {
         result = await subtool.cb(selectedSchema.params || {}, {request: remoteMCPRequest, isRemoteMCP: !!remoteMCPRequest});
       } catch (err) {
-        // A mid-operation 401 (NetlifyUnauthError) is a re-auth signal handled
-        // upstream as an OAuth challenge — not a failure. An API 4xx (not-found,
-        // validation) is an expected client outcome, so log it at warn; only
-        // genuine 5xx/unexpected failures are logged at error. Rethrow either way
-        // so the client still gets its error result.
+        // NetlifyUnauthError only comes from token resolution; rethrow it for the
+        // OAuth challenge. A 401 from a Netlify call is recorded on the request
+        // and confirmed with /user upstream before any sign-in prompt. An API 4xx
+        // (not-found, validation, 401) is an expected client outcome, so log it at
+        // warn; only genuine 5xx/unexpected failures are logged at error. Rethrow
+        // either way so the client still gets its error result.
         if (err instanceof NetlifyUnauthError) throw err;
         if (err instanceof NetlifyApiError && err.status < 500) {
           log.warn('tool operation client error', { domain, operation, toolName, status: err.status });
