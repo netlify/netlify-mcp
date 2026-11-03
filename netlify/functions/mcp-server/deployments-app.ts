@@ -5,7 +5,7 @@ import type { NetlifyDeployResponse, NetlifySiteResponse } from '../../../src/ut
 import { deploymentsHtml } from './deployments-html.ts';
 import { log } from './logger.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments-v12.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v13.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',
@@ -104,7 +104,7 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
   };
 
   server.registerTool('netlify-open-deployments', {
-    title: 'Netlify Deployments',
+    title: 'Netlify Deploys',
     description: 'Show an interactive card of the five most recent matching deploys for a Netlify project, or one specific deploy. Filter by status. Includes team, live status, branch, errors, and links. Read-only; does not start a deploy. Also returns text for clients without UI support.',
     inputSchema, annotations,
     _meta: { ui: { resourceUri: RESOURCE_URI } },
