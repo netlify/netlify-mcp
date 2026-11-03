@@ -106,6 +106,9 @@ test('redacts authorization, cookie, credential and session-id values', () => {
     ['Authorization: rawtokenvalue123', 'Authorization: [REDACTED_SECRET]'],
     // Every cookie in the header, not just the first.
     ['Cookie: sid=abc123xyz; theme=dark; csrf=q9w8e7', 'Cookie: [REDACTED_SECRET]'],
+    ['cookie=sid=abc123; theme=dark; csrf=q9w8e7', 'cookie=[REDACTED_SECRET]'],
+    ['Set-Cookie = sid=abc123; Path=/; HttpOnly', 'Set-Cookie = [REDACTED_SECRET]'],
+    ['"Cookie": "sid=abc; theme=dark"', '"Cookie": "[REDACTED_SECRET]"'],
     ['credentials=hunter2pass', 'credentials=[REDACTED_SECRET]'],
     ['session_id=abcd1234', 'session_id=[REDACTED_SECRET]'],
     ['X-Session-Id: abcd1234', 'X-Session-Id: [REDACTED_SECRET]'],
@@ -122,6 +125,21 @@ test('an Authorization header with a scheme keeps the scheme and is redacted onc
   const { text, redactions } = scrubFeedbackText('Authorization: Bearer abc.def.ghi-123456');
   assert.equal(text, 'Authorization: Bearer [REDACTED_TOKEN]');
   assert.equal(redactions, 1);
+});
+
+test('a credential after an auth scheme is redacted however short, keeping the scheme', () => {
+  const cases: Array<[string, string]> = [
+    ['Authorization: Bearer abc123', 'Authorization: Bearer [REDACTED_SECRET]'],
+    ['Authorization: Token abcd', 'Authorization: Token [REDACTED_SECRET]'],
+    ['authorization=Basic xy', 'authorization=Basic [REDACTED_SECRET]'],
+    // Inside a header, even a word-like value is treated as the credential.
+    ['Authorization: Bearer validation', 'Authorization: Bearer [REDACTED_SECRET]'],
+  ];
+  for (const [input, expected] of cases) {
+    const { text, redactions } = scrubFeedbackText(input);
+    assert.equal(text, expected, `for: ${input}`);
+    assert.equal(redactions, 1, `redacted once: ${input}`);
+  }
 });
 
 test('leaves ordinary words, paths and Netlify ids alone', () => {

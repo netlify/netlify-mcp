@@ -54,23 +54,25 @@ const RULES: RedactionRule[] = [
     replace: (_m, scheme) => `${scheme}${placeholder('CREDENTIALS')}@`,
   },
   // A Cookie header carries several name=value pairs; redact all of them, up
-  // to the end of the line.
+  // to the end of the line, whether written `Cookie: …` or `cookie=…`.
   {
     label: 'SECRET',
-    pattern: /\b((?:Set-)?Cookie)(\s*:\s*)[^\r\n]+/gi,
+    pattern: /\b((?:Set-)?Cookie)(\s*[:=]\s*)(?!["']|\[REDACTED_)[^\r\n]+/gi,
     replace: (_m, name, sep) => `${name}${sep}${placeholder('SECRET')}`,
   },
   // key=value / key: value pairs whose key names a secret. A quoted value is
   // redacted up to its closing quote, so multi-word passphrases are covered.
-  // The lookahead skips
-  // values already handled above, including `Authorization: Bearer [REDACTED_TOKEN]`,
-  // so the scheme word is kept rather than redacted a second time.
+  // A `Bearer`/`Basic`/`Token` scheme word is kept and the credential after it
+  // redacted, however short. Only values already redacted above are skipped,
+  // such as `Authorization: Bearer [REDACTED_TOKEN]`.
   {
     label: 'SECRET',
-    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|session[_-]?id)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)(?!["']?(?:\[REDACTED_|(?:Bearer|Basic|Token)\s))("[^"\r\n]+"|'[^'\r\n]+'|[^\s"',;&]{4,})/gi,
-    replace: (_m, key, sep, value) => {
+    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|session[_-]?id)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)(?!["']?\[REDACTED_)((?:Bearer|Basic|Token)\s+)?(?!\[REDACTED_|(?:Bearer|Basic|Token)\s)("[^"\r\n]+"|'[^'\r\n]+'|[^\s"',;&]+)/gi,
+    replace: (_m, key, sep, scheme, value) => {
+      // Without a scheme, very short values (`pwd: no`) are words, not secrets.
+      if (!scheme && value.length < 4) return null;
       const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
-      return `${key}${sep}${quote}${placeholder('SECRET')}${quote}`;
+      return `${key}${sep}${scheme ?? ''}${quote}${placeholder('SECRET')}${quote}`;
     },
   },
   { label: 'EMAIL', pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
