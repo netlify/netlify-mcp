@@ -8,7 +8,9 @@ export const deploymentsHtml = String.raw`<!doctype html>
   <style>
     :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 16px; color: var(--color-text-primary, CanvasText); background: var(--color-background-primary, Canvas); }
+    body { margin: 0; color: var(--color-text-primary, CanvasText); background: var(--color-background-primary, Canvas); }
+    /* Hosts may reset body padding; keep the card inset on its own wrapper. */
+    .card { padding: 16px; }
     header, .heading, .links, .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     header { justify-content: space-between; }
     h2 { margin: 0; font-size: 17px; }
@@ -44,6 +46,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
   </style>
 </head>
 <body>
+  <div class="card">
   <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
   <p id="project" class="details"></p>
   <form id="filters" class="filters" hidden>
@@ -58,6 +61,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
   <p id="status" role="status">Loading deployments…</p>
   <p id="link-error" role="status"></p>
   <main id="deployments"></main>
+  </div>
   <script>
     const list = document.querySelector('#deployments');
     const status = document.querySelector('#status');

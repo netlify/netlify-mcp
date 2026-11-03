@@ -5,7 +5,7 @@ import type { NetlifyDeployResponse, NetlifySiteResponse } from '../../../src/ut
 import { deploymentsHtml } from './deployments-html.ts';
 import { log } from './logger.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments-v11.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v12.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',
