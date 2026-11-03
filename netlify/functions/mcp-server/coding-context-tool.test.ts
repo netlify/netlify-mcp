@@ -10,6 +10,7 @@ process.env.JWE_SECRET = 'test-only-auth-jwe-secret-at-least-32-chars';
 process.env.EVENTS_RELAY_JWE_SECRET = 'test-only-events-relay-secret-at-least-32-chars';
 
 const { SKILLS_HOST, resetCodingContextCachesForTests } = await import('../../../src/context/coding-context.ts');
+const { AGENT_RUNNER_INSTRUCTIONS } = await import('../../../src/tools/agent-runner-tools/agent-runner-utils.ts');
 
 const VERSION = 'v-test-1';
 const FILES: Record<string, string> = {
@@ -124,10 +125,12 @@ for (const era of eras) {
     assert.ok(!(tool.inputSchema.required ?? []).includes('reference'));
   });
 
-  test(`${era.name}: a legacy topic returns the skill body plus the reference note`, async () => {
+  test(`${era.name}: a legacy topic returns the hand-off rule, then the skill body plus the reference note`, async () => {
     const { body } = await era.call(2, 'tools/call', { name: TOOL, arguments: { creationType: 'db' } });
     assert.notEqual(body.result.isError, true);
-    const text: string = body.result.content[0].text;
+    assert.equal(body.result.content.length, 2);
+    assert.ok(body.result.content[0].text.includes(AGENT_RUNNER_INSTRUCTIONS));
+    const text: string = body.result.content[1].text;
     assert.ok(text.startsWith(FILES['netlify-database/SKILL.md']));
     assert.match(text, /- references\/migrations\.md/);
   });
@@ -138,6 +141,7 @@ for (const era of eras) {
       arguments: { creationType: 'netlify-database', reference: 'references/migrations.md' },
     });
     assert.notEqual(body.result.isError, true);
+    assert.equal(body.result.content.length, 1);
     assert.equal(body.result.content[0].text, FILES['netlify-database/references/migrations.md']);
   });
 

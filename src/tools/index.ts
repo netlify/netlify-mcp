@@ -31,6 +31,8 @@ import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
 import { observabilityDomainTools } from './observability-tools/index.js';
 import { feedbackDomainTools } from './feedback-tools/index.js';
+import { agentRunnerDomainTools } from './agent-runner-tools/index.js';
+import { AGENT_RUNNER_TOOL_SUMMARY } from './agent-runner-tools/agent-runner-utils.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken, NetlifyUnauthError, NetlifyApiError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
@@ -39,7 +41,12 @@ import { aggregateToolAnnotations, categorizeToolsByReadWrite, completeToolAnnot
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, observabilityDomainTools, feedbackDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, observabilityDomainTools, feedbackDomainTools, agentRunnerDomainTools];
+
+// Leads a grouped write tool's description, which otherwise only lists operation names.
+const groupedWriteSummaries: Record<string, string> = {
+  'agent-runner': AGENT_RUNNER_TOOL_SUMMARY,
+};
 
 const toSelectorSchema = (domainTool: DomainTool<any>) => {
   return z.object({
@@ -176,7 +183,9 @@ const registerDomainTools = (
       .filter(tool => tool.showDescriptionInGroupedTool && tool.description)
       .map(tool => ` ${tool.operation}: ${tool.description}`)
       .join('');
-    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}${operationNotes ? `.${operationNotes}` : ''}`;
+    const operationsLine = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}${operationNotes ? `.${operationNotes}` : ''}`;
+    const summary = operationType === 'write' ? groupedWriteSummaries[domain] : undefined;
+    const toolDescription = summary ? `${summary} ${operationsLine}` : operationsLine;
 
     server.registerTool(toolName, {
       description: toolDescription,
