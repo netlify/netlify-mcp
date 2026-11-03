@@ -151,24 +151,25 @@ export const deploymentsHtml = String.raw`<!doctype html>
       pollingStoppedOnError = true;
       status.textContent = 'Could not update deployments. ' + error.message;
     }
+    function setFilterControls(values, timePreset = '') {
+      const custom = !timePreset && values?.from != null && values?.to != null;
+      filterStatus.value = values?.status ?? '';
+      filterTime.value = timePreset || (custom ? 'custom' : '');
+      const localTime = seconds => {
+        const date = new Date(seconds * 1000);
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      };
+      filterFrom.value = custom ? localTime(values.from) : '';
+      filterTo.value = custom ? localTime(values.to) : '';
+      document.querySelector('#custom-range').hidden = !custom;
+      filterFrom.required = filterTo.required = custom;
+    }
     function render(result) {
       if (result?.isError) throw new Error(result.content?.find(item => item.type === 'text')?.text || 'Please retry.');
       if (!result?.structuredContent) return;
       if (!snapshot || snapshot.siteId !== result.structuredContent.siteId) {
         appliedTimePreset = '';
-        const initial = result.structuredContent.filters;
-        filterStatus.value = initial?.status ?? '';
-        if (initial?.from != null && initial?.to != null) {
-          filterTime.value = 'custom';
-          const localTime = seconds => {
-            const date = new Date(seconds * 1000);
-            return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-          };
-          filterFrom.value = localTime(initial.from);
-          filterTo.value = localTime(initial.to);
-          document.querySelector('#custom-range').hidden = false;
-          filterFrom.required = filterTo.required = true;
-        }
+        setFilterControls(result.structuredContent.filters);
       }
       const previousProject = snapshot?.siteId === result.structuredContent.siteId ? snapshot.project : undefined;
       snapshot = { ...result.structuredContent, project: result.structuredContent.project ?? previousProject };
@@ -225,7 +226,10 @@ export const deploymentsHtml = String.raw`<!doctype html>
             : Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value != null))) },
         }));
         appliedTimePreset = timePreset;
-      } catch (error) { showError(error); }
+      } catch (error) {
+        if (nextFilters) setFilterControls(snapshot.filters, appliedTimePreset);
+        showError(error);
+      }
       finally { refreshing = false; setBusy(!ready); }
     }
     refreshButton.addEventListener('click', () => {

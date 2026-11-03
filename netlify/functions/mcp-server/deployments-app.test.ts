@@ -1,5 +1,6 @@
 import { test, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { McpServer } from '@modelcontextprotocol/server';
 
 process.env.OAUTH_ISSUER = 'https://mcp.example.com';
 process.env.JWE_SECRET = 'test-only-auth-jwe-secret-at-least-32-chars';
@@ -16,6 +17,7 @@ const deploy = {
 };
 let deploys: object[];
 let apiStatus: number;
+let siteStatus: number;
 let apiCalls: string[];
 const realFetch = globalThis.fetch;
 const realLog = console.log;
@@ -33,14 +35,17 @@ globalThis.fetch = (async (input: any, init: RequestInit) => {
   if (url.pathname === '/api/v1/user') return Response.json({ id: 'user-1' });
   apiCalls.push(url.pathname + url.search);
   if (apiStatus !== 200) return Response.json({ message: 'Denied' }, { status: apiStatus });
-  if (url.pathname === `/api/v1/sites/${siteId}`) return Response.json({ name: 'my-project', account_name: 'Example team', account_slug: 'example-team', secret: 'do-not-send' });
+  if (url.pathname === `/api/v1/sites/${siteId}`) {
+    if (siteStatus !== 200) return Response.json({ message: 'Unavailable' }, { status: siteStatus });
+    return Response.json({ name: 'my-project', account_name: 'Example team', account_slug: 'example-team', secret: 'do-not-send' });
+  }
   if (url.pathname.endsWith('/deploys')) return Response.json(deploys);
   assert.equal(url.pathname, `/api/v1/sites/${siteId}/deploys/deploy-1`);
   return Response.json(deploys[0]);
 }) as typeof fetch;
 const mcp = (await import('../mcp.ts')).default;
 after(() => { globalThis.fetch = realFetch; console.log = realLog; });
-beforeEach(() => { deploys = [{ ...deploy }]; apiStatus = 200; apiCalls = []; });
+beforeEach(() => { deploys = [{ ...deploy }]; apiStatus = siteStatus = 200; apiCalls = []; });
 
 async function rpc(method: string, params: Record<string, unknown>, modern = false, authenticated = true) {
   const response = await mcp(new Request('https://mcp.example.com/mcp', {
@@ -108,7 +113,7 @@ for (const modern of [false, true]) {
 
 test('empty lists, failures and skipped builds are finite; unsafe links are omitted', async () => {
   for (const records of [[], [{ ...deploy, state: 'error', error_message: 'Build failed' }],
-    [{ ...deploy, skipped: true }], [{ ...deploy, state: 'ready', name: 'bad/name', commit_url: 'data:text/html,hi' }]]) {
+    [{ ...deploy, state: 'ready', skipped: true }], [{ ...deploy, state: 'ready', name: 'bad/name', commit_url: 'data:text/html,hi' }]]) {
     deploys = records;
     const { body } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId } });
     assert.equal(body.result.structuredContent.hasActiveDeploys, false);
@@ -116,6 +121,37 @@ test('empty lists, failures and skipped builds are finite; unsafe links are omit
     assert.doesNotMatch(JSON.stringify(body.result), /javascript:|data:text/);
     if (!records.length) assert.match(body.result.content[0].text, /No deploys/);
   }
+});
+
+test('processed and pending-review deployments keep polling; terminal states stop', async () => {
+  for (const state of ['processed', 'pending_review', 'ready', 'error', 'rejected']) {
+    deploys = [{ ...deploy, state }];
+    const { body } = await rpc('tools/call', { name: 'netlify-refresh-deployments', arguments: { siteId } });
+    assert.equal(body.result.structuredContent.hasActiveDeploys, ['processed', 'pending_review'].includes(state), state);
+  }
+});
+
+test('optional project lookup failures do not hide successfully loaded deployments', async () => {
+  for (siteStatus of [403, 500]) {
+    const { body } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId } });
+    assert.equal(body.result.isError, undefined);
+    assert.equal(body.result.structuredContent.deploys[0].id, deploy.id);
+    assert.equal(body.result.structuredContent.hasActiveDeploys, true);
+    assert.equal(body.result.structuredContent.project, undefined);
+  }
+});
+
+test('deployment registration failure leaves coding-context and domain tools available', async t => {
+  const original = McpServer.prototype.registerResource;
+  t.mock.method(McpServer.prototype, 'registerResource', function (this: McpServer, ...args: Parameters<typeof original>) {
+    if (args[0] === 'netlify-deployments') throw new Error('test registration failure');
+    return original.apply(this, args);
+  });
+  const { body } = await rpc('tools/list', {});
+  const names = body.result.tools.map((tool: any) => tool.name);
+  assert.ok(names.includes('get-netlify-coding-context'));
+  assert.ok(names.includes('netlify-project-get-projects'));
+  assert.ok(!names.includes('netlify-open-deployments'));
 });
 
 test('both tools enforce auth, input validation and upstream access errors', async () => {

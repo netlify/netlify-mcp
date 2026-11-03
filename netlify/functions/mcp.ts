@@ -260,7 +260,11 @@ async function handleMCPPost(req: Request) {
   const handler = createMcpHandler(
     async () => {
       const server = new McpServer({ name: "netlify", version: getPackageVersion() });
-      registerDeploymentsApp(server, req);
+      try {
+        registerDeploymentsApp(server, req);
+      } catch (error) {
+        log.error('Failed to register deployments app', { err: error });
+      }
 
       await registerCodingContextTool(server, {
         name: "get-netlify-coding-context",

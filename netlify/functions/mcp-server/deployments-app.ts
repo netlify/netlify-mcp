@@ -4,11 +4,11 @@ import { getAPIJSONResult } from '../../../src/utils/api-networking.ts';
 import type { NetlifyDeployResponse, NetlifySiteResponse } from '../../../src/utils/api-types.ts';
 import { deploymentsHtml } from './deployments-html.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments-v9.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v10.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',
-  'preparing', 'prepared', 'processing', 'retrying',
+  'preparing', 'prepared', 'processing', 'processed', 'pending_review', 'retrying',
 ]);
 const inputSchema = {
   siteId: z.string().uuid().describe('Netlify site ID. Use get-projects to find it by project name.'),
@@ -71,8 +71,9 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
         ? deployPermalink(deploy) : null,
     }));
     // Team context is read once when opening, not on every polling request.
+    // Optional project metadata must not hide deployments that already loaded.
     const site = includeProject
-      ? await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request) : null;
+      ? await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request).catch(() => null) : null;
     const structuredContent = {
       siteId, deployId: deployId ?? null, deploys,
       filters: { status: status ?? null, from: from ?? null, to: to ?? null },

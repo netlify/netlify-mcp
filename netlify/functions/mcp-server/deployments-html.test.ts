@@ -207,6 +207,99 @@ test('refresh errors stop polling across visibility changes until manual refresh
   assert.equal(h.messages.at(-1).params.name, 'netlify-refresh-deployments');
 });
 
+test('tool-result isError responses display their message and stop polling', async () => {
+  for (const delivery of ['refresh', 'notification']) {
+    const h = host();
+    await initialize(h);
+    const error = { isError: true, content: [{ type: 'text', text: 'Netlify request failed: 403' }] };
+    if (delivery === 'refresh') {
+      h.poll();
+      await h.send({ id: h.messages.at(-1).id, result: error });
+    } else {
+      await h.send({ method: 'ui/notifications/tool-result', params: error });
+    }
+    assert.match(h.nodes.get('#status').textContent, /Could not update deployments.*403/);
+    assert.equal(h.pollCount(), 0);
+    h.visibility(true);
+    h.visibility(false);
+    assert.equal(h.pollCount(), 0, 'tool errors stay stopped across visibility changes');
+  }
+});
+
+test('Apply restarts polling after a tool error or the deadline with a full new window', async () => {
+  for (const reason of ['error', 'deadline']) {
+    const h = host();
+    await initialize(h);
+    if (reason === 'error') {
+      h.poll();
+      await h.send({ id: h.messages.at(-1).id, result: {
+        isError: true, content: [{ type: 'text', text: 'Access denied' }],
+      } });
+    } else {
+      h.advance(15 * 60 * 1000);
+      h.poll();
+    }
+    assert.equal(h.pollCount(), 0);
+    const count = h.messages.length;
+    h.nodes.get('#filter-status').value = 'enqueued';
+    h.nodes.get('#filters').submit();
+    assert.equal(h.messages.length, count + 1, reason);
+    assert.equal(h.messages.at(-1).params.arguments.status, 'enqueued');
+    await h.send({ id: h.messages.at(-1).id, result: result(true) });
+    assert.equal(h.pollCount(), 1);
+    assert.doesNotMatch(h.nodes.get('#status').textContent, /Access denied|Automatic updates paused/);
+    h.advance(15 * 60 * 1000 - 5000);
+    h.poll();
+    await h.send({ id: h.messages.at(-1).id, result: result(true) });
+    assert.equal(h.pollCount(), 1);
+    h.advance(5000);
+    h.poll();
+    assert.equal(h.pollCount(), 0, 'Apply grants exactly one new polling window');
+  }
+});
+
+test('failed Apply restores the last applied controls and Refresh uses those filters', async () => {
+  for (const initialTime of ['1', 'custom']) {
+    const h = host();
+    await initialize(h);
+    h.nodes.get('#filter-status').value = 'enqueued';
+    h.nodes.get('#filter-time').value = initialTime;
+    h.nodes.get('#filter-time').change();
+    h.nodes.get('#filter-from').value = '2026-01-01T00:00';
+    h.nodes.get('#filter-to').value = '2026-01-02T00:00';
+    h.nodes.get('#filters').submit();
+    const { siteId, ...filters } = h.messages.at(-1).params.arguments;
+    await h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
+      ...result(true).structuredContent, filters,
+    } } });
+    h.advance(5000);
+    h.nodes.get('#filter-status').value = 'error';
+    h.nodes.get('#filter-time').value = initialTime === 'custom' ? '24' : 'custom';
+    h.nodes.get('#filter-time').change();
+    h.nodes.get('#filters').submit();
+    await h.send({ id: h.messages.at(-1).id, result: {
+      isError: true, content: [{ type: 'text', text: 'Filter request failed' }],
+    } });
+    assert.equal(h.nodes.get('#filter-status').value, 'enqueued');
+    assert.equal(h.nodes.get('#filter-time').value, initialTime);
+    assert.equal(h.nodes.get('#custom-range').hidden, initialTime !== 'custom');
+    assert.equal(h.nodes.get('#filter-from').required, initialTime === 'custom');
+    assert.equal(h.nodes.get('#filter-to').required, initialTime === 'custom');
+    if (initialTime === 'custom') {
+      assert.equal(h.nodes.get('#filter-from').value, '2026-01-01T00:00');
+      assert.equal(h.nodes.get('#filter-to').value, '2026-01-02T00:00');
+    }
+    assert.match(h.nodes.get('#status').textContent, /Filter request failed/);
+    assert.equal(h.pollCount(), 0);
+    h.advance(5000);
+    h.nodes.get('#refresh').click();
+    const args = h.messages.at(-1).params.arguments;
+    assert.equal(args.status, filters.status);
+    assert.equal(args.from, filters.from + (initialTime === 'custom' ? 0 : 10));
+    assert.equal(args.to, filters.to + (initialTime === 'custom' ? 0 : 10));
+  }
+});
+
 
 test('card shows team and labeled creation time, without commit details', async () => {
   const h = host();
