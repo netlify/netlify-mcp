@@ -4,7 +4,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Netlify deployments</title>
+  <title>Netlify Deploys</title>
   <style>
     :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -47,7 +47,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
 </head>
 <body>
   <div class="card">
-  <header><h2>Netlify deployments</h2><button id="refresh" disabled>Refresh</button></header>
+  <header><h2>Netlify Deploys</h2><button id="refresh" disabled>Refresh</button></header>
   <p id="project" class="details"></p>
   <form id="filters" class="filters" hidden>
     <label>Status <span class="select-wrap"><select id="filter-status">
@@ -177,7 +177,7 @@ export const deploymentsHtml = String.raw`<!doctype html>
         list.append(card);
       }
       if (!pollingStoppedOnError) status.textContent = !snapshot.deploys.length ? 'No deployments match these filters.'
-        : snapshot.hasActiveDeploys ? 'Updating every 5 seconds while deploys are active.' : 'Up to date.' + (snapshot.deployId ? '' : ' Showing up to 5 matching deployments.');
+        : snapshot.hasActiveDeploys ? 'Updating every 5 seconds while deploys are active.' : 'Up to date.' + (snapshot.deployId ? '' : ' Showing up to 5 matching deploys.');
       setBusy(!ready || refreshing);
       schedule();
     }
