@@ -133,6 +133,14 @@ test('feedback is exposed as a write-only tool on both surfaces', async () => {
   const grouped = await toolsList('some-other-client/2.0');
   const names = grouped.map(t => t.name);
   assert.ok(names.includes('netlify-feedback-services-updater'));
+  // The grouped tool must still carry the sensitive-data warning and limits.
+  const updater = grouped.find(t => t.name === 'netlify-feedback-services-updater');
+  assert.match(updater.description, /Never include secrets/);
+  assert.match(updater.description, /per day/);
+  assert.match(updater.description, /write-only/);
+  // Other grouped tools keep their plain operation list.
+  const deployUpdater = grouped.find(t => t.name === 'netlify-deploy-services-updater');
+  assert.doesNotMatch(deployUpdater.description, /deploy-site\./);
   // There must never be a way to read feedback back out through the server.
   assert.equal(names.includes('netlify-feedback-services-reader'), false);
   for (const tool of [...granular, ...grouped]) {

@@ -9,11 +9,18 @@
 interface RedactionRule {
   label: string;
   pattern: RegExp;
-  // Defaults to replacing the whole match with `[REDACTED_<label>]`.
-  replace?: (match: string, ...groups: string[]) => string;
+  // Defaults to replacing the whole match with `[REDACTED_<label>]`. Returning
+  // null keeps the match as it is and does not count it as a redaction.
+  replace?: (match: string, ...groups: string[]) => string | null;
 }
 
 const placeholder = (label: string) => `[REDACTED_${label}]`;
+
+// Whether a value after `Bearer`/`Basic`/`Token` is a credential rather than an
+// ordinary word, as in "Token validation failed". Real ones contain a digit or
+// symbol, or mix upper and lower case (base64 Basic credentials).
+const looksLikeCredential = (value: string) =>
+  /[0-9._~+/=-]/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value));
 
 // Order matters: the specific shapes run before the generic catch-alls, so a
 // key is labelled by what it is rather than as an anonymous long string.
@@ -36,8 +43,9 @@ const RULES: RedactionRule[] = [
   // `Authorization: Bearer …` / `Basic …` headers.
   {
     label: 'TOKEN',
-    pattern: /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
-    replace: (_m, scheme) => `${scheme} ${placeholder('TOKEN')}`,
+    pattern: /\b(Bearer|Basic|Token)\s+([A-Za-z0-9._~+/=-]{8,})/gi,
+    replace: (_m, scheme, value) =>
+      looksLikeCredential(value) ? `${scheme} ${placeholder('TOKEN')}` : null,
   },
   // Credentials embedded in a URL or connection string: scheme://user:pass@host
   {
@@ -45,13 +53,25 @@ const RULES: RedactionRule[] = [
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi,
     replace: (_m, scheme) => `${scheme}${placeholder('CREDENTIALS')}@`,
   },
-  // key=value / key: value pairs whose key names a secret. The lookahead skips
+  // A Cookie header carries several name=value pairs; redact all of them, up
+  // to the end of the line.
+  {
+    label: 'SECRET',
+    pattern: /\b((?:Set-)?Cookie)(\s*:\s*)[^\r\n]+/gi,
+    replace: (_m, name, sep) => `${name}${sep}${placeholder('SECRET')}`,
+  },
+  // key=value / key: value pairs whose key names a secret. A quoted value is
+  // redacted up to its closing quote, so multi-word passphrases are covered.
+  // The lookahead skips
   // values already handled above, including `Authorization: Bearer [REDACTED_TOKEN]`,
   // so the scheme word is kept rather than redacted a second time.
   {
     label: 'SECRET',
-    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|session[_-]?id)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED_|(?:Bearer|Basic|Token)\s)([^\s"',;&]{4,})/gi,
-    replace: (_m, key, sep) => `${key}${sep}${placeholder('SECRET')}`,
+    pattern: /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|session[_-]?id)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)(?!["']?(?:\[REDACTED_|(?:Bearer|Basic|Token)\s))("[^"\r\n]+"|'[^'\r\n]+'|[^\s"',;&]{4,})/gi,
+    replace: (_m, key, sep, value) => {
+      const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
+      return `${key}${sep}${quote}${placeholder('SECRET')}${quote}`;
+    },
   },
   { label: 'EMAIL', pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
 ];
@@ -59,9 +79,17 @@ const RULES: RedactionRule[] = [
 // Long mixed-case alphanumeric runs (40+ chars with upper, lower and digits)
 // are almost always keys or encoded secrets. Ids that Netlify uses (24-hex
 // deploy ids, UUIDs, 40-hex commit SHAs) are single-case, so they survive.
+// Base64 secrets such as AWS secret access keys can contain `/`, which also
+// appears in ordinary file paths. Paths are mostly lowercase, so a value with
+// a `/` must also be at least a quarter uppercase letters to count.
 const HIGH_ENTROPY = /[A-Za-z0-9+/_=-]{40,}/g;
-const looksRandom = (value: string) =>
-  /[a-z]/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value) && !value.includes('/');
+const looksRandom = (value: string) => {
+  if (!(/[a-z]/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value))) return false;
+  if (!value.includes('/')) return true;
+  const letters = value.replace(/[^A-Za-z]/g, '');
+  const upper = value.replace(/[^A-Z]/g, '');
+  return upper.length / letters.length >= 0.25;
+};
 
 // Control characters (other than tab/newline) have no place in a report and
 // can corrupt log lines.
@@ -72,16 +100,20 @@ export interface RedactionResult {
   redactions: number;
 }
 
-export const redactSensitive = (input: string): RedactionResult => {
+// Distinct from `redactSensitive` in the server's logging module, which hides
+// values by field name; this one scans free text.
+export const scrubFeedbackText = (input: string): RedactionResult => {
   let redactions = 0;
   let text = input.replace(CONTROL_CHARS, '');
 
   for (const rule of RULES) {
     text = text.replace(rule.pattern, (match: string, ...rest: any[]) => {
-      redactions++;
       // `rest` is the capture groups followed by offset and input string.
       const groups = rest.slice(0, -2) as string[];
-      return rule.replace ? rule.replace(match, ...groups) : placeholder(rule.label);
+      const replacement = rule.replace ? rule.replace(match, ...groups) : placeholder(rule.label);
+      if (replacement === null) return match;
+      redactions++;
+      return replacement;
     });
   }
 

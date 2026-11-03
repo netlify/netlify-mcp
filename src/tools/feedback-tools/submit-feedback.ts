@@ -5,8 +5,8 @@ import type { NetlifyUserResponse } from '../../utils/api-types.js';
 import { getPackageVersion } from '../../utils/version.js';
 import { log, truncateForLog } from '../../../netlify/functions/mcp-server/logger.js';
 import type { DomainTool } from '../types.js';
-import { feedbackKey, getFeedbackStore } from './feedback-store.js';
-import { redactSensitive } from './redact.js';
+import { currentDeployContext, getFeedbackStore, type SaveResult } from './feedback-store.js';
+import { scrubFeedbackText } from './redact.js';
 
 // Caps. Per-user, per UTC day, and per report. Generous enough for an agent
 // that hits several distinct problems in a session, small enough that the
@@ -66,7 +66,7 @@ const resolveSubmitter = async (request?: Request) => {
   };
 };
 
-const scrub = (value: string | undefined) => (value ? redactSensitive(value) : undefined);
+const scrub = (value: string | undefined) => (value ? scrubFeedbackText(value) : undefined);
 
 export const submitFeedbackDomainTool: DomainTool<typeof submitFeedbackSchema> = {
   domain: 'feedback',
@@ -84,13 +84,26 @@ export const submitFeedbackDomainTool: DomainTool<typeof submitFeedbackSchema> =
     destructiveHint: false,
     idempotentHint: false,
   },
+  // The grouped selector tool would otherwise show only the operation name, and
+  // agents there would never see the sensitive-data warning or the limits.
+  showDescriptionInGroupedTool: true,
   // Reports are stored in the blobs of the site hosting the remote server; the
   // stdio CLI has no access to that store.
   omitFromLocalMCP: true,
   cb: async (rawInput, { request }) => {
-    // The SDK validates against the schema already; parse again so the caps
-    // hold even if this callback is reached another way.
-    const input: SubmitFeedbackInput = submitFeedbackSchema.parse(rawInput ?? {});
+    // The SDK validates the granular tool's arguments, but the grouped
+    // selector's `params` are optional, so a call can arrive with none. Report
+    // that as a rejected submission rather than a thrown server error.
+    const parsed = submitFeedbackSchema.safeParse(rawInput ?? {});
+    if (!parsed.success) {
+      log.warn('mcp feedback rejected', { feedbackRejectReason: 'invalid-input' });
+      return JSON.stringify({
+        status: 'rejected',
+        reason: 'The feedback was not recorded because some fields are missing or invalid.',
+        issues: parsed.error.issues.map(issue => `${issue.path.join('.') || 'params'}: ${issue.message}`),
+      });
+    }
+    const input: SubmitFeedbackInput = parsed.data;
 
     const { userId, teamId } = await resolveSubmitter(request);
     if (!userId) {
@@ -101,35 +114,23 @@ export const submitFeedbackDomainTool: DomainTool<typeof submitFeedbackSchema> =
       });
     }
 
-    const store = getFeedbackStore();
     const now = new Date();
     const day = utcDay(now);
 
-    const alreadySubmitted = await store.countForUserOnDay(day, userId);
-    if (alreadySubmitted >= MAX_FEEDBACK_PER_USER_PER_DAY) {
-      log.warn('mcp feedback rejected', {
-        feedbackRejectReason: 'daily-limit',
-        feedbackLimit: MAX_FEEDBACK_PER_USER_PER_DAY,
-        userId,
-        teamId,
-      });
-      return JSON.stringify({
-        status: 'rejected',
-        reason: `The daily limit of ${MAX_FEEDBACK_PER_USER_PER_DAY} feedback reports has been reached. Try again after midnight UTC.`,
-      });
-    }
-
-    const summary = redactSensitive(input.summary);
-    const details = redactSensitive(input.details);
+    const summary = scrubFeedbackText(input.summary);
+    const details = scrubFeedbackText(input.details);
     const suggestion = scrub(input.suggestion);
     const relatedTool = scrub(input.relatedTool);
     const agentName = scrub(input.agentName);
     const modelName = scrub(input.modelName);
+    // Client-supplied too, so scrubbed like the rest. Not counted towards the
+    // redactions the agent is told about, since the agent did not write it.
+    const userAgent = scrub(truncateForLog(request?.headers.get('user-agent')))?.text;
     const redactions = [summary, details, suggestion, relatedTool, agentName, modelName]
       .reduce((total, field) => total + (field?.redactions ?? 0), 0);
 
     const id = randomUUID();
-    const key = feedbackKey(day, userId, now.getTime(), id);
+    const deployContext = currentDeployContext();
     const record = {
       id,
       submittedAt: now.toISOString(),
@@ -143,15 +144,15 @@ export const submitFeedbackDomainTool: DomainTool<typeof submitFeedbackSchema> =
       redactions,
       userId,
       teamId,
-      userAgent: truncateForLog(request?.headers.get('user-agent')),
+      userAgent,
+      deployContext,
       mcpServerVersion: getPackageVersion(),
     };
 
-    // The same redacted content goes to the logs, so it reaches observability
-    // tooling even if the blob write fails.
+    // Built before any storage call, so every outcome below (including a
+    // storage outage) logs the same scrubbed content to observability.
     const logFields = {
       feedbackId: id,
-      feedbackKey: key,
       feedbackCategory: record.category,
       feedbackSummary: record.summary,
       feedbackDetails: record.details,
@@ -160,23 +161,39 @@ export const submitFeedbackDomainTool: DomainTool<typeof submitFeedbackSchema> =
       feedbackAgentName: record.agentName,
       feedbackModelName: record.modelName,
       feedbackRedactions: redactions,
+      feedbackDeployContext: deployContext,
       userId,
       teamId,
     };
 
+    let result: SaveResult;
     try {
-      await store.save(key, record);
+      result = await getFeedbackStore().saveInDailySlot(day, userId, MAX_FEEDBACK_PER_USER_PER_DAY, record);
     } catch (err) {
       log.error('mcp feedback storage failed', { ...logFields, err });
       throw new Error('Feedback could not be saved right now. Please try again later.');
     }
 
-    log.info('mcp feedback submitted', logFields);
+    if (!result.saved) {
+      log.warn('mcp feedback rejected', {
+        feedbackRejectReason: 'daily-limit',
+        feedbackLimit: MAX_FEEDBACK_PER_USER_PER_DAY,
+        feedbackId: id,
+        userId,
+        teamId,
+      });
+      return JSON.stringify({
+        status: 'rejected',
+        reason: `The daily limit of ${MAX_FEEDBACK_PER_USER_PER_DAY} feedback reports has been reached. Try again after midnight UTC.`,
+      });
+    }
+
+    log.info('mcp feedback submitted', { ...logFields, feedbackKey: result.key });
 
     return JSON.stringify({
       status: 'received',
       feedbackId: id,
-      remainingToday: Math.max(0, MAX_FEEDBACK_PER_USER_PER_DAY - alreadySubmitted - 1),
+      remainingToday: Math.max(0, MAX_FEEDBACK_PER_USER_PER_DAY - result.slot - 1),
       ...(redactions > 0
         ? { note: `${redactions} value(s) that looked like credentials or personal data were redacted before storing. Please leave such data out of future feedback.` }
         : {}),

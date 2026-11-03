@@ -24,6 +24,12 @@ export interface DomainTool<T extends z.ZodType> {
    * stub when absent.
    */
   description?: string;
+  /**
+   * Also include `description` in the grouped selector tool's description.
+   * That tool normally lists only operation names, so use this for operations
+   * whose description carries instructions the agent must follow.
+   */
+  showDescriptionInGroupedTool?: boolean;
   toolAnnotations: ToolAnnotations;
   omitFromRemoteMCP?: boolean;
   omitFromLocalMCP?: boolean;

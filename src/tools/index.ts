@@ -172,7 +172,11 @@ const registerDomainTools = (
 
     const friendlyOperationType = operationType === 'read' ? 'reader' : 'updater';
     const toolName = `netlify-${domain}-services-${friendlyOperationType}`;
-    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}`;
+    const operationNotes = tools
+      .filter(tool => tool.showDescriptionInGroupedTool && tool.description)
+      .map(tool => ` ${tool.operation}: ${tool.description}`)
+      .join('');
+    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}${operationNotes ? `.${operationNotes}` : ''}`;
 
     server.registerTool(toolName, {
       description: toolDescription,
