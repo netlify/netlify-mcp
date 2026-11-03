@@ -36,7 +36,6 @@ function host() {
     document, window: { parent, addEventListener: document.addEventListener },
     ResizeObserver: class { observe() {} },
     performance: { now: () => now },
-    Date: class extends Date { static now() { return 1767225600000 + now; } },
     setTimeout: (callback: () => void, delay: number) => {
       timers.set(++nextTimer, { callback, delay });
       return nextTimer;
@@ -258,48 +257,26 @@ test('Apply restarts polling after a tool error or the deadline with a full new 
   }
 });
 
-test('failed Apply restores the last applied controls and Refresh uses those filters', async () => {
-  for (const initialTime of ['1', 'custom']) {
-    const h = host();
-    await initialize(h);
-    h.nodes.get('#filter-status').value = 'enqueued';
-    h.nodes.get('#filter-time').value = initialTime;
-    h.nodes.get('#filter-time').change();
-    h.nodes.get('#filter-from').value = '2026-01-01T00:00';
-    h.nodes.get('#filter-to').value = '2026-01-02T00:00';
-    h.nodes.get('#filters').submit();
-    const { siteId, ...filters } = h.messages.at(-1).params.arguments;
-    await h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
-      ...result(true).structuredContent, filters,
-    } } });
-    h.advance(5000);
-    h.nodes.get('#filter-status').value = 'error';
-    h.nodes.get('#filter-time').value = initialTime === 'custom' ? '24' : 'custom';
-    h.nodes.get('#filter-time').change();
-    h.nodes.get('#filters').submit();
-    await h.send({ id: h.messages.at(-1).id, result: {
-      isError: true, content: [{ type: 'text', text: 'Filter request failed' }],
-    } });
-    assert.equal(h.nodes.get('#filter-status').value, 'enqueued');
-    assert.equal(h.nodes.get('#filter-time').value, initialTime);
-    assert.equal(h.nodes.get('#custom-range').hidden, initialTime !== 'custom');
-    assert.equal(h.nodes.get('#filter-from').required, initialTime === 'custom');
-    assert.equal(h.nodes.get('#filter-to').required, initialTime === 'custom');
-    if (initialTime === 'custom') {
-      assert.equal(h.nodes.get('#filter-from').value, '2026-01-01T00:00');
-      assert.equal(h.nodes.get('#filter-to').value, '2026-01-02T00:00');
-    }
-    assert.match(h.nodes.get('#status').textContent, /Filter request failed/);
-    assert.equal(h.pollCount(), 0);
-    h.advance(5000);
-    h.nodes.get('#refresh').click();
-    const args = h.messages.at(-1).params.arguments;
-    assert.equal(args.status, filters.status);
-    assert.equal(args.from, filters.from + (initialTime === 'custom' ? 0 : 10));
-    assert.equal(args.to, filters.to + (initialTime === 'custom' ? 0 : 10));
-  }
+test('failed Apply restores the applied status and Refresh uses it', async () => {
+  const h = host();
+  await initialize(h);
+  h.nodes.get('#filter-status').value = 'enqueued';
+  h.nodes.get('#filters').submit();
+  const filters = { status: 'enqueued' };
+  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
+    ...result(true).structuredContent, filters,
+  } } });
+  h.nodes.get('#filter-status').value = 'error';
+  h.nodes.get('#filters').submit();
+  await h.send({ id: h.messages.at(-1).id, result: {
+    isError: true, content: [{ type: 'text', text: 'Filter request failed' }],
+  } });
+  assert.equal(h.nodes.get('#filter-status').value, 'enqueued');
+  assert.match(h.nodes.get('#status').textContent, /Filter request failed/);
+  assert.equal(h.pollCount(), 0);
+  h.nodes.get('#refresh').click();
+  assert.equal(h.messages.at(-1).params.arguments.status, 'enqueued');
 });
-
 
 test('card shows team and labeled creation time, without commit details', async () => {
   const h = host();
@@ -317,90 +294,26 @@ test('card shows team and labeled creation time, without commit details', async 
   assert.match(JSON.stringify(h.nodes.get('#project').children), /Team:/, 'refresh retains team context');
 });
 
-test('status and custom time filters are applied on the host, retained on polls, and can be cleared', async () => {
+test('status filtering survives polling and Refresh, ignores unapplied edits, and can be cleared', async () => {
   const h = host();
   await initialize(h);
   h.nodes.get('#filter-status').value = 'error';
-  h.nodes.get('#filter-time').value = 'custom';
-  h.nodes.get('#filter-time').change();
-  assert.equal(h.nodes.get('#custom-range').hidden, false);
-  h.nodes.get('#filter-from').value = '2026-01-01T00:00:00Z';
-  h.nodes.get('#filter-to').value = '2026-01-02T00:00:00Z';
   h.nodes.get('#filters').submit();
   const args = h.messages.at(-1).params.arguments;
-  assert.equal(args.status, 'error');
-  assert.equal(args.from, 1767225600);
-  assert.equal(args.to, 1767312000);
+  assert.equal(JSON.stringify(args), JSON.stringify({ siteId: 'site-1', status: 'error' }));
   assert.equal(h.nodes.get('#apply-filters').disabled, true);
-  const filters = { status: args.status, from: args.from, to: args.to };
-  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(true).structuredContent, filters } } });
-  h.advance(5000);
+  const reply = () => h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
+    ...result(true).structuredContent, filters: { status: 'error' },
+  } } });
+  await reply();
+  h.nodes.get('#filter-status').value = 'ready';
   h.poll();
   assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args));
-  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(false).structuredContent, filters } } });
-  h.advance(5000);
+  await reply();
   h.nodes.get('#refresh').click();
-  assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args), 'custom bounds remain fixed on manual refresh');
-  await h.send({ id: h.messages.at(-1).id, result: { structuredContent: { ...result(false).structuredContent, filters } } });
-  h.nodes.get('#filter-from').value = '2027-01-01T00:00:00Z';
-  const count = h.messages.length;
-  h.nodes.get('#filters').submit();
-  assert.equal(h.messages.length, count, 'invalid range must not query the API');
-  assert.match(h.nodes.get('#status').textContent, /valid time range/);
+  assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify(args));
+  await reply();
   h.nodes.get('#filter-status').value = '';
-  h.nodes.get('#filter-time').value = '';
   h.nodes.get('#filters').submit();
   assert.equal(JSON.stringify(h.messages.at(-1).params.arguments), JSON.stringify({ siteId: 'site-1' }));
-});
-
-test('applied time presets advance on polls and manual refresh, ignoring unapplied edits', async () => {
-  for (const hours of [1, 24, 48, 168]) {
-    const h = host();
-    await initialize(h);
-    h.nodes.get('#filter-status').value = 'enqueued';
-    h.nodes.get('#filter-time').value = String(hours);
-    h.nodes.get('#filters').submit();
-    const initial = h.messages.at(-1).params.arguments;
-    assert.equal(initial.to, 1767225600);
-    assert.equal(initial.from, initial.to - hours * 3600);
-    const reply = () => {
-      const { siteId, ...filters } = h.messages.at(-1).params.arguments;
-      return h.send({ id: h.messages.at(-1).id, result: { structuredContent: {
-        ...result(true).structuredContent, filters,
-      } } });
-    };
-    await reply();
-    // Editing the form alone must not change the applied range or status.
-    h.nodes.get('#filter-time').value = 'custom';
-    h.nodes.get('#filter-status').value = 'error';
-    h.advance(5000);
-    h.poll();
-    let args = h.messages.at(-1).params.arguments;
-    assert.equal(args.to, initial.to + 5);
-    assert.equal(args.from, initial.from + 5);
-    assert.equal(args.status, 'enqueued');
-    await reply();
-    h.advance(10000);
-    h.nodes.get('#refresh').click();
-    args = h.messages.at(-1).params.arguments;
-    assert.equal(args.to, initial.to + 15);
-    assert.equal(args.from, initial.from + 15);
-    await reply();
-    h.nodes.get('#filter-from').value = '2026-01-01T00:00:00Z';
-    h.nodes.get('#filter-to').value = '2026-01-02T00:00:00Z';
-    h.nodes.get('#filters').submit();
-    await reply();
-    h.advance(5000);
-    h.poll();
-    assert.equal(h.messages.at(-1).params.arguments.from, 1767225600);
-    assert.equal(h.messages.at(-1).params.arguments.to, 1767312000, 'switching to custom stops the range advancing');
-    await reply();
-    h.nodes.get('#filter-time').value = '';
-    h.nodes.get('#filters').submit();
-    await reply();
-    h.advance(5000);
-    h.poll();
-    assert.equal(h.messages.at(-1).params.arguments.from, undefined, 'clearing the preset stays cleared');
-    assert.equal(h.messages.at(-1).params.arguments.to, undefined);
-  }
 });

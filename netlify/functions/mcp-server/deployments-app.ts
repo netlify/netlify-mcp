@@ -1,10 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { getAPIJSONResult } from '../../../src/utils/api-networking.ts';
+import { getAPIJSONResult, NetlifyApiError, NetlifyUnauthError } from '../../../src/utils/api-networking.ts';
 import type { NetlifyDeployResponse, NetlifySiteResponse } from '../../../src/utils/api-types.ts';
 import { deploymentsHtml } from './deployments-html.ts';
+import { log } from './logger.ts';
 
-const RESOURCE_URI = 'ui://netlify/deployments-v10.html';
+const RESOURCE_URI = 'ui://netlify/deployments-v11.html';
 const MIME_TYPE = 'text/html;profile=mcp-app';
 const ACTIVE_STATES = new Set([
   'new', 'accepted', 'enqueued', 'building', 'uploading', 'uploaded',
@@ -16,8 +17,6 @@ const inputSchema = {
     .describe('Optional deploy ID to show just that deploy instead of the five most recent deploys.'),
   status: z.enum(['error', 'ready', 'enqueued', 'pending_review', 'accepted', 'rejected']).optional()
     .describe('Filter deployment status. Applies to the project list, not a specific deploy.'),
-  from: z.number().int().nonnegative().optional().describe('Start of the creation-time range, Unix seconds. Supply with to.'),
-  to: z.number().int().nonnegative().optional().describe('End of the creation-time range, Unix seconds. Supply with from.'),
 };
 type DeploymentsInput = z.infer<z.ZodObject<typeof inputSchema>>;
 const annotations = {
@@ -39,14 +38,9 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
     }],
   }));
 
-  const readDeployments = async ({ siteId, deployId, status, from, to }: DeploymentsInput, includeProject = false) => {
-    if ((from === undefined) !== (to === undefined) || (from !== undefined && from > to!)) {
-      throw new Error('Supply both from and to, with from before to.');
-    }
-    if (deployId && (status || from !== undefined)) throw new Error('Filters apply to the project list, not a specific deploy.');
+  const readDeployments = async ({ siteId, deployId, status }: DeploymentsInput, includeProject = false) => {
     const query = new URLSearchParams({ per_page: '5' });
     if (status) query.set('state', status);
-    if (from !== undefined) { query.set('from', String(from)); query.set('to', String(to)); }
     const path = `/api/v1/sites/${encodeURIComponent(siteId)}/deploys`;
     const raw = deployId
       ? [await getAPIJSONResult<NetlifyDeployResponse>(`${path}/${encodeURIComponent(deployId)}`, {}, {}, request)]
@@ -76,7 +70,7 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
       ? await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request).catch(() => null) : null;
     const structuredContent = {
       siteId, deployId: deployId ?? null, deploys,
-      filters: { status: status ?? null, from: from ?? null, to: to ?? null },
+      filters: { status: status ?? null },
       ...(site ? { project: { name: site.name ?? siteId, teamName: site.account_name ?? '',
         teamUrl: site.account_slug ? `https://app.netlify.com/teams/${encodeURIComponent(site.account_slug)}/overview` : null } } : {}),
       hasActiveDeploys: deploys.some(deploy => ACTIVE_STATES.has(deploy.state)),
@@ -93,17 +87,33 @@ export function registerDeploymentsApp(server: McpServer, request: Request): voi
     };
   };
 
+  // Match the call's operation dimension and the domain tools' failure severity.
+  const readWithLogging = async (toolName: string, args: DeploymentsInput, includeProject = false) => {
+    if (args.deployId && args.status) throw new Error('Filters apply to the project list, not a specific deploy.');
+    try {
+      return await readDeployments(args, includeProject);
+    } catch (err) {
+      if (err instanceof NetlifyUnauthError) throw err;
+      if (err instanceof NetlifyApiError && err.status < 500) {
+        log.warn('tool operation client error', { operation: toolName, toolName, status: err.status });
+      } else {
+        log.error('tool operation failed', { operation: toolName, toolName, err });
+      }
+      throw err;
+    }
+  };
+
   server.registerTool('netlify-open-deployments', {
     title: 'Netlify Deployments',
-    description: 'Show an interactive card of the five most recent matching deploys for a Netlify project, or one specific deploy. Filter by status and creation time. Includes team, live status, branch, errors, and links. Read-only; does not start a deploy. Also returns text for clients without UI support.',
+    description: 'Show an interactive card of the five most recent matching deploys for a Netlify project, or one specific deploy. Filter by status. Includes team, live status, branch, errors, and links. Read-only; does not start a deploy. Also returns text for clients without UI support.',
     inputSchema, annotations,
     _meta: { ui: { resourceUri: RESOURCE_URI } },
-  }, args => readDeployments(args, true));
+  }, args => readWithLogging('netlify-open-deployments', args, true));
 
   // Refresh without asking the host to mount another card.
   server.registerTool('netlify-refresh-deployments', {
     description: 'Refresh the deployment card with current deploy status and links. Read-only.',
     inputSchema, annotations,
     _meta: { ui: { visibility: ['app'] } },
-  }, args => readDeployments(args));
+  }, args => readWithLogging('netlify-refresh-deployments', args));
 }

@@ -133,8 +133,7 @@ Ask an MCP Apps-compatible client: **â€œShow recent deployments for my project.â
 The `netlify-open-deployments` tool takes a `siteId` (and optional `deployId`) and
 shows up to five matching deploys with status, branch, labeled creation time,
 errors, and links, plus the project's team and its dashboard link. Filter the
-project list by status and time frame, including a custom range. Tools also accept
-`status` and paired `from`/`to` Unix timestamps; filters are applied by Netlify
+project list by status. Tools also accept `status`; filtering is applied by Netlify
 before limiting the results. Filters do not apply to a specific `deployId`. The card
 refreshes every five seconds while a displayed deploy is active and stops when
 they finish or after 15 minutes, including time spent hidden. The Refresh button

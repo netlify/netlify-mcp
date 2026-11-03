@@ -1,6 +1,7 @@
 import { test, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpServer } from '@modelcontextprotocol/server';
+import { log } from './logger.ts';
 
 process.env.OAUTH_ISSUER = 'https://mcp.example.com';
 process.env.JWE_SECRET = 'test-only-auth-jwe-secret-at-least-32-chars';
@@ -170,16 +171,54 @@ test('both tools enforce auth, input validation and upstream access errors', asy
   }
 });
 
+test('both deployment tools log failures under the same operation as their calls', async t => {
+  const warnings = t.mock.method(log, 'warn', () => {});
+  const errors = t.mock.method(log, 'error', () => {});
+  for (const name of ['netlify-open-deployments', 'netlify-refresh-deployments']) {
+    for (const status of [403, 500, 200]) {
+      warnings.mock.resetCalls();
+      errors.mock.resetCalls();
+      apiStatus = status;
+      deploys = status === 200 ? [{}] : [{ ...deploy }]; // Unexpected response failure.
+      const { body } = await rpc('tools/call', { name, arguments: { siteId } });
+      assert.equal(body.result.isError, true);
+      const clientErrors = warnings.mock.calls.filter(c => c.arguments[0] === 'tool operation client error');
+      const failures = errors.mock.calls.filter(c => c.arguments[0] === 'tool operation failed');
+      assert.equal(clientErrors.length, status === 403 ? 1 : 0);
+      assert.equal(failures.length, status === 403 ? 0 : 1);
+      const fields = [...clientErrors, ...failures][0].arguments[1];
+      assert.equal(fields?.operation, name);
+      assert.equal(fields?.toolName, name);
+      if (status === 403) assert.equal(fields?.status, 403);
+    }
+  }
+});
 
-test('filters query the API before limiting results and reject invalid combinations', async () => {
-  const filters = { status: 'error', from: 1000, to: 2000 };
+test('successful reads and optional metadata failures do not log tool failures', async t => {
+  const warnings = t.mock.method(log, 'warn', () => {});
+  const errors = t.mock.method(log, 'error', () => {});
+  for (siteStatus of [200, 403]) {
+    const { body } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId } });
+    assert.equal(body.result.isError, undefined);
+  }
+  const unauthorized = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId } }, false, false);
+  assert.equal(unauthorized.status, 401);
+  assert.equal(warnings.mock.calls.filter(c => c.arguments[0] === 'tool operation client error').length, 0);
+  assert.equal(errors.mock.calls.filter(c => c.arguments[0] === 'tool operation failed').length, 0);
+});
+
+
+test('filters query the API before limiting results and reject invalid combinations without logging server failures', async t => {
+  const errors = t.mock.method(log, 'error', () => {});
+  const filters = { status: 'error' };
   const { body } = await rpc('tools/call', { name: 'netlify-refresh-deployments', arguments: { siteId, ...filters } });
   assert.deepEqual(body.result.structuredContent.filters, filters);
-  assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys?per_page=5&state=error&from=1000&to=2000`]);
+  assert.deepEqual(apiCalls, [`/api/v1/sites/${siteId}/deploys?per_page=5&state=error`]);
   apiCalls = [];
-  for (const args of [{ status: 'bogus' }, { from: 100 }, { to: 100 }, { from: 200, to: 100 }, { from: -1, to: 100 }, { deployId: 'deploy-1', status: 'ready' }]) {
+  for (const args of [{ status: 'bogus' }, { deployId: 'deploy-1', status: 'ready' }]) {
     const { body: invalid } = await rpc('tools/call', { name: 'netlify-open-deployments', arguments: { siteId, ...args } });
     assert.ok(invalid.error || invalid.result?.isError);
   }
   assert.deepEqual(apiCalls, []);
+  assert.equal(errors.mock.calls.filter(c => c.arguments[0] === 'tool operation failed').length, 0);
 });
