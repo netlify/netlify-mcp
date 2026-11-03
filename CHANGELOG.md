@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.22.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.21.0...mcp-v1.22.0) (2026-11-03)
+
+
+### Features
+
+* add interactive deployment cards to hosted MCP ([#95](https://github.com/netlify/netlify-mcp/issues/95)) ([ff531e2](https://github.com/netlify/netlify-mcp/commit/ff531e2d1cf0e336044f44ea387ae33cef611c32))
+
+
+### Bug Fixes
+
+* confirm a tool-level 401 with /user before asking the agent to sign in ([#83](https://github.com/netlify/netlify-mcp/issues/83)) ([19ed461](https://github.com/netlify/netlify-mcp/commit/19ed461f99946999fb68720a2251afb312cd6451))
+* preserve deployment card padding in chat hosts ([#97](https://github.com/netlify/netlify-mcp/issues/97)) ([955cb1a](https://github.com/netlify/netlify-mcp/commit/955cb1ae1f607afdeabf90e0bbf0f98bc495d231))
+* rename deployment card to Netlify Deploys ([#98](https://github.com/netlify/netlify-mcp/issues/98)) ([c67980d](https://github.com/netlify/netlify-mcp/commit/c67980d8f4809b87d52e369e79fe31956c7b0c89))
+
 ## [1.21.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.20.0...mcp-v1.21.0) (2026-10-23)
 
 
