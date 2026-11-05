@@ -6,20 +6,19 @@ const testRequest = () =>
     headers: { Authorization: 'Bearer nfp_test_token' },
   });
 
-test('update-project-name returns a friendly message instead of crashing on a 422 name conflict', async (t) => {
+test('update-project-name reports a 422 name conflict as an error with a clear message', async (t) => {
   const { updateProjectNameDomainTool } = await import('./update-project-name.ts');
 
   t.mock.method(globalThis, 'fetch', async () =>
     new Response(JSON.stringify({ message: 'name must be unique' }), { status: 422 }),
   );
 
-  const result = await updateProjectNameDomainTool.cb({ siteId: 'site-1', name: 'taken-name' }, { request: testRequest() });
-
-  assert.equal(typeof result, 'string');
-  assert.match(result, /taken-name.*already taken/);
-  // regression: the raw error string must not be fed into getEnrichedSiteModelForLLM,
+  // regression: the conflict must not be fed into getEnrichedSiteModelForLLM,
   // which would silently discard this message and return `[{}]`-shaped JSON instead.
-  assert.doesNotMatch(result, /^\[/);
+  await assert.rejects(
+    updateProjectNameDomainTool.cb({ siteId: 'site-1', name: 'taken-name' }, { request: testRequest() }),
+    /taken-name.*already taken/,
+  );
 });
 
 test('update-project-name succeeds and returns the enriched site on a free name', async (t) => {
