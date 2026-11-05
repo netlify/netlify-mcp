@@ -15,8 +15,8 @@ afterEach(() => mock.restoreAll());
 
 type Surface = 'grouped' | 'granular';
 
-async function callTool(surface: Surface, operation: string, params: Record<string, unknown>) {
-  const response = await mcp(
+async function postToolCall(surface: Surface, operation: string, params: Record<string, unknown>) {
+  return mcp(
     new Request('https://mcp.example.com/mcp', {
       method: 'POST',
       headers: {
@@ -38,6 +38,10 @@ async function callTool(surface: Surface, operation: string, params: Record<stri
     }),
     {} as any,
   );
+}
+
+async function callTool(surface: Surface, operation: string, params: Record<string, unknown>) {
+  const response = await postToolCall(surface, operation, params);
   const text = await response.text();
   const framed = text.match(/^event: message\ndata: (.*)$/m);
   return JSON.parse(framed ? framed[1] : text).result;
@@ -46,7 +50,14 @@ async function callTool(surface: Surface, operation: string, params: Record<stri
 const respondWith = (status: number, body: string) =>
   mock.method(globalThis, 'fetch', async () => new Response(body, { status }));
 
-const failures = [
+const failures: Array<{
+  name: string;
+  operation: string;
+  params: Record<string, unknown>;
+  status: number;
+  body?: string;
+  text: RegExp;
+}> = [
   {
     name: 'create-new-project on a 500',
     operation: 'create-new-project',
@@ -82,17 +93,76 @@ const failures = [
     status: 422,
     text: /taken-name.*already taken/,
   },
+  {
+    name: 'create-new-project on an empty 200 body',
+    operation: 'create-new-project',
+    params: { name: 'my-site' },
+    status: 200,
+    body: '',
+    text: /Failed to create project/,
+  },
+  {
+    name: 'create-new-project on a non-JSON 200 body',
+    operation: 'create-new-project',
+    params: { name: 'my-site' },
+    status: 200,
+    body: 'Bad Gateway',
+    text: /Failed to create project: 200/,
+  },
+  {
+    name: 'update-project-name on an empty 200 body',
+    operation: 'update-project-name',
+    params: { siteId: 'site-1', name: 'new-name' },
+    status: 200,
+    body: '',
+    text: /Failed to update project name/,
+  },
+  {
+    name: 'update-project-name on a non-JSON 200 body',
+    operation: 'update-project-name',
+    params: { siteId: 'site-1', name: 'new-name' },
+    status: 200,
+    body: 'Bad Gateway',
+    text: /Failed to update project name: 200/,
+  },
 ];
 
 for (const surface of ['grouped', 'granular'] as const) {
-  for (const { name, operation, params, status, text } of failures) {
+  for (const { name, operation, params, status, body, text } of failures) {
     test(`${surface}: ${name} is an error result that keeps its message`, async () => {
-      respondWith(status, JSON.stringify({ message: 'nope' }));
+      respondWith(status, body ?? JSON.stringify({ message: 'nope' }));
 
       const result = await callTool(surface, operation, params);
 
       assert.equal(result.isError, true, JSON.stringify(result));
       assert.match(result.content[0].text, text);
+    });
+  }
+
+  for (const { operation, params } of [
+    { operation: 'create-new-project', params: { name: 'my-site' } },
+    { operation: 'update-project-name', params: { siteId: 'site-1', name: 'new-name' } },
+  ]) {
+    // A 401 isn't always a bad token (a plan limit, say): /user decides.
+    test(`${surface}: ${operation} on a 401 with a valid token is an error result`, async () => {
+      mock.method(globalThis, 'fetch', async (url: string | URL | Request) =>
+        String(url).includes('/api/v1/user')
+          ? new Response(JSON.stringify({ id: 'user-1' }), { status: 200 })
+          : new Response(JSON.stringify({ message: 'nope' }), { status: 401 }),
+      );
+
+      const result = await callTool(surface, operation, params);
+
+      assert.equal(result.isError, true, JSON.stringify(result));
+      assert.match(result.content[0].text, /401/);
+    });
+
+    test(`${surface}: ${operation} on a 401 with a rejected token asks the client to sign in`, async () => {
+      respondWith(401, JSON.stringify({ message: 'nope' }));
+
+      const response = await postToolCall(surface, operation, params);
+
+      assert.equal(response.status, 401);
     });
   }
 
