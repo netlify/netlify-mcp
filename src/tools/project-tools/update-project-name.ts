@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { getAPIJSONResult } from '../../utils/api-networking.js';
+import { getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
@@ -36,17 +36,17 @@ export const updateProjectNameDomainTool: DomainTool<typeof updateProjectNamePar
       failureCallback: (response) => {
 
         if(response.status === 422){
-          return `The project name "${name}" is already taken. Try a different name (e.g. append a number or short suffix, like "${name}-1") and retry.`;
+          throw new NetlifyApiError(422, `The project name "${name}" is already taken. Try a different name (e.g. append a number or short suffix, like "${name}-1") and retry.`);
         }
 
-        return `Failed to update project name: ${response.status}`;
+        throw new NetlifyApiError(response.status, `Failed to update project name: ${response.status}`);
       }
     }, request);
 
-    // The failureCallback above resolves to an explanatory message instead of a
-    // site, so surface it as-is rather than running it through the site enricher.
+    // An empty or non-JSON success body isn't a site, so don't run it through the
+    // site enricher. Thrown so the client gets an error result (isError).
     if (!site || typeof site === 'string') {
-      return site || 'Failed to update project name';
+      throw new Error(site || 'Failed to update project name');
     }
 
     return JSON.stringify(getEnrichedSiteModelForLLM(site));
