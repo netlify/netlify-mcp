@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.22.0...mcp-v1.22.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* read the Netlify token through `@netlify/dev-utils` ([#101](https://github.com/netlify/netlify-mcp/issues/101)) ([f63d6c5](https://github.com/netlify/netlify-mcp/commit/f63d6c50e83e554c6c6f9571515c6ecd32ff27e8))
+
 ## [1.22.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.21.0...mcp-v1.22.0) (2026-11-03)
 
 
