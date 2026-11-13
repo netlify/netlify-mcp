@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { getCodingContextTopics, getNetlifyCodingContext } from './coding-context.ts';
 import { checkCompatibility } from '../utils/compatibility.ts';
+import { AGENT_RUNNER_INSTRUCTIONS } from '../tools/agent-runner-tools/agent-runner-utils.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.js';
 
 export async function registerCodingContextTool(
@@ -46,6 +47,14 @@ export async function registerCodingContextTool(
     async ({ creationType, reference }) => {
       checkCompatibility();
       const result = await getNetlifyCodingContext(creationType, reference);
+      if (result.ok && reference === undefined) {
+        return {
+          content: [
+            { type: 'text' as const, text: `Before you build: ${AGENT_RUNNER_INSTRUCTIONS}` },
+            { type: 'text' as const, text: result.text },
+          ],
+        };
+      }
       if (result.ok) {
         return { content: [{ type: 'text' as const, text: result.text }] };
       }
