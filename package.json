@@ -50,7 +50,7 @@
     "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
-    "@netlify/open-api": "^2.57.1",
+    "@netlify/open-api": "^2.63.1",
     "@types/node": "^22.15.32",
     "fflate": "0.8.2",
     "pkg-pr-new": "^0.0.88",
