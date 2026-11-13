@@ -1,6 +1,6 @@
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
-import envPaths from 'env-paths';
+import { LEGACY_STORAGE_ENV_VAR, readStoredAPIToken, type StoredAPIToken } from '@netlify/dev-utils';
 import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { loginSpawnEnv } from './login-attribution.ts';
@@ -22,10 +22,9 @@ interface APIInteractionOptions {
   quietStatuses?: number[];
 }
 
-const getAuthTokenMsg = `
-You're not logged into Netlify on this computer. Use the netlify cli to login. \`netlify login\`
-If you don't have the netlify cli installed, install it by running "npm i -g netlify-cli",
-`
+const getAuthTokenMsg = `Netlify login didn't complete.
+Retry this tool to reopen the Netlify login page in the browser, and ask the user to finish logging in there.
+If the \`netlify\` command isn't installed, install it first with \`npm install -g netlify-cli\`.`
 
 export const UNAUTHED_ERROR_PREFIX = 'NetlifyUnauthError:';
 export class NetlifyUnauthError extends Error {
@@ -50,19 +49,23 @@ export class NetlifyApiError extends Error {
   }
 }
 
-const readTokenFromEnv = async () => {
+// Reads the `netlify login` token the CLI manages.
+// DO NOT leak knowledge of CLI auth internals here, as it is not a public API and subject to change.
+const readStoredToken = async (): Promise<string> => {
+  let stored: StoredAPIToken;
   try {
-    // Netlify CLI uses envPaths(...) to build the file path for config.json.
-    // https://github.com/netlify/cli/blob/f10fb055ab47bb8e7e2021bdfa955ce6733d5041/src/lib/settings.ts#L6
-    // We could import it from the CLI to prevent code duplication,
-    // but CLI is way too heavy to be used within an MCP server.
-    const OSBasedPaths = envPaths('netlify', { suffix: '' });
-    const configPath = path.join(OSBasedPaths.config, 'config.json');
-    const configData = await fs.readFile(configPath, { encoding: 'utf-8' });
-    const parsedData = JSON.parse(configData.toString());
-    const userId = parsedData?.userId;
-    return parsedData?.users?.[userId]?.auth?.token;
-  } catch {}
+    stored = await readStoredAPIToken();
+  } catch (error) {
+    throw new Error(`Couldn't read the user's Netlify login: ${error instanceof Error ? error.message : String(error)}
+Fix the cause above if you can, then retry this tool.
+If it can't be fixed, the user can set NETLIFY_PERSONAL_ACCESS_TOKEN in their Netlify MCP server settings instead.`);
+  }
+  if (stored.source !== 'none') return stored.token;
+  if (stored.keychainError) {
+    throw new Error(`Couldn't read the user's Netlify login from their system credential store (macOS Keychain, Windows Credential Manager, or Linux Secret Service): ${stored.keychainError.message}
+Ask the user to unlock it, or to allow access if their system shows a prompt, then retry this tool.
+If that doesn't work, the user can set NETLIFY_PERSONAL_ACCESS_TOKEN in their Netlify MCP server settings, or, as a last resort, set ${LEGACY_STORAGE_ENV_VAR}=1 there to keep the login in a less secure plaintext file.`);
+  }
   return '';
 }
 
@@ -160,7 +163,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     return process.env.NETLIFY_PERSONAL_ACCESS_TOKEN;
   }
 
-  token = await readTokenFromEnv();
+  token = await readStoredToken();
 
   if (!token) {
 
@@ -169,7 +172,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     appendToLog(["Netlify login exit code and output", JSON.stringify(result)]);
 
     if (result.exitCode === 0) {
-      token = await readTokenFromEnv();
+      token = await readStoredToken();
     }
 
     if (!token) {
