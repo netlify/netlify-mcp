@@ -1,0 +1,7 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['github>netlify/renovate-config:esm'],
+  semanticCommits: 'enabled',
+  dependencyDashboard: true,
+  postUpdateOptions: ['npmDedupe'],
+}
