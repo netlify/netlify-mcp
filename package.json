@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/core": "2.2.0",
-    "@modelcontextprotocol/server": "2.2.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@netlify/blobs": "^11.1.9",
     "@netlify/dev-utils": "^6.1.0",
     "@netlify/edge-functions": "^4.0.4",
