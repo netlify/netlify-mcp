@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
+import { authenticatedFetch, getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { DomainTool } from '../types.js';
 import type { NetlifyEnvVarResponse, NetlifySiteResponse } from '../../utils/api-types.js';
 import { appendToLog } from '../../utils/logging.js';
@@ -92,10 +92,17 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
           }, {}, request);
         }
       } else {
-        await getAPIJSONResult<NetlifyEnvVarResponse[]>(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
+        const resp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env?site_id=${siteId}`, {
           method: 'POST',
           body: JSON.stringify([envVar])
-        }, {}, request);
+        }, request);
+
+        // A rejected create must not read as success. Check the status before
+        // touching the body, so a failed body read cannot hide a known status.
+        if (!resp.ok) {
+          throw new NetlifyApiError(resp.status);
+        }
+        appendToLog(`create result${resp.status} ${await resp.text()}`);
       }
 
       return 'Environment variable upserted';

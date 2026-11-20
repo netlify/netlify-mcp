@@ -1,13 +1,13 @@
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
-import envPaths from 'env-paths';
+import { LEGACY_STORAGE_ENV_VAR, readStoredAPIToken, type StoredAPIToken } from '@netlify/dev-utils';
 import { runCommand } from './cmd.ts';
 import { appendToLog } from './logging.ts';
 import { loginSpawnEnv } from './login-attribution.ts';
 import { decryptJWE } from '../../netlify/functions/mcp-server/utils.ts';
 import { isTokenTypeAllowed, TOKEN_TYPE } from '../../netlify/functions/mcp-server/token-types.ts';
 import { log } from '../../netlify/functions/mcp-server/logger.ts';
-import { flagAuthChallenge } from '../../netlify/functions/mcp-server/request-signals.ts';
+import { flagNetlify401 } from '../../netlify/functions/mcp-server/request-signals.ts';
 import type { TokenIdentity } from '../../netlify/functions/mcp-server/identity.js';
 
 interface APIInteractionOptions {
@@ -22,10 +22,9 @@ interface APIInteractionOptions {
   quietStatuses?: number[];
 }
 
-const getAuthTokenMsg = `
-You're not logged into Netlify on this computer. Use the netlify cli to login. \`netlify login\`
-If you don't have the netlify cli installed, install it by running "npm i -g netlify-cli",
-`
+const getAuthTokenMsg = `Netlify login didn't complete.
+Retry this tool to reopen the Netlify login page in the browser, and ask the user to finish logging in there.
+If the \`netlify\` command isn't installed, install it first with \`npm install -g netlify-cli\`.`
 
 export const UNAUTHED_ERROR_PREFIX = 'NetlifyUnauthError:';
 export class NetlifyUnauthError extends Error {
@@ -38,29 +37,35 @@ export class NetlifyUnauthError extends Error {
 // Thrown when the Netlify API returns a non-OK status. Carries the status so
 // callers can tell an expected client outcome (4xx: not-found, validation) apart
 // from a genuine server/network failure (5xx), and log at the right severity.
-// The message is unchanged (`Failed to fetch API: <status>`) for compatibility.
+// The default message is unchanged (`Failed to fetch API: <status>`) for
+// compatibility; callers that know what the status means for their endpoint can
+// pass a message the agent can act on instead.
 export class NetlifyApiError extends Error {
   readonly status: number;
-  constructor(status: number) {
-    super(`Failed to fetch API: ${status}`);
+  constructor(status: number, message?: string) {
+    super(message ?? `Failed to fetch API: ${status}`);
     this.name = 'NetlifyApiError';
     this.status = status;
   }
 }
 
-const readTokenFromEnv = async () => {
+// Reads the `netlify login` token the CLI manages.
+// DO NOT leak knowledge of CLI auth internals here, as it is not a public API and subject to change.
+const readStoredToken = async (): Promise<string> => {
+  let stored: StoredAPIToken;
   try {
-    // Netlify CLI uses envPaths(...) to build the file path for config.json.
-    // https://github.com/netlify/cli/blob/f10fb055ab47bb8e7e2021bdfa955ce6733d5041/src/lib/settings.ts#L6
-    // We could import it from the CLI to prevent code duplication,
-    // but CLI is way too heavy to be used within an MCP server.
-    const OSBasedPaths = envPaths('netlify', { suffix: '' });
-    const configPath = path.join(OSBasedPaths.config, 'config.json');
-    const configData = await fs.readFile(configPath, { encoding: 'utf-8' });
-    const parsedData = JSON.parse(configData.toString());
-    const userId = parsedData?.userId;
-    return parsedData?.users?.[userId]?.auth?.token;
-  } catch {}
+    stored = await readStoredAPIToken();
+  } catch (error) {
+    throw new Error(`Couldn't read the user's Netlify login: ${error instanceof Error ? error.message : String(error)}
+Fix the cause above if you can, then retry this tool.
+If it can't be fixed, the user can set NETLIFY_PERSONAL_ACCESS_TOKEN in their Netlify MCP server settings instead.`);
+  }
+  if (stored.source !== 'none') return stored.token;
+  if (stored.keychainError) {
+    throw new Error(`Couldn't read the user's Netlify login from their system credential store (macOS Keychain, Windows Credential Manager, or Linux Secret Service): ${stored.keychainError.message}
+Ask the user to unlock it, or to allow access if their system shows a prompt, then retry this tool.
+If that doesn't work, the user can set NETLIFY_PERSONAL_ACCESS_TOKEN in their Netlify MCP server settings, or, as a last resort, set ${LEGACY_STORAGE_ENV_VAR}=1 there to keep the login in a less secure plaintext file.`);
+  }
   return '';
 }
 
@@ -70,7 +75,8 @@ export const userIsAuthenticated = async (request?: Request): Promise<boolean> =
     if (!token) {
       return false;
     }
-    const response = await authenticatedFetch('/api/v1/user', {}, request);
+    // An expired token here is routine, so keep its 401 at debug.
+    const response = await authenticatedFetch('/api/v1/user', {}, request, [401]);
     if(response.status === 401) {
       return false;
     }
@@ -157,7 +163,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     return process.env.NETLIFY_PERSONAL_ACCESS_TOKEN;
   }
 
-  token = await readTokenFromEnv();
+  token = await readStoredToken();
 
   if (!token) {
 
@@ -166,7 +172,7 @@ export const getNetlifyAccessToken = async (request?: Request): Promise<string> 
     appendToLog(["Netlify login exit code and output", JSON.stringify(result)]);
 
     if (result.exitCode === 0) {
-      token = await readTokenFromEnv();
+      token = await readStoredToken();
     }
 
     if (!token) {
@@ -208,16 +214,17 @@ export const authenticatedFetch = async (urlOrPath: string, options: RequestInit
     // This runs inside the request's log context, so failures carry the
     // requestId/userId/toolName that triggered them.
     if (!response.ok) {
-      if (response.status === 401) {
-        // A 401 is a routine token-expiry signal, not an API failure — it's
-        // expected and handled, so log it as an auth event rather than warning.
-        // On remote MCP, flag the request so the HTTP handler answers with a
-        // proper OAuth challenge, no matter what the calling tool does with this
-        // response (throw a generic error, run a failureCallback, paginate,
-        // etc.). The local CLI path (no incomingRequest) resolves auth differently.
+      if (response.status === 401 && !incomingRequest) {
+        // The local CLI path resolves auth differently: nothing to record.
         log.debug('netlify api returned 401', { method, apiPath: url.pathname });
-        if (incomingRequest) {
-          flagAuthChallenge('The Netlify access token is no longer valid');
+      } else if (response.status === 401) {
+        // Record it so the HTTP handler can confirm the token whatever the
+        // calling tool does with this response.
+        flagNetlify401(url.pathname);
+        if (quietStatuses?.includes(401)) {
+          log.debug('netlify api call failed (expected, caller is handling it)', { method, apiPath: url.pathname, status: 401 });
+        } else {
+          log.warn('netlify api call failed', { method, apiPath: url.pathname, status: 401 });
         }
       } else if (quietStatuses?.includes(response.status)) {
         log.debug('netlify api call failed (expected, caller is handling it)', { method, apiPath: url.pathname, status: response.status });
@@ -252,8 +259,10 @@ export const getAPIJSONResult = async <T>(urlOrPath: string, options: RequestIni
   if(!apiInteractionOptions.pagination){
     const response = await authenticatedFetch(urlOrPath, options, incomingRequest, apiInteractionOptions.quietStatuses);
 
-    if(response.status === 401 && incomingRequest) {
-      throw new NetlifyUnauthError(`Unauthedenticated request to Netlify API. ${urlOrPath}`);
+    // A remote 401 is recorded on the request; don't let a failureCallback turn
+    // it into a normal tool result.
+    if (response.status === 401 && incomingRequest) {
+      throw new NetlifyApiError(401);
     }
 
     if (!response.ok) {

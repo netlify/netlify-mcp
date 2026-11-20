@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.22.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.22.0...mcp-v1.22.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* read the Netlify token through `@netlify/dev-utils` ([#101](https://github.com/netlify/netlify-mcp/issues/101)) ([f63d6c5](https://github.com/netlify/netlify-mcp/commit/f63d6c50e83e554c6c6f9571515c6ecd32ff27e8))
+
+## [1.22.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.21.0...mcp-v1.22.0) (2026-11-03)
+
+
+### Features
+
+* add interactive deployment cards to hosted MCP ([#95](https://github.com/netlify/netlify-mcp/issues/95)) ([ff531e2](https://github.com/netlify/netlify-mcp/commit/ff531e2d1cf0e336044f44ea387ae33cef611c32))
+
+
+### Bug Fixes
+
+* confirm a tool-level 401 with /user before asking the agent to sign in ([#83](https://github.com/netlify/netlify-mcp/issues/83)) ([19ed461](https://github.com/netlify/netlify-mcp/commit/19ed461f99946999fb68720a2251afb312cd6451))
+* preserve deployment card padding in chat hosts ([#97](https://github.com/netlify/netlify-mcp/issues/97)) ([955cb1a](https://github.com/netlify/netlify-mcp/commit/955cb1ae1f607afdeabf90e0bbf0f98bc495d231))
+* rename deployment card to Netlify Deploys ([#98](https://github.com/netlify/netlify-mcp/issues/98)) ([c67980d](https://github.com/netlify/netlify-mcp/commit/c67980d8f4809b87d52e369e79fe31956c7b0c89))
+
+## [1.21.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.20.0...mcp-v1.21.0) (2026-10-23)
+
+
+### Features
+
+* publish an MCP server card for discovery ([#81](https://github.com/netlify/netlify-mcp/issues/81)) ([c48b528](https://github.com/netlify/netlify-mcp/commit/c48b528aa37d9423c67c45727bf17d8f40a7c8e8))
+
+
+### Bug Fixes
+
+* **oauth:** keep the upstream Netlify token out of URLs ([#88](https://github.com/netlify/netlify-mcp/issues/88)) ([080752a](https://github.com/netlify/netlify-mcp/commit/080752a77c84c427958a6bf44efc2c82424cd4c9))
+
+## [1.20.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.19.0...mcp-v1.20.0) (2026-10-20)
+
+
+### Features
+
+* **logging:** log Codex session, thread and turn ids on tool calls ([#79](https://github.com/netlify/netlify-mcp/issues/79)) ([8b88c6f](https://github.com/netlify/netlify-mcp/commit/8b88c6fb3e3fceae2155d9f6356f5a7fd5ef4fac))
+
+
+### Bug Fixes
+
+* **auth:** let OpenAI and Codex clients list tools before sign-in ([#77](https://github.com/netlify/netlify-mcp/issues/77)) ([2d4bf2c](https://github.com/netlify/netlify-mcp/commit/2d4bf2ca2c360ccf8d370f8e16d649b334aef3e6))
+
+## [1.19.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.18.0...mcp-v1.19.0) (2026-10-13)
+
+
+### Features
+
+* add observability tools domain ([#11](https://github.com/netlify/netlify-mcp/issues/11)) ([30d660f](https://github.com/netlify/netlify-mcp/commit/30d660fd484f63fe75197bcebfac02bc9388019d))
+
+
+### Bug Fixes
+
+* actually enforce pagination bounds and timeout ([#74](https://github.com/netlify/netlify-mcp/issues/74)) ([1c0f64b](https://github.com/netlify/netlify-mcp/commit/1c0f64b8c22fecaab535c9e55406b4e4a17b0afa))
+* **oauth:** sign the authorize state and type issued tokens (SEC-790) ([#68](https://github.com/netlify/netlify-mcp/issues/68)) ([79a81b8](https://github.com/netlify/netlify-mcp/commit/79a81b8b03496332e6bbbaf9c93d3e66eb656157))
+
 ## [1.18.0](https://github.com/netlify/netlify-mcp/compare/mcp-v1.17.0...mcp-v1.18.0) (2026-10-07)
 
 

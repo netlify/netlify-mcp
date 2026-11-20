@@ -168,6 +168,7 @@ function oauthError(
   errorDescription: string,
   op?: string,
   context?: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): HandlerResponse {
   log.error('oauth error', {
     op: op ?? 'unknown',
@@ -181,6 +182,7 @@ function oauthError(
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      ...headers,
     },
     body: JSON.stringify({
       error,
@@ -255,12 +257,20 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
 }
 
 
+/**
+ * Netlify's implicit grant returns the upstream token in the URL fragment, which
+ * the browser never sends to a server. This page reads it and POSTs it to
+ * server-redirect in the request body. It must never travel as a query param:
+ * URLs end up in edge/CDN/function request logs and browser history, and the
+ * upstream token is a raw Netlify credential for the user.
+ */
 export async function handleClientSideAuthExchange(){
   return {
     statusCode: 200,
     headers: {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Referrer-Policy': 'no-referrer',
     },
     body: `
 <!DOCTYPE html>
@@ -269,7 +279,7 @@ export async function handleClientSideAuthExchange(){
     <title>OAuth Client Redirect</title>
 </head>
 <body>
-  <p>Redirecting to the client application...</p>
+  <p id="status">Redirecting to the client application...</p>
 
   <script>
     let hash = window.location.hash;
@@ -298,7 +308,26 @@ export async function handleClientSideAuthExchange(){
       hashToken = hash;
     }
 
-    window.location.href = '/oauth-server/server-redirect?token=' + encodeURIComponent(hashToken) + '&init-state=' + encodeURIComponent(hashState);
+    // Drop the token from the address bar and session history.
+    history.replaceState(null, '', window.location.pathname);
+
+    // A reload or back-navigation lands here with the fragment already gone.
+    if (!hashToken || !hashState) {
+      document.getElementById('status').textContent = 'This sign-in link has expired. Please start signing in again from your client.';
+    } else {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/oauth-server/server-redirect';
+      for (const [name, value] of [['access_token', hashToken], ['state', hashState]]) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit();
+    }
   </script>
 </body>
 </html>
@@ -307,13 +336,28 @@ export async function handleClientSideAuthExchange(){
 }
 
 
-export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {  
-  const parsedUrl = new URL(req.url);
-  const initState = parsedUrl.searchParams.get('init-state');
-  const token = parsedUrl.searchParams.get('token');
+export async function handleServerSideAuthRedirect(req: Request): Promise<HandlerResponse> {
+  // The upstream token only ever arrives in a form-encoded POST body (see
+  // handleClientSideAuthExchange). A GET would mean it's in the URL, which gets
+  // logged, so refuse it rather than mint a code from it.
+  if (req.method !== 'POST') {
+    return oauthError(405, 'invalid_request', 'server-redirect only accepts POST', 'server-redirect', { method: req.method }, { 'Allow': 'POST' });
+  }
+
+  // The only legitimate caller is our own client-redirect page, so refuse a POST
+  // another site auto-submitted (login CSRF). Browsers that don't send
+  // Sec-Fetch-Site are let through; the signed state still has to verify.
+  const fetchSite = req.headers.get('sec-fetch-site');
+  if (fetchSite && fetchSite !== 'same-origin') {
+    return oauthError(403, 'invalid_request', 'server-redirect only accepts same-origin requests', 'server-redirect', { fetchSite });
+  }
+
+  const bodyParams = new URLSearchParams(await req.text());
+  const initState = bodyParams.get('state');
+  const token = bodyParams.get('access_token');
 
   if (!initState || !token) {
-    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'init-state' : ''} ${!token ? 'token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
+    return oauthError(400, 'invalid_request', `Missing required parameters: ${!initState ? 'state' : ''} ${!token ? 'access_token' : ''}`.trim(), 'server-redirect', { hasInitState: !!initState, hasToken: !!token });
   }
 
   // Only a state we signed at /authorize is accepted. An unsigned or edited one
@@ -400,10 +444,13 @@ export async function handleServerSideAuthRedirect(req: Request): Promise<Handle
 
     rediredctURL.searchParams.set('code', jwe);
 
+    // 303 so the browser follows with a GET rather than re-POSTing the token.
     return {
-      statusCode: 302,
+      statusCode: 303,
       headers: {
         'Location': rediredctURL.toString(),
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
       },
       body: ''
     };

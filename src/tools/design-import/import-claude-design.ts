@@ -9,6 +9,7 @@ import {
   authenticatedFetch,
   getAPIJSONResult,
   getNetlifyAccessToken,
+  NetlifyApiError,
   NetlifyUnauthError,
   type NetlifySite,
 } from '../../utils/api-networking.js';
@@ -288,13 +289,14 @@ async function createImportSite(
   // the default team before we get here, but a team we couldn't verify (team list
   // unavailable) or one the user can't create under still reaches this point. In
   // those cases fall back to the default team rather than fail the export, and
-  // report it so the caller is told. Auth failures still propagate — those are not
-  // a slug problem and must not be masked.
+  // report it so the caller is told. Token errors and a recorded 401 still
+  // propagate — those are not a slug problem and must not be masked.
   if (account_slug) {
     try {
       return { site: await createUnderTeam(nameCandidates, account_slug, password, request), usedDefaultFallback: false };
     } catch (error) {
       if (error instanceof NetlifyUnauthError) throw error;
+      if (error instanceof NetlifyApiError && error.status === 401) throw error;
       appendErrorToLog(`account_slug "${account_slug}" unusable, creating under default team: ${error}`);
       return { site: await createUnderTeam(nameCandidates, undefined, password, request), usedDefaultFallback: true };
     }
@@ -318,11 +320,12 @@ async function createUnderTeam(
     const body = { created_via: CREATED_VIA, ...(password ? { password } : {}), ...extra };
     const response = await authenticatedFetch(path, { method: 'POST', body: JSON.stringify(body) }, request);
 
-    if (response.status === 401 && request) {
-      throw new NetlifyUnauthError();
-    }
     if (response.ok) {
       return (await response.json()) as NetlifySite;
+    }
+
+    if (response.status === 401 && request) {
+      throw new NetlifyApiError(401);
     }
 
     // A 422 about the name/subdomain already being taken is retryable with an
@@ -398,9 +401,7 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
         return { content: [{ type: 'text' as const, text }] };
       } catch (error: any) {
         appendErrorToLog(`${IMPORT_TOOL_NAME} failed: ${error}`);
-        if (!(error instanceof NetlifyUnauthError)) {
-          log.error('tool operation failed', { operation: IMPORT_TOOL_NAME, toolName: IMPORT_TOOL_NAME, err: error });
-        }
+        logToolError(IMPORT_TOOL_NAME, error);
         return {
           content: [{ type: 'text' as const, text: `Failed to import design: ${error?.message || error}` }],
           isError: true,
@@ -425,9 +426,7 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
         const result = await getClaudeDesignImportStatus(job_id, remoteMCPRequest);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
       } catch (error: any) {
-        if (!(error instanceof NetlifyUnauthError)) {
-          log.error('tool operation failed', { operation: STATUS_TOOL_NAME, toolName: STATUS_TOOL_NAME, err: error });
-        }
+        logToolError(STATUS_TOOL_NAME, error);
         return {
           content: [{ type: 'text' as const, text: `Failed to get import status: ${error?.message || error}` }],
           isError: true,
@@ -435,6 +434,17 @@ export function registerClaudeDesignImportTool(server: McpServer, remoteMCPReque
       }
     },
   );
+}
+
+// Same severity split as the domain tools: token errors are handled upstream, an
+// API 4xx is an expected client outcome (warn), anything else is a failure.
+function logToolError(toolName: string, error: unknown): void {
+  if (error instanceof NetlifyUnauthError) return;
+  if (error instanceof NetlifyApiError && error.status < 500) {
+    log.warn('tool operation client error', { operation: toolName, toolName, status: error.status });
+  } else {
+    log.error('tool operation failed', { operation: toolName, toolName, err: error });
+  }
 }
 
 // Mirrors the auth handling the domain tools use: in remote mode an unauthenticated
