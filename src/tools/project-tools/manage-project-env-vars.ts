@@ -18,11 +18,12 @@ const refusalReason = (text: string, envVarValue: string | undefined): string =>
     const parsed = JSON.parse(text);
     if (typeof parsed?.msg === 'string') reason = parsed.msg;
     else if (typeof parsed?.message === 'string') reason = parsed.message;
+    else reason = JSON.stringify(parsed);
   } catch {}
   reason = reason.trim();
   if (envVarValue) {
     reason = reason.split(envVarValue).join('[redacted]');
-    // A raw JSON body carries the value JSON-escaped.
+    // A re-serialized JSON body carries the value JSON-escaped.
     const escaped = JSON.stringify(envVarValue).slice(1, -1);
     if (escaped !== envVarValue) reason = reason.split(escaped).join('[redacted]');
   }

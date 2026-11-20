@@ -143,6 +143,19 @@ test('a refused create redacts a JSON-escaped value in a raw body', async (t) =>
   assert.ok(!err.message.includes(JSON.stringify(value).slice(1, -1)));
 });
 
+test('a refused create redacts a value under alternate JSON escapes in a raw body', async (t) => {
+  const { NetlifyApiError } = await import('../../utils/api-networking.ts');
+  const value = 'k/ey=Av';
+  stubUpsert(t, 422, '{"code":422,"errors":{"value":"k\\/ey=\\u0041v"}}');
+  const err = await upsert({ envVarValue: value }).then(() => null, (e: unknown) => e);
+  assert.ok(err instanceof NetlifyApiError);
+  assert.equal(err.status, 422);
+  assert.match(err.message, /\[redacted\]/);
+  assert.ok(!err.message.includes(value));
+  assert.ok(!err.message.includes('k\\/ey'));
+  assert.ok(!err.message.includes('\\u0041'));
+});
+
 test('a refused create does not leak a value that straddles the 300-character cutoff', async (t) => {
   const { NetlifyApiError } = await import('../../utils/api-networking.ts');
   const value = 'Zq7!xK9#mW2$pL5@';
