@@ -18,6 +18,7 @@
 //  [] sites aggregate operations
 //  [x] extensions - install and link - not configuration
 //  [] database
+//  [x] feedback - write-only reports about the MCP/agent experience
 //
 // return errors when missing data and how the agent can get the data
 
@@ -29,6 +30,7 @@ import { teamDomainTools } from './team-tools/index.js';
 import { projectDomainTools } from './project-tools/index.js';
 import { extensionDomainTools } from './extension-tools/index.js';
 import { observabilityDomainTools } from './observability-tools/index.js';
+import { feedbackDomainTools } from './feedback-tools/index.js';
 import { checkCompatibility } from '../utils/compatibility.js';
 import { getNetlifyAccessToken, NetlifyUnauthError, NetlifyApiError } from '../utils/api-networking.js';
 import { appendToLog } from '../utils/logging.js';
@@ -37,7 +39,7 @@ import { aggregateToolAnnotations, categorizeToolsByReadWrite, completeToolAnnot
 import { z } from 'zod';
 import type { DomainTool } from './types.js';
 
-const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, observabilityDomainTools];
+const listOfDomainTools = [userDomainTools, deployDomainTools, teamDomainTools, projectDomainTools, extensionDomainTools, observabilityDomainTools, feedbackDomainTools];
 
 const toSelectorSchema = (domainTool: DomainTool<any>) => {
   return z.object({
@@ -170,7 +172,11 @@ const registerDomainTools = (
 
     const friendlyOperationType = operationType === 'read' ? 'reader' : 'updater';
     const toolName = `netlify-${domain}-services-${friendlyOperationType}`;
-    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}`;
+    const operationNotes = tools
+      .filter(tool => tool.showDescriptionInGroupedTool && tool.description)
+      .map(tool => ` ${tool.operation}: ${tool.description}`)
+      .join('');
+    const toolDescription = `Select and run one of the following Netlify ${operationType} operations${readOnlyIndicator} ${toolOperations.join(', ')}${operationNotes ? `.${operationNotes}` : ''}`;
 
     server.registerTool(toolName, {
       description: toolDescription,
