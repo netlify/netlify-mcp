@@ -169,8 +169,9 @@ function oauthError(
   op?: string,
   context?: Record<string, unknown>,
   headers?: Record<string, string>,
+  level: 'warn' | 'error' = 'error',
 ): HandlerResponse {
-  log.error('oauth error', {
+  log[level]('oauth error', {
     op: op ?? 'unknown',
     statusCode,
     error,
@@ -572,6 +573,13 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   const grantType = bodyParams.get('grant_type') || 'authorization_code';
 
   log.debug('token exchange', { grantType, client_id: bodyParams.get('client_id'), hasAuthHeader: !!req.headers.get('authorization') });
+
+  if (!SUPPORTED_GRANT_TYPES.includes(grantType)) {
+    return oauthError(400, 'unsupported_grant_type', `grant_type must be one of: ${SUPPORTED_GRANT_TYPES.join(', ')}`, 'token', {
+      grantType: truncateForLog(grantType),
+      client_id: getClientIdFromRequest(req, bodyParams),
+    }, undefined, 'warn');
+  }
 
   // Handle refresh_token grant type
   if (grantType === 'refresh_token') {
