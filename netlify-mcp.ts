@@ -6,6 +6,7 @@ import { registerCodingContextTool } from "./src/context/register-coding-context
 import { getPackageVersion } from "./src/utils/version.ts";
 import { checkCompatibility } from "./src/utils/compatibility.ts";
 import { bindTools } from "./src/tools/index.ts";
+import { AGENT_RUNNER_INSTRUCTIONS } from "./src/tools/agent-runner-tools/agent-runner-utils.ts";
 import { zipAndBuild } from "./src/tools/deploy-tools/deploy-site.ts";
 import { checkDeployStatus } from "./src/tools/deploy-tools/deploy-watch.ts";
 import { setMcpClientNameSource } from "./src/utils/login-attribution.ts";
@@ -79,10 +80,10 @@ if(process.argv.includes('--proxy-path') && proxyPath) {
 
   // v2 stdio serving: the factory builds a fresh server per connection.
   serveStdio(async () => {
-    const server = new McpServer({
-      name: "netlify-mcp",
-      version: getPackageVersion()
-    });
+    const server = new McpServer(
+      { name: "netlify-mcp", version: getPackageVersion() },
+      { instructions: AGENT_RUNNER_INSTRUCTIONS },
+    );
     setMcpClientNameSource(() => server.server.getClientVersion()?.name);
 
     await registerCodingContextTool(server, {

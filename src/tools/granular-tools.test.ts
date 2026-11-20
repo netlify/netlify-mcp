@@ -8,10 +8,11 @@ import { deployDomainTools } from './deploy-tools/index.ts';
 import { teamDomainTools } from './team-tools/index.ts';
 import { projectDomainTools } from './project-tools/index.ts';
 import { extensionDomainTools } from './extension-tools/index.ts';
+import { agentRunnerDomainTools } from './agent-runner-tools/index.ts';
 
 const REMOTE_TOOLS = [
   ...userDomainTools, ...deployDomainTools, ...teamDomainTools,
-  ...projectDomainTools, ...extensionDomainTools,
+  ...projectDomainTools, ...extensionDomainTools, ...agentRunnerDomainTools,
 ].filter(t => !t.omitFromRemoteMCP);
 
 const ua = (value?: string) =>
