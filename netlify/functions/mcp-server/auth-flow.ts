@@ -246,11 +246,13 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   // where the code will go (see init-state.ts). A compact JWS is URL-safe.
   const paramsState = await signInitState(paramsObj);
   const netlifyRedirectUri = `${parsedUrl.origin}/oauth-server/client-redirect`;
+  const idpHint = params.get('idp_hint');
+  const idpHintParam = idpHint ? `&idp_hint=${encodeURIComponent(idpHint)}` : '';
 
   return {
     statusCode: 302,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
+      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}${idpHintParam}`
     },
     body: ''
   };
