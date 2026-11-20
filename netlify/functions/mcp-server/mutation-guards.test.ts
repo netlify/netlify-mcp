@@ -71,7 +71,7 @@ const envPath = '/api/v1/accounts/team-1/env/TEST_KEY?site_id=site-1';
 const envParams = { siteId: 'site-1', upsertEnvVar: true, envVarKey: 'TEST_KEY', envVarValue: 'fixture-value' };
 
 for (const surface of ['grouped', 'granular'] as const) {
-  for (const body of ['', '<html>upstream error</html>']) {
+  for (const body of ['', '<html>upstream error</html>', 'null', '[]']) {
     test(`${surface}: an invalid lookup body cannot trigger a write (${JSON.stringify(body)})`, async (t) => {
       const calls = netlifyAPI(t, ({ method, path }) => {
         if (method === 'GET' && path === envPath) return new Response(body);
@@ -79,6 +79,7 @@ for (const surface of ['grouped', 'granular'] as const) {
       });
       const result = await callTool(surface, 'manage-env-vars', envParams);
       assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /Invalid environment variable lookup response/);
       assert.equal(
         calls.some((call) => call.method !== 'GET'),
         false,

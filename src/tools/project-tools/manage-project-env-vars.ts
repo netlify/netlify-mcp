@@ -72,7 +72,7 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
       appendToLog(`manage env vars for siteId: ${siteId}, teamId: ${teamId}, ${JSON.stringify({envVar, existingEnvVar})}`);
 
-      if (existingEnvVar !== undefined) {
+      if (existingEnvVar) {
 
         const contextsToUpdate: (typeof availableContexts[number])[] = [];
 
