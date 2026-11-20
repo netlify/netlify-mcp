@@ -20,7 +20,12 @@ const refusalReason = (text: string, envVarValue: string | undefined): string =>
     else if (typeof parsed?.message === 'string') reason = parsed.message;
   } catch {}
   reason = reason.trim();
-  if (envVarValue) reason = reason.split(envVarValue).join('[redacted]');
+  if (envVarValue) {
+    reason = reason.split(envVarValue).join('[redacted]');
+    // A raw JSON body carries the value JSON-escaped.
+    const escaped = JSON.stringify(envVarValue).slice(1, -1);
+    if (escaped !== envVarValue) reason = reason.split(escaped).join('[redacted]');
+  }
   return reason.slice(0, 300);
 };
 
