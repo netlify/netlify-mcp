@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { getAPIJSONResult } from '../../utils/api-networking.js';
+import { getAPIJSONResult, NetlifyApiError } from '../../utils/api-networking.js';
 import type { NetlifySiteResponse } from '../../utils/api-types.js';
 import type { DomainTool } from '../types.js';
 import { getEnrichedSiteModelForLLM } from './project-utils.js';
@@ -60,7 +60,7 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
             return;
           }
 
-          return `Failed to create project: ${response.status}`;
+          throw new NetlifyApiError(response.status, `Failed to create project: ${response.status}`);
         }
       }, request);
 
@@ -71,13 +71,14 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
           continue;
         }
 
-        return requestedName
+        // Thrown so the client gets an error result (isError), with this message.
+        throw new NetlifyApiError(422, requestedName
           ? `The name "${requestedName}" was already taken, and a couple of auto-generated variations were too. Try a more distinctive name and retry.`
-          : `Netlify couldn't generate a unique project name. Retry, or provide a specific name.`;
+          : `Netlify couldn't generate a unique project name. Retry, or provide a specific name.`);
       }
 
       if (!site || typeof site === 'string') {
-        return site || 'Failed to create project';
+        throw new Error(site || 'Failed to create project');
       }
 
       const followup = renamedDueToConflict
@@ -88,6 +89,6 @@ export const createNewProjectDomainTool: DomainTool<typeof createNewProjectParam
     }
 
     // Unreachable: the loop above always returns on its final iteration.
-    return 'Failed to create project';
+    throw new Error('Failed to create project');
   }
 }
