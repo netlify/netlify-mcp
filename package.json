@@ -55,6 +55,6 @@
     "fflate": "0.8.2",
     "pkg-pr-new": "^0.0.88",
     "tsup": "^8.4.0",
-    "typescript": "^5.8.3"
+    "typescript": "^7.0.0"
   }
 }
