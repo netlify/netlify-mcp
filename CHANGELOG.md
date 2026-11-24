@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.22.2](https://github.com/netlify/netlify-mcp/compare/mcp-v1.22.1...mcp-v1.22.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* answer unsupported_grant_type for grant types the token endpoint does not support ([#112](https://github.com/netlify/netlify-mcp/issues/112)) ([dc60ba2](https://github.com/netlify/netlify-mcp/commit/dc60ba23e5fa19b600e13ddb6446a9762103d837))
+* **deps:** update dependency @netlify/blobs to ^11.1.10 ([#115](https://github.com/netlify/netlify-mcp/issues/115)) ([d25845d](https://github.com/netlify/netlify-mcp/commit/d25845d6bc6426ab3acaf8ad340df65021d78476))
+* **deps:** update dependency @netlify/dev-utils to ^6.1.1 ([#116](https://github.com/netlify/netlify-mcp/issues/116)) ([3b09b9a](https://github.com/netlify/netlify-mcp/commit/3b09b9a4026e524170d0ae5a8449bbcbeb7a9463))
+* **deps:** update dependency @netlify/functions to ^6.1.2 ([#118](https://github.com/netlify/netlify-mcp/issues/118)) ([f570c11](https://github.com/netlify/netlify-mcp/commit/f570c11e640c9b4063a05fd44d721a44ae9524f2))
+* guard MCP env-var and form-submission mutations against failed lookups and missing selectors ([#76](https://github.com/netlify/netlify-mcp/issues/76)) ([5e7ccb3](https://github.com/netlify/netlify-mcp/commit/5e7ccb39c3600531cbfdcfaeed31c436e76855c8))
+* log rejections for a missing Mcp-Method header as warnings ([#111](https://github.com/netlify/netlify-mcp/issues/111)) ([1149dc3](https://github.com/netlify/netlify-mcp/commit/1149dc3199e5114f9133c20557f6691d0d75f188))
+
 ## [1.22.1](https://github.com/netlify/netlify-mcp/compare/mcp-v1.22.0...mcp-v1.22.1) (2026-11-13)
 
 
