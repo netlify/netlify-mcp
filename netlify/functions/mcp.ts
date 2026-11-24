@@ -297,7 +297,16 @@ async function handleMCPPost(req: Request) {
 
       return server;
     },
-    { onerror: (error: Error) => log.error("mcp handler error", { err: error }) },
+    {
+      onerror: (error: Error) => {
+        // Match the prefix only: the SDK's other rejections quote client-sent values.
+        if (error?.message?.startsWith("Rejected inbound request (method-header-missing):")) {
+          log.warn("mcp handler error", { err: error });
+        } else {
+          log.error("mcp handler error", { err: error });
+        }
+      },
+    },
   );
 
   const response = await handler.fetch(reqWithBody);

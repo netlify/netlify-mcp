@@ -21,7 +21,7 @@ export const SUPPORTED_SCOPES = [
 // Grant types this AS issues. Single source of truth: the discovery metadata
 // advertises these, and handleClientRegistration (auth-flow.ts) intersects
 // registration requests against them so a client can't register for a flow we
-// don't run.
+// don't run, and handleCodeExchange answers unsupported_grant_type to any other.
 export const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 
 // Token endpoint auth methods we accept: `none` for public PKCE clients (dynamic
