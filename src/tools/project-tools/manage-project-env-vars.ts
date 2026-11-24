@@ -33,6 +33,10 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 },
   cb: async ({ siteId, getAllEnvVars, deleteEnvVar, upsertEnvVar, envVarKey, envVarValue, envVarIsSecret, newVarScopes, newVarContext}, {request}) => {
 
+    if ((deleteEnvVar || upsertEnvVar) && !envVarKey?.trim()) {
+      throw new Error('Please provide a nonempty envVarKey to delete or upsert an environment variable');
+    }
+
     const site = await getAPIJSONResult<NetlifySiteResponse>(`/api/v1/sites/${siteId}`, {}, {}, request);
     const teamId = site?.account_id;
 
@@ -47,12 +51,16 @@ export const manageEnvVarsDomainTool: DomainTool<typeof manageEnvVarsParamsSchem
 
     if(upsertEnvVar){
 
-      const existingEnvVarResp = await authenticatedFetch(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, request);
-
-      let existingEnvVar = null;
-
-      if (existingEnvVarResp.status === 200) {
-        existingEnvVar = await existingEnvVarResp.json();
+      let existingEnvVar: NetlifyEnvVarResponse | undefined;
+      try {
+        existingEnvVar = await getAPIJSONResult<NetlifyEnvVarResponse>(`/api/v1/accounts/${teamId}/env/${envVarKey}?site_id=${siteId}`, {}, { quietStatuses: [404] }, request);
+        if (!existingEnvVar || typeof existingEnvVar !== 'object' || Array.isArray(existingEnvVar)) {
+          throw new Error('Invalid environment variable lookup response');
+        }
+      } catch (error) {
+        if (!(error instanceof NetlifyApiError) || error.status !== 404) {
+          throw error;
+        }
       }
 
       let envVar = {

@@ -39,10 +39,10 @@
   "dependencies": {
     "@modelcontextprotocol/core": "2.2.0",
     "@modelcontextprotocol/server": "2.2.0",
-    "@netlify/blobs": "^11.1.9",
-    "@netlify/dev-utils": "^6.1.0",
+    "@netlify/blobs": "^11.1.11",
+    "@netlify/dev-utils": "^6.1.1",
     "@netlify/edge-functions": "^4.0.4",
-    "@netlify/functions": "^6.1.1",
+    "@netlify/functions": "^6.1.2",
     "archiver": "^7.0.1",
     "fetch-to-node": "^2.1.0",
     "jose": "^6.0.11",
@@ -52,7 +52,7 @@
   "devDependencies": {
     "@netlify/open-api": "^2.63.1",
     "@types/node": "^22.15.32",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "pkg-pr-new": "^0.0.88",
     "tsup": "^8.4.0",
     "typescript": "^7.0.0"
