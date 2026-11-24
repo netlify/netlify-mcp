@@ -44,7 +44,7 @@ test('create-new-project does not log a retryable 422, but does log the final on
     new Response(JSON.stringify({ message: 'name must be unique' }), { status: 422 }),
   );
 
-  await createNewProjectDomainTool.cb({ name: 'always-taken' }, { request: testRequest() });
+  await assert.rejects(createNewProjectDomainTool.cb({ name: 'always-taken' }, { request: testRequest() }));
 
   // 3 attempts (initial + 2 retries) but only the last — non-retryable — 422
   // should be logged as a failure; the first two were expected and retried.
@@ -61,16 +61,15 @@ test('create-new-project still logs a non-422 failure even on a retryable attemp
   });
   t.mock.method(globalThis, 'fetch', async () => new Response('server error', { status: 500 }));
 
-  const result = await createNewProjectDomainTool.cb({ name: 'whatever' }, { request: testRequest() });
+  await assert.rejects(createNewProjectDomainTool.cb({ name: 'whatever' }, { request: testRequest() }), /Failed to create project: 500/);
 
   // A 500 isn't retried (only 422 name conflicts are), so it fails immediately
   // on the first attempt — and that failure is real, so it must still log.
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0][1].status, 500);
-  assert.match(result, /Failed to create project: 500/);
 });
 
-test('create-new-project gives up gracefully after repeated conflicts, without throwing', async (t) => {
+test('create-new-project gives up with a clear error after repeated conflicts', async (t) => {
   const { createNewProjectDomainTool } = await import('./create-new-project.ts');
 
   let callCount = 0;
@@ -79,12 +78,10 @@ test('create-new-project gives up gracefully after repeated conflicts, without t
     return new Response(JSON.stringify({ message: 'name must be unique' }), { status: 422 });
   });
 
-  const result = await createNewProjectDomainTool.cb({ name: 'always-taken' }, { request: testRequest() });
+  await assert.rejects(createNewProjectDomainTool.cb({ name: 'always-taken' }, { request: testRequest() }), /always-taken.*already taken/);
 
   // initial attempt + MAX_NAME_CONFLICT_RETRIES retries
   assert.equal(callCount, 3);
-  assert.equal(typeof result, 'string');
-  assert.match(result, /always-taken.*already taken/);
 });
 
 test('create-new-project does not retry when no name was requested', async (t) => {
@@ -96,11 +93,9 @@ test('create-new-project does not retry when no name was requested', async (t) =
     return new Response(JSON.stringify({ message: 'name must be unique' }), { status: 422 });
   });
 
-  const result = await createNewProjectDomainTool.cb({}, { request: testRequest() });
+  await assert.rejects(createNewProjectDomainTool.cb({}, { request: testRequest() }), /couldn't generate a unique project name/);
 
   assert.equal(callCount, 1);
-  assert.equal(typeof result, 'string');
-  assert.match(result, /couldn't generate a unique project name/);
 });
 
 test('create-new-project succeeds on the first try when the name is free', async (t) => {
