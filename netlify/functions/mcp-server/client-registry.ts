@@ -14,8 +14,8 @@ import { log } from "./logger.ts";
 //
 // Only this server can mint or read these ids because they are encrypted with
 // JWE_SECRET. Rotating JWE_SECRET invalidates every stateless registration at
-// once (clients simply re-register), which is the only revocation lever; that
-// trade-off is acceptable for public PKCE clients whose redirect_uris are fixed.
+// once, which is the only revocation lever. /authorize then refuses those ids in
+// the browser, where the client can't see the error, so it has to register again.
 
 // Marks a JWE as a client registration so a mis-presented access/refresh token
 // (which decrypts with the same key but has a different shape) is never mistaken
@@ -52,8 +52,7 @@ export type UnresolvedClientIdShape = 'empty' | 'jwe-like' | 'opaque';
  *   'dir' algorithm). It looks like one of ours but didn't decrypt — most
  *   likely JWE_SECRET was rotated since it was issued (which invalidates every
  *   stateless registration at once) or it's from a different deployment. The
- *   client's own DCR retry (on the resulting `invalid_client`) is the fix —
- *   there's nothing to hand-provision.
+ *   client has to register again; there's nothing to hand-provision.
  * - `opaque`: no dots — the same shape as a pre-provisioned static client_id
  *   (see oauth-clients.ts) or a legacy id from before this server's stateless
  *   redesign (see the module comment above). If this is a real, recurring
@@ -123,7 +122,7 @@ export async function createStatelessClientId(client: Omit<RegisteredClient, 'cl
  * - `static`: one of the pre-provisioned clients in oauth-clients.ts.
  * - `stateless`: a JWE `client_id` this server minted; decrypts to its metadata.
  * - `unknown`: neither — e.g. a legacy opaque id issued before stateless DCR, or
- *   an id from another issuer. Callers decide how strict to be (see auth-flow).
+ *   an id from another issuer.
  *
  * Never throws: a bad/foreign id resolves to `{ client: null, source: 'unknown' }`.
  */

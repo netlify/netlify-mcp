@@ -14,12 +14,15 @@ const {
   handleServerSideAuthRedirect,
 } = await import('./auth-flow.ts');
 const { createJWE, decryptJWE } = await import('./utils.ts');
+const { signInitState } = await import('./init-state.ts');
+const { staticClients } = await import('./oauth-clients.ts');
 const { getNetlifyAccessToken, NetlifyUnauthError } = await import('../../../src/utils/api-networking.ts');
 const { handleProxy } = await import('../../edge-functions/proxy.ts');
 
 const ISSUER = 'https://mcp.netlify.example.com';
 const CLIENT_REDIRECT = 'https://client.example.com/callback';
 const ATTACKER_REDIRECT = 'https://attacker.example/callback';
+const UNKNOWN_CLIENT_ID = '04h21HFUowLQH3kYrlddRyUzMGvIGB7ev3AYhbIhOeY';
 const VERIFIER = 'verifier-'.padEnd(64, 'x');
 const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
 
@@ -46,8 +49,7 @@ async function registerClient(redirectUri: string): Promise<string> {
   return JSON.parse(res.body as string).client_id;
 }
 
-/** Runs /authorize and returns the state it hands to app.netlify.com. */
-async function authorize(clientId: string, redirectUri: string): Promise<string> {
+function authorizeRaw(clientId: string, redirectUri: string) {
   const url = new URL(`${ISSUER}/oauth-server/auth`);
   url.search = new URLSearchParams({
     response_type: 'code',
@@ -58,7 +60,12 @@ async function authorize(clientId: string, redirectUri: string): Promise<string>
     state: 'client-state',
     scope: 'offline_access',
   }).toString();
-  const res = await handleAuthStart(new Request(url));
+  return handleAuthStart(new Request(url));
+}
+
+/** Runs /authorize and returns the state it hands to app.netlify.com. */
+async function authorize(clientId: string, redirectUri: string): Promise<string> {
+  const res = await authorizeRaw(clientId, redirectUri);
   assert.equal(res.statusCode, 302);
   const location = new URL(res.headers!.Location as string);
   assert.equal(location.origin, 'https://app.netlify.com');
@@ -288,4 +295,48 @@ test('untyped tokens from before this change keep working where they did', async
   } finally {
     globalThis.fetch = (async () => new Response('{}', { status: 401 })) as typeof fetch;
   }
+});
+
+test('authorize refuses a redirect the client did not register', async () => {
+  const registered = await registerClient(CLIENT_REDIRECT);
+  const cases: Array<[string, string, string, string]> = [
+    ['unknown client', UNKNOWN_CLIENT_ID, 'https://oauthtesting12345.netlify.app/', 'invalid_client'],
+    ['unknown client, loopback redirect', UNKNOWN_CLIENT_ID, 'http://127.0.0.1:3000/callback', 'invalid_client'],
+    ['registered client, other redirect', registered, ATTACKER_REDIRECT, 'invalid_request'],
+    ['static client, other redirect', staticClients[0].client_id, ATTACKER_REDIRECT, 'invalid_request'],
+    ['undecryptable client_id', 'a..b.c.d', ATTACKER_REDIRECT, 'invalid_client'],
+    ['unregistered custom scheme', registered, 'evil://callback', 'invalid_request'],
+  ];
+
+  for (const [name, clientId, redirectUri, error] of cases) {
+    const res = await authorizeRaw(clientId, redirectUri);
+    assert.equal(res.statusCode, 400, name);
+    assert.equal(res.headers!.Location, undefined, name);
+    assert.equal(JSON.parse(res.body as string).error, error, name);
+  }
+});
+
+test('server-redirect refuses a signed state naming a redirect the client did not register', async () => {
+  const registered = await registerClient(CLIENT_REDIRECT);
+  for (const clientId of [registered, UNKNOWN_CLIENT_ID]) {
+    const initState = await signInitState({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: ATTACKER_REDIRECT,
+      code_challenge: CHALLENGE,
+      code_challenge_method: 'S256',
+    });
+
+    const res = await serverRedirect(initState);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers!.Location, undefined);
+  }
+});
+
+test('authorize still accepts registered redirects, with loopback port variance', async () => {
+  const native = await registerClient('http://127.0.0.1:3000/callback');
+  assert.ok(await authorize(native, 'http://127.0.0.1:49152/callback'));
+  const custom = await registerClient('cursor://anysphere.cursor-mcp/oauth/callback');
+  assert.ok(await authorize(custom, 'cursor://anysphere.cursor-mcp/oauth/callback'));
+  assert.ok(await authorize(staticClients[0].client_id, staticClients[0].redirect_uris[0]));
 });
