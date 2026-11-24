@@ -289,3 +289,53 @@ test('untyped tokens from before this change keep working where they did', async
     globalThis.fetch = (async () => new Response('{}', { status: 401 })) as typeof fetch;
   }
 });
+
+async function tokenRequestLoggingAt(body: Record<string, string>) {
+  const warnings: Record<string, any>[] = [];
+  const errors: Record<string, any>[] = [];
+  const mutedWarn = console.warn;
+  const mutedError = console.error;
+  console.warn = (line: string) => { warnings.push(JSON.parse(line)); };
+  console.error = (line: string) => { errors.push(JSON.parse(line)); };
+  try {
+    const res = await handleCodeExchange(new Request(`${ISSUER}/oauth-server/token`, {
+      method: 'POST',
+      body: new URLSearchParams(body),
+    }));
+    return { status: res.statusCode, json: JSON.parse(res.body as string), warnings, errors };
+  } finally {
+    console.warn = mutedWarn;
+    console.error = mutedError;
+  }
+}
+
+test('/token answers unsupported_grant_type, at warn, for a grant type it does not support', async () => {
+  for (const grantType of ['urn:ietf:params:oauth:grant-type:jwt-bearer', 'client_credentials', 'password', 'Authorization_Code']) {
+    const res = await tokenRequestLoggingAt({ grant_type: grantType, assertion: 'eyJhbGciOiJSUzI1NiJ9.e30.sig', client_id: 'claude-client' });
+
+    assert.equal(res.status, 400, grantType);
+    assert.equal(res.json.error, 'unsupported_grant_type', grantType);
+    assert.deepEqual(res.errors, [], grantType);
+    const logged = res.warnings.find((line) => line.message === 'oauth error');
+    assert.equal(logged?.error, 'unsupported_grant_type', grantType);
+    assert.equal(logged?.grantType, grantType);
+    assert.equal(logged?.client_id, 'claude-client');
+  }
+});
+
+test('/token still treats a request without grant_type as a code exchange', async () => {
+  const clientId = await registerClient(CLIENT_REDIRECT);
+  const res = await serverRedirect(await authorize(clientId, CLIENT_REDIRECT));
+  const code = new URL(res.headers!.Location as string).searchParams.get('code') as string;
+
+  const tokens = await tokenRequestLoggingAt({ code, client_id: clientId, redirect_uri: CLIENT_REDIRECT, code_verifier: VERIFIER });
+  assert.equal(tokens.status, 200);
+  assert.equal((await decryptJWE(tokens.json.access_token)).typ, 'access');
+
+  const emptyGrantType = await tokenRequestLoggingAt({ grant_type: '', code, client_id: clientId, redirect_uri: CLIENT_REDIRECT, code_verifier: VERIFIER });
+  assert.equal(emptyGrantType.status, 200);
+
+  const missingCode = await tokenRequestLoggingAt({ client_id: clientId, redirect_uri: CLIENT_REDIRECT, code_verifier: VERIFIER });
+  assert.equal(missingCode.status, 400);
+  assert.equal(missingCode.json.error, 'invalid_request');
+});
