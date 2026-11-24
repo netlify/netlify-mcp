@@ -169,8 +169,9 @@ function oauthError(
   op?: string,
   context?: Record<string, unknown>,
   headers?: Record<string, string>,
+  level: 'warn' | 'error' = 'error',
 ): HandlerResponse {
-  log.error('oauth error', {
+  log[level]('oauth error', {
     op: op ?? 'unknown',
     statusCode,
     error,
@@ -246,11 +247,13 @@ export async function handleAuthStart(req: Request): Promise<HandlerResponse>{
   // where the code will go (see init-state.ts). A compact JWS is URL-safe.
   const paramsState = await signInitState(paramsObj);
   const netlifyRedirectUri = `${parsedUrl.origin}/oauth-server/client-redirect`;
+  const idpHint = params.get('idp_hint');
+  const idpHintParam = idpHint ? `&idp_hint=${encodeURIComponent(idpHint)}` : '';
 
   return {
     statusCode: 302,
     headers: {
-      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}`
+      'Location': `https://app.netlify.com/authorize?client_id=${NTL_AUTH_CLIENT_ID}&response_type=token&state=${paramsState}&redirect_uri=${netlifyRedirectUri}&utm_source=mcp&utm_campaign=integrations${attributionParams(client?.client_name)}${idpHintParam}`
     },
     body: ''
   };
@@ -572,6 +575,13 @@ export async function handleCodeExchange(req: Request): Promise<HandlerResponse>
   const grantType = bodyParams.get('grant_type') || 'authorization_code';
 
   log.debug('token exchange', { grantType, client_id: bodyParams.get('client_id'), hasAuthHeader: !!req.headers.get('authorization') });
+
+  if (!SUPPORTED_GRANT_TYPES.includes(grantType)) {
+    return oauthError(400, 'unsupported_grant_type', `grant_type must be one of: ${SUPPORTED_GRANT_TYPES.join(', ')}`, 'token', {
+      grantType: truncateForLog(grantType),
+      client_id: getClientIdFromRequest(req, bodyParams),
+    }, undefined, 'warn');
+  }
 
   // Handle refresh_token grant type
   if (grantType === 'refresh_token') {
